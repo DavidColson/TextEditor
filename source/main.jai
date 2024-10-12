@@ -54,7 +54,7 @@ main :: () {
 	// for loop through the file, searching for new lines
 	for byte, i: main_buffer.bytes {
 		if byte == 0x0A { // line feed character
-			array_add(*main_buffer.line_starts, cast(s32)i);
+			array_add(*main_buffer.line_starts, cast(s32)i+1);
 		}
 	}
 
@@ -114,13 +114,11 @@ draw_one_frame :: (file_contents: string) {
         color.z = 1;
         color.w = 1;
 
-		// Parse file looking for line endings
-		// Mark the start and end of each line
-		// Store the line starts in an array in a buffer structure
-		// Loop through the line starts, making a string view and giving it to simp to draw
 		text_x := 0;
 		text_y := 0;
 
+		lines: [..]string;
+		lines.allocator = temp;
 		for line_start, i: main_buffer.line_starts {
 			line : string;
 			line.data = main_buffer.bytes.data + line_start;
@@ -133,13 +131,9 @@ draw_one_frame :: (file_contents: string) {
 			}
 			line.count = line_end - line.data;
 
-			text_width := Simp.prepare_text(my_font, line);
-
-			text_y += my_font.character_height;
-
-			Simp.draw_prepared_text(my_font, text_x, text_y, color);
+			array_add(*lines, line);
 		}
-
+		Simp.draw_code(my_font, text_x, text_y, xx my_font.character_height, lines);
     }
 
     Simp.swap_buffers(my_window);
