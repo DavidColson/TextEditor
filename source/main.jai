@@ -19,6 +19,7 @@ Buffer :: struct {
 }
 
 main_buffer : Buffer;
+scroll_pos := 0;
 
 main :: () {
     #if OS == .WINDOWS {
@@ -93,6 +94,12 @@ main :: () {
 
         draw_one_frame(example_file);
 
+		// todo: smooth lerp animations on this
+		// have a rawscroll value, and then a lerped value that we lerp toward every frame
+		scroll_pos += Input.mouse_delta_z;
+		print("mousewheel %\n", Input.mouse_delta_z);
+		scroll_pos = clamp(scroll_pos, -(my_font.character_height * main_buffer.line_starts.count) + my_font.character_height * 5, 0);
+
         sleep_milliseconds(16);
         reset_temporary_storage();
     }
@@ -117,17 +124,21 @@ draw_one_frame :: (file_contents: string) {
 		text_x := 0;
 		text_y := 0;
 
+		start_visible_lines := clamp(-scroll_pos / my_font.character_height, 0, main_buffer.line_starts.count - 1);
+		end_visible_lines := clamp(start_visible_lines + window_height / my_font.character_height, 0, main_buffer.line_starts.count - 1);
 		lines: [..]string;
 		lines.allocator = temp;
-		for line_start, i: main_buffer.line_starts {
+		for start_visible_lines..end_visible_lines {
+		// for line_start, i: main_buffer.line_starts {
+			line_start := main_buffer.line_starts[it];
 			line : string;
 			line.data = main_buffer.bytes.data + line_start;
 			line_end : *u8;
-			if i == main_buffer.line_starts.count-1 {
+			if it == main_buffer.line_starts.count-1 {
 				line_end = main_buffer.bytes.data + main_buffer.bytes.count;
 			}
 			else {
-				line_end = main_buffer.bytes.data + main_buffer.line_starts[i+1];
+				line_end = main_buffer.bytes.data + main_buffer.line_starts[it+1];
 			}
 			line.count = line_end - line.data;
 
