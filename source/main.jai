@@ -19,7 +19,7 @@ Document :: struct {
 }
 
 Panel :: struct {
-	document: Document;
+	document: *Document;
 
 	WrappedLine :: struct {
 		line: string;
@@ -39,7 +39,7 @@ scrollPos := 0;
 lineWrap := true;
 textSize := 14;
 tabSize := 4;
-
+lineNumbers := true;
 
 main :: () {
     #if OS == .WINDOWS {
@@ -72,27 +72,27 @@ main :: () {
 	mainDocument.bytes.data = example_file.data;
 	mainDocument.bytes.count = example_file.count;
 
-	mainPanel.document = mainDocument;
+	mainPanel.document = *mainDocument;
 	mainPanel.width = windowWidth;
 	mainPanel.height = windowHeight;
 
 	// for loop through the file, searching for new lines
 	// should only happen on load adjust when editing
+	lastNewLine := 0;
 	for byte, i: mainDocument.bytes {
-		if byte == 0x0A { // line feed character
+		if byte == #char "\n" { // line feed character
 			line: string;
-			line.data = mainDocument.bytes.data + i+1;
+			line.data = mainDocument.bytes.data + lastNewLine;
+			// TODO: +1 here for carraige return, if using \n line endings, don't need the +1
+			line.count = i+1 - lastNewLine;
+			lastNewLine = i+1;
 			array_add(*mainDocument.lines, line);
-
-			if mainDocument.lines.count > 1 {
-				previousLine := *mainDocument.lines[mainDocument.lines.count - 2];
-				previousLine.count = line.data - previousLine.data; 
-			}
 		}
 	}
-	// last line
-	lastLine := *mainDocument.lines[mainDocument.lines.count - 1];
-	lastLine.count = (mainDocument.bytes.data + mainDocument.bytes.count) - lastLine.data;
+	lastLine : string;
+	lastLine.data = mainDocument.bytes.data + lastNewLine;
+	lastLine.count = mainDocument.bytes.count - lastNewLine;
+	array_add(*mainDocument.lines, lastLine);
 
     quit := false;
     want_screenshot := false;
@@ -166,28 +166,54 @@ draw_one_frame :: (fileContents: string) {
 
 		textX := 0;
 		textY := 0;
+		if lineNumbers {
+			nDigits := tprint("%", mainDocument.lines.count).count;
+			textX = my_font.mono_x_advance * (nDigits + 2); // extra 2 for padding
+		}
 
+		startVisibleLines : s64;
+		endVisibleLines : s64;
+		visibleLines: []string;
 		if !lineWrap {
-			startVisibleLines := clamp(-scrollPos / my_font.character_height, 0, mainDocument.lines.count - 1);
-			endVisibleLines := clamp(startVisibleLines + windowHeight / my_font.character_height, 0, mainDocument.lines.count - 1);
-			visibleLines: []string;
+			startVisibleLines = clamp(-scrollPos / my_font.character_height, 0, mainDocument.lines.count - 1);
+			endVisibleLines = clamp(startVisibleLines + windowHeight / my_font.character_height, 0, mainDocument.lines.count - 1);
 			visibleLines.data = mainDocument.lines.data + startVisibleLines;
 			visibleLines.count = endVisibleLines - startVisibleLines;
-			Simp.draw_code(my_font, textX, textY, xx my_font.character_height, visibleLines);
+
+			// line numbers
+			lineY := my_font.character_height;
+			for startVisibleLines..endVisibleLines {
+				width := Simp.prepare_text(my_font, tprint("%", it+1));
+				Simp.draw_prepared_text(my_font, (textX - width - my_font.mono_x_advance), lineY, Vector4.{0.5, 0.5, 0.5, 1.0});
+				lineY += my_font.character_height;
+			}
 		}
 		else {
-			startVisibleLines := clamp(-scrollPos / my_font.character_height, 0, mainPanel.wrappedLines.count - 1);
-			endVisibleLines := clamp(startVisibleLines + windowHeight / my_font.character_height, 0, mainPanel.wrappedLines.count - 1);
-			visibleLines: [..]string;
-			visibleLines.allocator = temp;
-			array_reserve(*visibleLines, endVisibleLines - startVisibleLines);
+			startVisibleLines = clamp(-scrollPos / my_font.character_height, 0, mainPanel.wrappedLines.count - 1);
+			endVisibleLines = clamp(startVisibleLines + windowHeight / my_font.character_height, 0, mainPanel.wrappedLines.count - 1);
+			visibleLinesTemp: [..]string;
+			visibleLinesTemp.allocator = temp;
+			array_reserve(*visibleLinesTemp, endVisibleLines - startVisibleLines);
+
+			lineY := my_font.character_height;
+			lastLineNum := -1;
 			for startVisibleLines..endVisibleLines {
 				wrappedLine := mainPanel.wrappedLines[it];
-				array_add(*visibleLines, wrappedLine.line);
+				array_add(*visibleLinesTemp, wrappedLine.line);
+
+				if lastLineNum != wrappedLine.lineNum {
+					width := Simp.prepare_text(my_font, tprint("%", wrappedLine.lineNum));
+					Simp.draw_prepared_text(my_font, (textX - width - my_font.mono_x_advance), lineY, Vector4.{0.5, 0.5, 0.5, 1.0});
+					lastLineNum = wrappedLine.lineNum;
+				}
+				lineY += my_font.character_height;
 			}
-			Simp.draw_code(my_font, textX, textY, xx my_font.character_height, visibleLines);
+			visibleLines = visibleLinesTemp;
 		}
-    }
+
+		Simp.draw_code(my_font, textX, textY, xx my_font.character_height, visibleLines);
+
+	}
 
     Simp.swap_buffers(window);
 }
@@ -201,38 +227,53 @@ rescan_wrapped_lines :: (panel: Panel) {
 	// todo non monospace fonts
 	assert(my_font.is_monospace);
 
+	maxLineWidth :int = panel.width - my_font.mono_x_advance;
+	if lineNumbers {
+		nDigits := tprint("%", panel.document.lines.count).count;
+		maxLineWidth -= my_font.mono_x_advance * (nDigits + 2); // extra 2 for padding
+	}
+
 	array_reset_keeping_memory(*panel.wrappedLines);
     currentLineWidth := 0;
 	currentActualLine :s32 = 1;
+	lastLineBreak := 0;
 	for byte, i: mainDocument.bytes {
-
-		if byte == #char "\n" {
-			currentActualLine += 1;
-		}
 
 		if byte == #char "\t" {
 			currentLineWidth += (tabSize - currentLineWidth % tabSize) * my_font.mono_x_advance;
 		} 
-		else {
+		else if byte != #char "\n" && byte != #char "\r" {
 			currentLineWidth += my_font.mono_x_advance;
 		}
 
-		if currentLineWidth > (panel.width-my_font.mono_x_advance) || byte == #char "\n" {
+		if currentLineWidth > maxLineWidth {
 			wrappedLine: Panel.WrappedLine;
 			wrappedLine.lineNum = currentActualLine;
-			wrappedLine.line.data = mainDocument.bytes.data + i + 1;
+			wrappedLine.line.data = panel.document.bytes.data + lastLineBreak;
+			wrappedLine.line.count = i - lastLineBreak;
+			lastLineBreak = i;
 			array_add(*panel.wrappedLines, wrappedLine);
-
 			currentLineWidth = 0;
-			if panel.wrappedLines.count > 1 {
-				previousLine := *panel.wrappedLines[panel.wrappedLines.count - 2];
-				previousLine.line.count = wrappedLine.line.data - previousLine.line.data; 
-			}
+		}
+
+		if byte == #char "\n" {
+			wrappedLine: Panel.WrappedLine;
+			wrappedLine.lineNum = currentActualLine;
+			wrappedLine.line.data = panel.document.bytes.data + lastLineBreak;
+			// TODO: +1 here for carraige return, if using \n line endings, don't need the +1
+			wrappedLine.line.count = i+1 - lastLineBreak;
+			lastLineBreak = i+1;
+			array_add(*panel.wrappedLines, wrappedLine);
+			currentLineWidth = 0;
+			currentActualLine += 1;
 		}
 	}
 	// last line
-	lastLine := *panel.wrappedLines[panel.wrappedLines.count - 1];
-	lastLine.line.count = (mainDocument.bytes.data + mainDocument.bytes.count) - lastLine.line.data;
+	lastLine : Panel.WrappedLine;
+	lastLine.line.data = panel.document.bytes.data + lastLineBreak;
+	lastLine.line.count = panel.document.bytes.count - lastLineBreak;
+	lastLine.lineNum = currentActualLine;
+	array_add(*panel.wrappedLines, lastLine);
 }
 
 hex_to_color_vec4 :: (src_hex: string) -> Vector4, success: bool {

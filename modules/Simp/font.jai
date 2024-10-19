@@ -1014,6 +1014,7 @@ find_or_create_glyph :: (using font: *Dynamic_Font,
 
     if utf32 == #char "\t" then utf32 = #char " ";  // draw tabs as space
     if utf32 == #char "\n" then utf32 = #char " ";  // draw newlines spaces
+    if utf32 == #char "\r" then utf32 = #char " ";  // draw newlines spaces
 
     // @Move: Make this happen at font construction time.  @Speed.
     // However we can't right now, because we share this face among
