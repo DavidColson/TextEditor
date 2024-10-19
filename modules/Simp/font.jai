@@ -129,7 +129,9 @@ Dynamic_Font :: struct {
     typical_ascender:       int;
     typical_descender:      int;
     em_width:               int;
+	mono_x_advance:			int;
 
+	is_monospace:			bool;
     y_offset_for_my_latin_characters: float;
     y_offset_for_centering: int;
 
@@ -626,6 +628,9 @@ load_font_part_2 :: (result: *Dynamic_Font, loaded_font: Loaded_Font, pixel_heig
     result.max_ascender  = cast(int) floor(y_scale_font_to_pixels * face.bbox.yMax + 0.5);  // Is this stuff different from FT_ROUND?
     result.max_descender = cast(int) floor(y_scale_font_to_pixels * face.bbox.yMin + 0.5);
 
+	// allows some optimizations, for the common use case
+	result.is_monospace = FT_IS_FIXED_WIDTH(face);
+
     // We intentionally don't use the max ascender, because
     // it doesn't tend to look right. So we use 'm'... but for
     // Chinese, for example, this is going to be wrong, so maybe
@@ -635,6 +640,7 @@ load_font_part_2 :: (result: *Dynamic_Font, loaded_font: Loaded_Font, pixel_heig
     if glyph_index {
         FT_Load_Glyph(face, glyph_index, FT_LOAD_DEFAULT);
         result.y_offset_for_centering = xx (0.5 * FT_ROUND(face.glyph.metrics.horiBearingY) + 0.5);
+		result.mono_x_advance = FT_ROUND(face.glyph.metrics.horiAdvance);
     }
 
     glyph_index  = FT_Get_Char_Index(face, #char "M");

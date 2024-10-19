@@ -1,6 +1,6 @@
-my_window: Window_Type;
-window_width  : s32 = 1920;
-window_height : s32 = 1080;
+window: Window_Type;
+windowWidth  : s32 = 1920;
+windowHeight : s32 = 1080;
 
 image_test: Simp.Texture;
 
@@ -13,13 +13,33 @@ BuildType :: enum u8
 	RELEASE;
 }
 
-Buffer :: struct {
+Document :: struct {
     bytes: []u8;
-    line_starts: [..]s32;
+    lines: [..]string;
 }
 
-main_buffer : Buffer;
-scroll_pos := 0;
+Panel :: struct {
+	document: Document;
+
+	WrappedLine :: struct {
+		line: string;
+		lineNum: s32;
+	}
+	wrappedLines: [..]WrappedLine;
+
+	width : s32;
+	height : s32;
+}
+
+mainPanel : Panel;
+mainDocument : Document;
+scrollPos := 0;
+
+// options
+lineWrap := true;
+textSize := 14;
+tabSize := 4;
+
 
 main :: () {
     #if OS == .WINDOWS {
@@ -32,32 +52,47 @@ main :: () {
 
     WANTED_MSAA :: 8;
     // On Linux, we need to pass the MSAA value to create_window
-    my_window = create_window(window_width, window_height, "TextEditor", wanted_msaa = WANTED_MSAA);
+    window = create_window(windowWidth, windowHeight, "TextEditor", wanted_msaa = WANTED_MSAA);
 
     // On other operating systems, the MSAA value needs to be passed to *_create_context, so we
     // need to have an extra step here if you want MSAA.
-    msaa := Simp.prepare_window(my_window, wanted_msaa = WANTED_MSAA);
+    msaa := Simp.prepare_window(window, wanted_msaa = WANTED_MSAA);
     log("Wanted MSAA: %\nChosen MSAA: %", WANTED_MSAA, msaa);
 
     // Actual render size in pixels can be different from the window dimensions we specified above (for example on high-resolution displays on macOS/iOS).
-    window_width, window_height = Simp.get_render_dimensions(my_window);
+    windowWidth, windowHeight = Simp.get_render_dimensions(window);
 
-    Simp.set_render_target(my_window, .LEFT_HANDED);
+    Simp.set_render_target(window, .LEFT_HANDED);
 
     my_init_fonts();
 
 	// load our example file
     example_file := read_entire_file("build.jai");
 
-	main_buffer.bytes.data = example_file.data;
-	main_buffer.bytes.count = example_file.count;
+	mainDocument.bytes.data = example_file.data;
+	mainDocument.bytes.count = example_file.count;
+
+	mainPanel.document = mainDocument;
+	mainPanel.width = windowWidth;
+	mainPanel.height = windowHeight;
 
 	// for loop through the file, searching for new lines
-	for byte, i: main_buffer.bytes {
+	// should only happen on load adjust when editing
+	for byte, i: mainDocument.bytes {
 		if byte == 0x0A { // line feed character
-			array_add(*main_buffer.line_starts, cast(s32)i+1);
+			line: string;
+			line.data = mainDocument.bytes.data + i+1;
+			array_add(*mainDocument.lines, line);
+
+			if mainDocument.lines.count > 1 {
+				previousLine := *mainDocument.lines[mainDocument.lines.count - 2];
+				previousLine.count = line.data - previousLine.data; 
+			}
 		}
 	}
+	// last line
+	lastLine := *mainDocument.lines[mainDocument.lines.count - 1];
+	lastLine.count = (mainDocument.bytes.data + mainDocument.bytes.count) - lastLine.data;
 
     quit := false;
     want_screenshot := false;
@@ -67,11 +102,15 @@ main :: () {
         for Input.get_window_resizes() {
             Simp.update_window(it.window);  // Simp will do nothing if it doesn't care about this window.
 
-            if it.window == my_window {
-                should_reinit := (it.width != window_width) || (it.height != window_height);
+            if it.window == window {
+                should_reinit := (it.width != windowWidth) || (it.height != windowHeight);
 
-                window_width  = it.width;
-                window_height = it.height;
+                windowWidth  = it.width;
+                windowHeight = it.height;
+
+				mainPanel.width = windowWidth;
+				mainPanel.height = windowHeight;
+				rescan_wrapped_lines(mainPanel);
 
                 if should_reinit my_init_fonts();  // Resize the font for the new window size.
             }
@@ -96,16 +135,20 @@ main :: () {
 
 		// todo: smooth lerp animations on this
 		// have a rawscroll value, and then a lerped value that we lerp toward every frame
-		scroll_pos += Input.mouse_delta_z;
-		print("mousewheel %\n", Input.mouse_delta_z);
-		scroll_pos = clamp(scroll_pos, -(my_font.character_height * main_buffer.line_starts.count) + my_font.character_height * 5, 0);
+		scrollPos += Input.mouse_delta_z;
+		if !lineWrap {
+			scrollPos = clamp(scrollPos, -(my_font.character_height * mainDocument.lines.count) + my_font.character_height * 5, 0);
+		}
+		else {
+			scrollPos = clamp(scrollPos, -(my_font.character_height * mainPanel.wrappedLines.count) + my_font.character_height * 5, 0);
+		}
 
         sleep_milliseconds(16);
         reset_temporary_storage();
     }
 }
 
-draw_one_frame :: (file_contents: string) {
+draw_one_frame :: (fileContents: string) {
 	c,_ := hex_to_color_vec4("282c34");
     Simp.clear_render_target(c.x, c.y, c.z, 0.0);
 
@@ -121,40 +164,75 @@ draw_one_frame :: (file_contents: string) {
         color.z = 1;
         color.w = 1;
 
-		text_x := 0;
-		text_y := 0;
+		textX := 0;
+		textY := 0;
 
-		start_visible_lines := clamp(-scroll_pos / my_font.character_height, 0, main_buffer.line_starts.count - 1);
-		end_visible_lines := clamp(start_visible_lines + window_height / my_font.character_height, 0, main_buffer.line_starts.count - 1);
-		lines: [..]string;
-		lines.allocator = temp;
-		for start_visible_lines..end_visible_lines {
-		// for line_start, i: main_buffer.line_starts {
-			line_start := main_buffer.line_starts[it];
-			line : string;
-			line.data = main_buffer.bytes.data + line_start;
-			line_end : *u8;
-			if it == main_buffer.line_starts.count-1 {
-				line_end = main_buffer.bytes.data + main_buffer.bytes.count;
-			}
-			else {
-				line_end = main_buffer.bytes.data + main_buffer.line_starts[it+1];
-			}
-			line.count = line_end - line.data;
-
-			array_add(*lines, line);
+		if !lineWrap {
+			startVisibleLines := clamp(-scrollPos / my_font.character_height, 0, mainDocument.lines.count - 1);
+			endVisibleLines := clamp(startVisibleLines + windowHeight / my_font.character_height, 0, mainDocument.lines.count - 1);
+			visibleLines: []string;
+			visibleLines.data = mainDocument.lines.data + startVisibleLines;
+			visibleLines.count = endVisibleLines - startVisibleLines;
+			Simp.draw_code(my_font, textX, textY, xx my_font.character_height, visibleLines);
 		}
-		Simp.draw_code(my_font, text_x, text_y, xx my_font.character_height, lines);
+		else {
+			startVisibleLines := clamp(-scrollPos / my_font.character_height, 0, mainPanel.wrappedLines.count - 1);
+			endVisibleLines := clamp(startVisibleLines + windowHeight / my_font.character_height, 0, mainPanel.wrappedLines.count - 1);
+			visibleLines: [..]string;
+			visibleLines.allocator = temp;
+			array_reserve(*visibleLines, endVisibleLines - startVisibleLines);
+			for startVisibleLines..endVisibleLines {
+				wrappedLine := mainPanel.wrappedLines[it];
+				array_add(*visibleLines, wrappedLine.line);
+			}
+			Simp.draw_code(my_font, textX, textY, xx my_font.character_height, visibleLines);
+		}
     }
 
-    Simp.swap_buffers(my_window);
+    Simp.swap_buffers(window);
 }
 
 my_init_fonts :: () {
-	pixel_height := 16;
-
-    my_font = Simp.get_font_at_size("fonts", "FiraMonoNerdFontMono-Medium.ttf", pixel_height);
+    my_font = Simp.get_font_at_size("fonts", "FiraMonoNerdFontMono-Medium.ttf", textSize);
     assert(my_font != null);
+}
+
+rescan_wrapped_lines :: (panel: Panel) {
+	// todo non monospace fonts
+	assert(my_font.is_monospace);
+
+	array_reset_keeping_memory(*panel.wrappedLines);
+    currentLineWidth := 0;
+	currentActualLine :s32 = 1;
+	for byte, i: mainDocument.bytes {
+
+		if byte == #char "\n" {
+			currentActualLine += 1;
+		}
+
+		if byte == #char "\t" {
+			currentLineWidth += (tabSize - currentLineWidth % tabSize) * my_font.mono_x_advance;
+		} 
+		else {
+			currentLineWidth += my_font.mono_x_advance;
+		}
+
+		if currentLineWidth > (panel.width-my_font.mono_x_advance) || byte == #char "\n" {
+			wrappedLine: Panel.WrappedLine;
+			wrappedLine.lineNum = currentActualLine;
+			wrappedLine.line.data = mainDocument.bytes.data + i + 1;
+			array_add(*panel.wrappedLines, wrappedLine);
+
+			currentLineWidth = 0;
+			if panel.wrappedLines.count > 1 {
+				previousLine := *panel.wrappedLines[panel.wrappedLines.count - 2];
+				previousLine.line.count = wrappedLine.line.data - previousLine.line.data; 
+			}
+		}
+	}
+	// last line
+	lastLine := *panel.wrappedLines[panel.wrappedLines.count - 1];
+	lastLine.line.count = (mainDocument.bytes.data + mainDocument.bytes.count) - lastLine.line.data;
 }
 
 hex_to_color_vec4 :: (src_hex: string) -> Vector4, success: bool {
