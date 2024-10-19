@@ -14,8 +14,16 @@ BuildType :: enum u8
 }
 
 Document :: struct {
+	path: string;
     bytes: []u8;
     lines: [..]string;
+}
+
+Rect :: struct {
+	x: s32;
+	y: s32;
+	w: s32;
+	h: s32;
 }
 
 Panel :: struct {
@@ -27,13 +35,13 @@ Panel :: struct {
 	}
 	wrappedLines: [..]WrappedLine;
 
-	width : s32;
-	height : s32;
+	rect: Rect;
 }
 
 mainPanel : Panel;
 mainDocument : Document;
 scrollPos := 0;
+
 
 // options
 lineWrap := true;
@@ -69,12 +77,15 @@ main :: () {
 	// load our example file
     example_file := read_entire_file("build.jai");
 
+	mainDocument.path = "test/build.jai";
 	mainDocument.bytes.data = example_file.data;
 	mainDocument.bytes.count = example_file.count;
 
 	mainPanel.document = *mainDocument;
-	mainPanel.width = windowWidth;
-	mainPanel.height = windowHeight;
+	mainPanel.rect.x = 0;
+	mainPanel.rect.y = 0;
+	mainPanel.rect.w = windowWidth;
+	mainPanel.rect.h = windowHeight;
 
 	// for loop through the file, searching for new lines
 	// should only happen on load adjust when editing
@@ -108,8 +119,10 @@ main :: () {
                 windowWidth  = it.width;
                 windowHeight = it.height;
 
-				mainPanel.width = windowWidth;
-				mainPanel.height = windowHeight;
+				mainPanel.rect.x = 0;
+				mainPanel.rect.y = 0;
+				mainPanel.rect.w = windowWidth;
+				mainPanel.rect.h = windowHeight;
 				rescan_wrapped_lines(mainPanel);
 
                 if should_reinit my_init_fonts();  // Resize the font for the new window size.
@@ -156,66 +169,102 @@ draw_one_frame :: (fileContents: string) {
 
     time := seconds_since_init();
 
-    // Draw some text.
-    {
-        color: Vector4;
-        color.x = 1;
-        color.y = 1;
-        color.z = 1;
-        color.w = 1;
+	draw_panel(mainPanel);
+    
+    Simp.swap_buffers(window);
+}
 
-		textX := 0;
-		textY := 0;
-		if lineNumbers {
-			nDigits := tprint("%", mainDocument.lines.count).count;
-			textX = my_font.mono_x_advance * (nDigits + 2); // extra 2 for padding
-		}
+draw_panel :: (panel: Panel) {
 
-		startVisibleLines : s64;
-		endVisibleLines : s64;
-		visibleLines: []string;
-		if !lineWrap {
-			startVisibleLines = clamp(-scrollPos / my_font.character_height, 0, mainDocument.lines.count - 1);
-			endVisibleLines = clamp(startVisibleLines + windowHeight / my_font.character_height, 0, mainDocument.lines.count - 1);
-			visibleLines.data = mainDocument.lines.data + startVisibleLines;
-			visibleLines.count = endVisibleLines - startVisibleLines;
+	headerPadding := 6;
+	headerHeight := my_font.character_height + headerPadding;
 
-			// line numbers
-			lineY := my_font.character_height;
-			for startVisibleLines..endVisibleLines {
-				width := Simp.prepare_text(my_font, tprint("%", it+1));
-				Simp.draw_prepared_text(my_font, (textX - width - my_font.mono_x_advance), lineY, Vector4.{0.5, 0.5, 0.5, 1.0});
-				lineY += my_font.character_height;
-			}
-		}
-		else {
-			startVisibleLines = clamp(-scrollPos / my_font.character_height, 0, mainPanel.wrappedLines.count - 1);
-			endVisibleLines = clamp(startVisibleLines + windowHeight / my_font.character_height, 0, mainPanel.wrappedLines.count - 1);
-			visibleLinesTemp: [..]string;
-			visibleLinesTemp.allocator = temp;
-			array_reserve(*visibleLinesTemp, endVisibleLines - startVisibleLines);
+	commandLinePadding := 6;
+	commandLineHeight := my_font.character_height + commandLinePadding;
+    
+	// Draw actual code + line numbers
+	heightForCode := panel.rect.h - headerHeight - commandLineHeight;
 
-			lineY := my_font.character_height;
-			lastLineNum := -1;
-			for startVisibleLines..endVisibleLines {
-				wrappedLine := mainPanel.wrappedLines[it];
-				array_add(*visibleLinesTemp, wrappedLine.line);
+	color: Vector4;
+	color.x = 1;
+	color.y = 1;
+	color.z = 1;
+	color.w = 1;
 
-				if lastLineNum != wrappedLine.lineNum {
-					width := Simp.prepare_text(my_font, tprint("%", wrappedLine.lineNum));
-					Simp.draw_prepared_text(my_font, (textX - width - my_font.mono_x_advance), lineY, Vector4.{0.5, 0.5, 0.5, 1.0});
-					lastLineNum = wrappedLine.lineNum;
-				}
-				lineY += my_font.character_height;
-			}
-			visibleLines = visibleLinesTemp;
-		}
-
-		Simp.draw_code(my_font, textX, textY, xx my_font.character_height, visibleLines);
-
+	textX := 0;
+	textY := headerHeight;
+	if lineNumbers {
+		nDigits := tprint("%", mainDocument.lines.count).count;
+		textX = my_font.mono_x_advance * (nDigits + 2); // extra 2 for padding
 	}
 
-    Simp.swap_buffers(window);
+	startVisibleLines : s64;
+	endVisibleLines : s64;
+	visibleLines: []string;
+	if !lineWrap {
+		startVisibleLines = clamp(-scrollPos / my_font.character_height, 0, mainDocument.lines.count - 1);
+		endVisibleLines = clamp(startVisibleLines + heightForCode / my_font.character_height, 0, mainDocument.lines.count - 1);
+		visibleLines.data = mainDocument.lines.data + startVisibleLines;
+		visibleLines.count = endVisibleLines - startVisibleLines;
+
+		// line numbers
+		lineY := textY + my_font.character_height;
+		for startVisibleLines..endVisibleLines {
+			width := Simp.prepare_text(my_font, tprint("%", it+1));
+			Simp.draw_prepared_text(my_font, (textX - width - my_font.mono_x_advance), lineY, Vector4.{0.5, 0.5, 0.5, 1.0});
+			lineY += my_font.character_height;
+		}
+	}
+	else {
+		startVisibleLines = clamp(-scrollPos / my_font.character_height, 0, mainPanel.wrappedLines.count - 1);
+		endVisibleLines = clamp(startVisibleLines + heightForCode / my_font.character_height, 0, mainPanel.wrappedLines.count - 1);
+		visibleLinesTemp: [..]string;
+		visibleLinesTemp.allocator = temp;
+		array_reserve(*visibleLinesTemp, endVisibleLines - startVisibleLines);
+
+		// line numbers
+		lineY := textY + my_font.character_height;
+		lastLineNum := -1;
+		for startVisibleLines..endVisibleLines {
+			wrappedLine := mainPanel.wrappedLines[it];
+			array_add(*visibleLinesTemp, wrappedLine.line);
+
+			if lastLineNum != wrappedLine.lineNum {
+				width := Simp.prepare_text(my_font, tprint("%", wrappedLine.lineNum));
+				Simp.draw_prepared_text(my_font, (textX - width - my_font.mono_x_advance), lineY, Vector4.{0.5, 0.5, 0.5, 1.0});
+				lastLineNum = wrappedLine.lineNum;
+			}
+			lineY += my_font.character_height;
+		}
+		visibleLines = visibleLinesTemp;
+	}
+
+	Simp.draw_code(my_font, textX, textY, xx my_font.character_height, visibleLines);
+
+	// Draw panel header + scroll bar
+	Simp.set_shader_for_color();
+	Simp.immediate_quad(cast(float)panel.rect.x,
+						cast(float)panel.rect.y,
+						cast(float)panel.rect.w,
+						cast(float)panel.rect.y + headerHeight,
+						Vector4.{0.3, 0.3, 0.3, 1.0});
+
+	width := Simp.prepare_text(my_font, tprint("NORM | % - %:% crlf", panel.document.path, 32, 16));
+	Simp.draw_prepared_text(my_font, 2, my_font.character_height + 2, Vector4.{0.8, 0.8, 0.8, 1.0});
+
+
+	// Draw command line
+	commandLineTopEdge := (panel.rect.y + panel.rect.h) - commandLineHeight;
+	Simp.set_shader_for_color();
+	Simp.immediate_quad(cast(float)panel.rect.x,
+						cast(float)commandLineTopEdge,
+						cast(float)panel.rect.w,
+						cast(float)panel.rect.y + panel.rect.h,
+						Vector4.{0.3, 0.3, 0.3, 1.0});
+	
+	width = Simp.prepare_text(my_font, tprint(":", panel.document.path, 32, 16));
+	Simp.draw_prepared_text(my_font, 2, commandLineTopEdge + my_font.character_height, Vector4.{0.8, 0.8, 0.8, 1.0});
+
 }
 
 my_init_fonts :: () {
@@ -227,7 +276,7 @@ rescan_wrapped_lines :: (panel: Panel) {
 	// todo non monospace fonts
 	assert(my_font.is_monospace);
 
-	maxLineWidth :int = panel.width - my_font.mono_x_advance;
+	maxLineWidth :int = panel.rect.w - my_font.mono_x_advance;
 	if lineNumbers {
 		nDigits := tprint("%", panel.document.lines.count).count;
 		maxLineWidth -= my_font.mono_x_advance * (nDigits + 2); // extra 2 for padding
@@ -242,7 +291,7 @@ rescan_wrapped_lines :: (panel: Panel) {
 		if byte == #char "\t" {
 			currentLineWidth += (tabSize - currentLineWidth % tabSize) * my_font.mono_x_advance;
 		} 
-		else if byte != #char "\n" && byte != #char "\r" {
+		else if byte != #char "\n" && byte != #char "\r" { // don't count line endings for wrapping
 			currentLineWidth += my_font.mono_x_advance;
 		}
 

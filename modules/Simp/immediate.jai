@@ -34,6 +34,7 @@ Immediate_State :: struct {
 // high-performance rendering, you should use pre-baked meshes rather
 // than this interface.
 //
+// DAVE TODO: we'll likely never do 3D rendering in this project, you can simplify this a lot
 Immediate_Vertex :: struct {
     position:    Vector3;
     color_scale: Vector4;
