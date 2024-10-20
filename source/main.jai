@@ -65,7 +65,7 @@ Command :: struct {
 // we should store a hash table that maps the mapping to the command
 // Can probably generate it at startup
 commandList :: Command.[
-	.{ "command_mode", command_mode, .NORMAL, ":"},
+	.{ "enter_command_mode", enter_command_mode, .NORMAL, ":"},
 	.{ "open_file", open_file, .COMMAND, ":o"},
 	.{ "save_file", save_file, .COMMAND, ":w"},
 ];
@@ -73,6 +73,8 @@ commandList :: Command.[
 CommandLine :: struct {
 	// @todo several arrays in here using memory, should group it all into an arena
 	text: [..]u8;
+	cursor: s32;
+
 	// @todo, undos, cursor movement etc
 
 	CommandEntry :: struct {
@@ -82,6 +84,7 @@ CommandLine :: struct {
 		sortKey: s64;
 	}
 	filteredCommandList: [..]CommandEntry;
+	selectedCommand:s32;
 }
 
 // options
@@ -173,50 +176,11 @@ main :: () {
         for Input.events_this_frame {
             if it.type == .QUIT then quit = true;
 
-            if it.type == {
-              case .KEYBOARD;
-                if it.key_pressed && it.key_code == .ESCAPE {
-                    quit = true;
-                }
-            }
-			if it.type == .TEXT_INPUT {
-				char: Utf8_Char = convert_utf32_to_utf8(it.utf32);
-				if editorMode & .COMMAND {
-					// process the actual text input on the command line
-					for 0..char.count-1 {
-						array_add(*commandLine.text, char.bytes[it]);
-					}
-
-					// update the filtered command list
-					search_query:= string.{commandLine.text.count, commandLine.text.data};
-					array_reset_keeping_memory(*commandLine.filteredCommandList);
-					for command: commandList {
-						score := fuzzy_search(command.name, search_query);
-						entry := array_add(*commandLine.filteredCommandList);
-						entry.command = *command;
-						entry.sortKey = score;
-					}
-
-					compare_entries :: (e1: CommandLine.CommandEntry, e2: CommandLine.CommandEntry) -> s64 {
-						diff := e2.sortKey - e1.sortKey;
-						if diff != 0 return diff;
-						return memcmp(e1.command.name.data, e2.command.name.data, min(e1.command.name.count, e2.command.name.count));
-					}
-					quick_sort(commandLine.filteredCommandList, compare_entries);
-				}
-				else if editorMode & .NORMAL {
-					for command: commandList {
-						// is this command relevant for the current mode?
-						if command.mode & editorMode {
-							char: Utf8_Char = convert_utf32_to_utf8(it.utf32);
-							input:= to_string(*char);
-							if input == command.mapping {
-								// found the desired command
-								mainPanel.commandMessage = command.execute();
-							}
-						}
-					}
-				}
+			if editorMode & .NORMAL {
+				normal_mode_input_handler(it);
+			}
+			else if editorMode & .COMMAND {
+				command_mode_input_handler(it);
 			}
 		}
 
@@ -256,19 +220,34 @@ draw_command_lister :: (panel: Panel) {
 
 	x: float = cast(float) panel.rect.x;
 	y: float = cast(float) panel.rect.y + panel.rect.h/2;
-	w: float = cast(float) panel.rect.w;
-	h: float = cast(float) panel.rect.y + (panel.rect.h - commandLineHeight);
+	x2: float = cast(float) panel.rect.w;
+	y2: float = cast(float) panel.rect.y + (panel.rect.h - commandLineHeight);
 	Simp.set_shader_for_color();
-	Simp.immediate_quad(x, y, w, h, Vector4.{0.4, 0.4, 0.4, 1.0});
+	Simp.immediate_quad(x, y, x2, y2, Vector4.{0.4, 0.4, 0.4, 1.0});
+
+	// @todo draw a background around the selected command
+
+	// @todo: draw commands, and the command line itself bigger
 
 	commandHeight := my_font.character_height + 4;
-	textY := cast(int) h - 5;
-	for commandEntry: commandLine.filteredCommandList  {
+	textY := cast(int) y2 - 5;
+	for commandEntry, i: commandLine.filteredCommandList  {
 		if commandEntry.sortKey == 0 continue;
+
+		if i == commandLine.selectedCommand {
+			cmdID := commandLine.selectedCommand+1;
+			selx: float = cast(float) panel.rect.x;
+			sely: float = cast(float) (panel.rect.y + panel.rect.h - commandLineHeight) - cmdID * commandLineHeight;
+			selx2: float = cast(float) selx + panel.rect.w;
+			sely2: float = cast(float) sely + commandLineHeight;
+			Simp.set_shader_for_color();
+			Simp.immediate_quad(selx, sely, selx2, sely2, Vector4.{0.5, 0.5, 0.5, 1.0});
+		}
+
 		command := commandEntry.command;
 		width := Simp.prepare_text(my_font, command.name);
 		Simp.draw_prepared_text(my_font, 2, textY, Vector4.{0.8, 0.8, 0.8, 1.0});
-		textY -= commandHeight;
+		textY -= commandLineHeight;
 	}
 }
 
@@ -360,12 +339,18 @@ draw_panel :: (panel: Panel) {
 						cast(float)panel.rect.y + panel.rect.h,
 						Vector4.{0.3, 0.3, 0.3, 1.0});
 	
-	width = Simp.prepare_text(my_font, tprint(":%", string.{commandLine.text.count, commandLine.text.data}, 32, 16));
-	Simp.draw_prepared_text(my_font, 2, commandLineTopEdge + my_font.character_height, Vector4.{0.8, 0.8, 0.8, 1.0});
-
 	if editorMode == .COMMAND {
+		cursorX: float = cast(float)2 + Simp.get_text_width(my_font, string.{commandLine.cursor, commandLine.text.data});
+		cursorY: float = cast(float)commandLineTopEdge + 2;
+		cursorX2: float = cursorX + 3.0;
+		cursorY2: float = cursorY + cast(float)my_font.character_height;
+		Simp.immediate_quad(cursorX, cursorY, cursorX2, cursorY2, Vector4.{1.0, 1.0, 1.0, 1.0});
+
 		draw_command_lister(panel);
 	}
+
+	width = Simp.prepare_text(my_font, tprint("%", string.{commandLine.text.count, commandLine.text.data}, 32, 16));
+	Simp.draw_prepared_text(my_font, 2, commandLineTopEdge + my_font.character_height, Vector4.{0.8, 0.8, 0.8, 1.0});
 }
 
 my_init_fonts :: () {
@@ -464,9 +449,12 @@ open_file :: () -> string {
 save_file :: () -> string {
 	return "save file";
 }
-command_mode :: () -> string {
+enter_command_mode :: () -> string {
 	editorMode = .COMMAND;
 
+	array_add(*commandLine.text,#char ":");
+	commandLine.cursor = 1;
+	commandLine.selectedCommand = 0;
 	array_reset_keeping_memory(*commandLine.filteredCommandList);
 
 	for command: commandList {
@@ -480,9 +468,97 @@ command_mode :: () -> string {
 	return "hello world";
 }
 
+// code for specific modes
+command_mode_input_handler :: (event: Input.Event) {
+	if event.type == .KEYBOARD {
+		// @todo: even in command mode, keys should be mapped to a command
+		// backspace would be mapped to the same command that it would be in insert mode
+		// you may have to have different functions for each mode for commands that exist in multiple?
+		// I suppose the handler could just branch on the mode
+		if event.key_pressed && event.key_code == .BACKSPACE {
+			if commandLine.text.count == 1 return;
+			commandLine.text.count -= 1;
+			commandLine.cursor -= 1;
+			command_mode_refresh_list();
+		}
+
+		if event.key_pressed && event.key_code == .ESCAPE {
+			editorMode = .NORMAL;
+			commandLine.text.count = 0;
+		}
+		
+		if event.key_pressed && event.key_code == .ARROW_UP {
+			maxCommand := commandLine.filteredCommandList.count - 1;
+			commandLine.selectedCommand = clamp(commandLine.selectedCommand+1, 0, xx maxCommand);
+		}
+		if event.key_pressed && event.key_code == .ARROW_DOWN {
+			maxCommand := commandLine.filteredCommandList.count - 1;
+			commandLine.selectedCommand = clamp(commandLine.selectedCommand-1, 0, xx maxCommand);
+		}
+	}
+	else if event.type == .TEXT_INPUT {
+		char: Utf8_Char = convert_utf32_to_utf8(event.utf32);
+
+		// process the actual text input on the command line
+		for 0..char.count-1 {
+			array_add(*commandLine.text, char.bytes[it]);
+			commandLine.cursor += 1;
+		}
+
+		// update the filtered command list
+		command_mode_refresh_list();
+	}
+}
+
+command_mode_refresh_list :: () {
+	search_query:= string.{commandLine.text.count-1, commandLine.text.data+1};
+	array_reset_keeping_memory(*commandLine.filteredCommandList);
+	for command: commandList {
+		score := fuzzy_search(command.name, search_query);
+		entry := array_add(*commandLine.filteredCommandList);
+		entry.command = *command;
+		entry.sortKey = score;
+	}
+
+	compare_entries :: (e1: CommandLine.CommandEntry, e2: CommandLine.CommandEntry) -> s64 {
+		diff := e2.sortKey - e1.sortKey;
+		if diff != 0 return diff;
+		return memcmp(e1.command.name.data, e2.command.name.data, min(e1.command.name.count, e2.command.name.count));
+	}
+	quick_sort(commandLine.filteredCommandList, compare_entries);
+
+	maxCommand := commandLine.filteredCommandList.count - 1;
+	commandLine.selectedCommand = clamp(commandLine.selectedCommand-1, 0, xx maxCommand);
+}
+
+normal_mode_input_handler :: (event: Input.Event) {
+	if event.type == .TEXT_INPUT {
+		for command: commandList {
+			// is this command relevant for the current mode?
+			if command.mode & editorMode {
+				char: Utf8_Char = convert_utf32_to_utf8(event.utf32);
+				input:= to_string(*char);
+
+				// @todo there will be mappings that are multi character, so you 
+				// will want to match against the first character only at first
+				// if there is a match, then cool, 
+				// if there are _multiple_ matches, then you need to save the input
+				// and wait for another, continuing to check for a match
+				// or similarly, command such as match mode, may have "args", which we'll have to communicate
+				// in the mapping, and then wait for the required number of chars for the arg before continuing
+				if input == command.mapping {
+					// found the desired command
+					mainPanel.commandMessage = command.execute();
+				}
+			}
+		}
+	}
+}
+
 
 // fuzzy searching
 fuzzy_search :: (stringToSearch: string, filter: string) -> s32 {
+	if filter.count == 0 return 1;
 	// @todo case insensitive
 	i := find_index_from_left(stringToSearch, filter);
 

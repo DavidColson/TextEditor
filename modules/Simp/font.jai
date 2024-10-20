@@ -793,6 +793,31 @@ prepare_text :: (font: *Dynamic_Font, text: string, effect_flags: Font_Effects =
     return font.temporary_glyphs_width_in_pixels;
 }
 
+get_text_width :: (font: *Dynamic_Font, s: string) -> width: s64 {
+    if !s return 0;
+
+	// @todo account for kerning if the font supports it
+
+    prev_glyph: u32 = 0;
+
+    width_in_pixels := 0;
+
+    t := s.data;
+    while t < s.data + s.count {
+        utf32 := character_utf8_to_utf32(t, s.data + s.count - t);
+        glyph := find_or_create_glyph(font, utf32);
+
+        if glyph {
+            width_in_pixels += glyph.advance;
+            prev_glyph = glyph.glyph_index_within_font;
+        }
+
+        t = unicode_next_character(t);
+    }
+
+    return width_in_pixels;
+}
+
 generate_quads_for_prepared_text :: (font: *Dynamic_Font,
                                      x: s64, y: s64,
                                      effect_flags: Font_Effects) {
