@@ -14,6 +14,7 @@ BuildType :: enum u8
 }
 
 Document :: struct {
+	// @todo use arena to yeet entire buffer memory at once
 	path: string;
     bytes: []u8;
     lines: [..]string;
@@ -27,6 +28,7 @@ Rect :: struct {
 }
 
 Panel :: struct {
+	// @todo use arena to yeet entire panel memory at once
 	document: *Document;
 
 	WrappedLine :: struct {
@@ -59,7 +61,7 @@ Command :: struct {
 	mapping: string;
 }
 // command map
-// Todo: for fast access to the command when actually doing commands
+// @Todo for fast access to the command when actually doing commands
 // we should store a hash table that maps the mapping to the command
 // Can probably generate it at startup
 commandList :: Command.[
@@ -69,9 +71,17 @@ commandList :: Command.[
 ];
 
 CommandLine :: struct {
+	// @todo several arrays in here using memory, should group it all into an arena
 	text: [..]u8;
+	// @todo, undos, cursor movement etc
 
-	// todo, undos, cursor movement etc
+	CommandEntry :: struct {
+		command: *Command;
+		// right now this is just the search score, but i'd like to add
+		// the last use time of the command, or how often it's used
+		sortKey: s64;
+	}
+	filteredCommandList: [..]CommandEntry;
 }
 
 // options
@@ -172,9 +182,27 @@ main :: () {
 			if it.type == .TEXT_INPUT {
 				char: Utf8_Char = convert_utf32_to_utf8(it.utf32);
 				if editorMode & .COMMAND {
+					// process the actual text input on the command line
 					for 0..char.count-1 {
 						array_add(*commandLine.text, char.bytes[it]);
 					}
+
+					// update the filtered command list
+					search_query:= string.{commandLine.text.count, commandLine.text.data};
+					array_reset_keeping_memory(*commandLine.filteredCommandList);
+					for command: commandList {
+						score := fuzzy_search(command.name, search_query);
+						entry := array_add(*commandLine.filteredCommandList);
+						entry.command = *command;
+						entry.sortKey = score;
+					}
+
+					compare_entries :: (e1: CommandLine.CommandEntry, e2: CommandLine.CommandEntry) -> s64 {
+						diff := e2.sortKey - e1.sortKey;
+						if diff != 0 return diff;
+						return memcmp(e1.command.name.data, e2.command.name.data, min(e1.command.name.count, e2.command.name.count));
+					}
+					quick_sort(commandLine.filteredCommandList, compare_entries);
 				}
 				else if editorMode & .NORMAL {
 					for command: commandList {
@@ -235,7 +263,9 @@ draw_command_lister :: (panel: Panel) {
 
 	commandHeight := my_font.character_height + 4;
 	textY := cast(int) h - 5;
-	for command: commandList {
+	for commandEntry: commandLine.filteredCommandList  {
+		if commandEntry.sortKey == 0 continue;
+		command := commandEntry.command;
 		width := Simp.prepare_text(my_font, command.name);
 		Simp.draw_prepared_text(my_font, 2, textY, Vector4.{0.8, 0.8, 0.8, 1.0});
 		textY -= commandHeight;
@@ -437,11 +467,33 @@ save_file :: () -> string {
 command_mode :: () -> string {
 	editorMode = .COMMAND;
 
-	// Then you need to add a fuzzy find algorithm
-	// and take the input to fuzzy find on the list of commands, render them in order of match
-	// user can arrow up down to change the selection
-	// user can hit enter to execute the selected command
+	array_reset_keeping_memory(*commandLine.filteredCommandList);
+
+	for command: commandList {
+		entry := array_add(*commandLine.filteredCommandList);
+		entry.command = *command;
+		entry.sortKey = 10;
+	}
+	
+	// @todo recommend sorting on last used command here on initial show of the command list
+
 	return "hello world";
+}
+
+
+// fuzzy searching
+fuzzy_search :: (stringToSearch: string, filter: string) -> s32 {
+	// @todo case insensitive
+	i := find_index_from_left(stringToSearch, filter);
+
+	MAX_CHARS :: 200;
+	if i < 0 {
+		return 0; // no match means you get no score
+	}
+	// If it matched, we'll give it more if the filter was bigger
+	// and we'll give it more if the match was closer to the start of the search
+	score := (100 + cast(s32) filter.count) * (MAX_CHARS - i);
+	return xx score;
 }
 
 
@@ -505,6 +557,7 @@ Input :: #import "Input";
 #import "String";  // For path_strip_filename. @Cleanup.
 #import "File";
 #import "Unicode";
+#import "Sort";
 
 #run {
     #if OS == .WINDOWS {
