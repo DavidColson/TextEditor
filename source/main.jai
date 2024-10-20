@@ -39,9 +39,11 @@ Panel :: struct {
 	commandMessage: string;
 }
 
+// globals
 editorMode := EditorMode.NORMAL;
 mainPanel : Panel;
 mainDocument : Document;
+commandLine: CommandLine;
 scrollPos := 0;
 
 EditorMode :: enum_flags u8 {
@@ -65,6 +67,12 @@ commandList :: Command.[
 	.{ "open_file", open_file, .COMMAND, ":o"},
 	.{ "save_file", save_file, .COMMAND, ":w"},
 ];
+
+CommandLine :: struct {
+	text: [..]u8;
+
+	// todo, undos, cursor movement etc
+}
 
 // options
 lineWrap := true;
@@ -162,21 +170,29 @@ main :: () {
                 }
             }
 			if it.type == .TEXT_INPUT {
-				for command: commandList {
-					// is this command relevant for the current mode?
-					if command.mode & editorMode {
-						char: Utf8_Char = convert_utf32_to_utf8(it.utf32);
-						input:= to_string(*char);
-						if input == command.mapping {
-							// found the desired command
-							mainPanel.commandMessage = command.execute();
+				char: Utf8_Char = convert_utf32_to_utf8(it.utf32);
+				if editorMode & .COMMAND {
+					for 0..char.count-1 {
+						array_add(*commandLine.text, char.bytes[it]);
+					}
+				}
+				else if editorMode & .NORMAL {
+					for command: commandList {
+						// is this command relevant for the current mode?
+						if command.mode & editorMode {
+							char: Utf8_Char = convert_utf32_to_utf8(it.utf32);
+							input:= to_string(*char);
+							if input == command.mapping {
+								// found the desired command
+								mainPanel.commandMessage = command.execute();
+							}
 						}
 					}
 				}
 			}
-        }
+		}
 
-        draw_one_frame(example_file);
+		draw_one_frame(example_file);
 
 		// todo: smooth lerp animations on this
 		// have a rawscroll value, and then a lerped value that we lerp toward every frame
@@ -204,6 +220,26 @@ draw_one_frame :: (fileContents: string) {
 	draw_panel(mainPanel);
     
     Simp.swap_buffers(window);
+}
+
+draw_command_lister :: (panel: Panel) {
+	commandLinePadding := 6;
+	commandLineHeight := my_font.character_height + commandLinePadding;
+
+	x: float = cast(float) panel.rect.x;
+	y: float = cast(float) panel.rect.y + panel.rect.h/2;
+	w: float = cast(float) panel.rect.w;
+	h: float = cast(float) panel.rect.y + (panel.rect.h - commandLineHeight);
+	Simp.set_shader_for_color();
+	Simp.immediate_quad(x, y, w, h, Vector4.{0.4, 0.4, 0.4, 1.0});
+
+	commandHeight := my_font.character_height + 4;
+	textY := cast(int) h - 5;
+	for command: commandList {
+		width := Simp.prepare_text(my_font, command.name);
+		Simp.draw_prepared_text(my_font, 2, textY, Vector4.{0.8, 0.8, 0.8, 1.0});
+		textY -= commandHeight;
+	}
 }
 
 draw_panel :: (panel: Panel) {
@@ -294,9 +330,12 @@ draw_panel :: (panel: Panel) {
 						cast(float)panel.rect.y + panel.rect.h,
 						Vector4.{0.3, 0.3, 0.3, 1.0});
 	
-	width = Simp.prepare_text(my_font, tprint("%", panel.commandMessage, 32, 16));
+	width = Simp.prepare_text(my_font, tprint(":%", string.{commandLine.text.count, commandLine.text.data}, 32, 16));
 	Simp.draw_prepared_text(my_font, 2, commandLineTopEdge + my_font.character_height, Vector4.{0.8, 0.8, 0.8, 1.0});
 
+	if editorMode == .COMMAND {
+		draw_command_lister(panel);
+	}
 }
 
 my_init_fonts :: () {
@@ -396,6 +435,12 @@ save_file :: () -> string {
 	return "save file";
 }
 command_mode :: () -> string {
+	editorMode = .COMMAND;
+
+	// Then you need to add a fuzzy find algorithm
+	// and take the input to fuzzy find on the list of commands, render them in order of match
+	// user can arrow up down to change the selection
+	// user can hit enter to execute the selected command
 	return "hello world";
 }
 
