@@ -36,12 +36,35 @@ Panel :: struct {
 	wrappedLines: [..]WrappedLine;
 
 	rect: Rect;
+	commandMessage: string;
 }
 
+editorMode := EditorMode.NORMAL;
 mainPanel : Panel;
 mainDocument : Document;
 scrollPos := 0;
 
+EditorMode :: enum_flags u8 {
+	NORMAL;
+	COMMAND;
+	INSERT;
+}
+
+Command :: struct {
+	name: string;
+	execute: ()->string;
+	mode: EditorMode;
+	mapping: string;
+}
+// command map
+// Todo: for fast access to the command when actually doing commands
+// we should store a hash table that maps the mapping to the command
+// Can probably generate it at startup
+commandList :: Command.[
+	.{ "command_mode", command_mode, .NORMAL, ":"},
+	.{ "open_file", open_file, .COMMAND, ":o"},
+	.{ "save_file", save_file, .COMMAND, ":w"},
+];
 
 // options
 lineWrap := true;
@@ -137,11 +160,20 @@ main :: () {
                 if it.key_pressed && it.key_code == .ESCAPE {
                     quit = true;
                 }
-
-                if it.key_pressed && it.key_code == #char " " {  // Press spacebar to take a screenshot.
-                    want_screenshot = true;
-                }
             }
+			if it.type == .TEXT_INPUT {
+				for command: commandList {
+					// is this command relevant for the current mode?
+					if command.mode & editorMode {
+						char: Utf8_Char = convert_utf32_to_utf8(it.utf32);
+						input:= to_string(*char);
+						if input == command.mapping {
+							// found the desired command
+							mainPanel.commandMessage = command.execute();
+						}
+					}
+				}
+			}
         }
 
         draw_one_frame(example_file);
@@ -262,7 +294,7 @@ draw_panel :: (panel: Panel) {
 						cast(float)panel.rect.y + panel.rect.h,
 						Vector4.{0.3, 0.3, 0.3, 1.0});
 	
-	width = Simp.prepare_text(my_font, tprint(":", panel.document.path, 32, 16));
+	width = Simp.prepare_text(my_font, tprint("%", panel.commandMessage, 32, 16));
 	Simp.draw_prepared_text(my_font, 2, commandLineTopEdge + my_font.character_height, Vector4.{0.8, 0.8, 0.8, 1.0});
 
 }
@@ -325,6 +357,7 @@ rescan_wrapped_lines :: (panel: Panel) {
 	array_add(*panel.wrappedLines, lastLine);
 }
 
+// color stuff
 hex_to_color_vec4 :: (src_hex: string) -> Vector4, success: bool {
     hex := src_hex;
     if hex.count == 6 then hex = tprint("%FF", hex);
@@ -354,6 +387,66 @@ hex_to_color_vec4 :: (src_hex: string) -> Vector4, success: bool {
     return c, c.x >= 0 && c.y >= 0 && c.z >= 0 && c.w >= 0;
 }
 
+
+// commands
+open_file :: () -> string {
+	return "open file";
+}
+save_file :: () -> string {
+	return "save file";
+}
+command_mode :: () -> string {
+	return "hello world";
+}
+
+
+// unicode stuff
+convert_utf32_to_utf8 :: (ch: u32) -> Utf8_Char {
+    UNI_MAX_LEGAL_UTF32 :: 0x0010FFFF;
+    UNI_REPLACEMENT_CHAR :: 0x0000FFFD;
+
+    count := 0;
+    if ch < 0x80                        count = 1;
+    else if ch < 0x800                  count = 2;
+    else if ch < 0x10000                count = 3;
+    else if ch <= UNI_MAX_LEGAL_UTF32   count = 4;
+    else {
+        count = 3;
+        ch = UNI_REPLACEMENT_CHAR;
+    }
+
+    byteMask :: 0xBF;
+    byteMark :: 0x80;
+
+    bytes: [4] u8 = ---;
+
+    if count == {
+        case 4; bytes[3] = xx (ch | byteMark) & byteMask; ch = ch >> 6; #through;
+        case 3; bytes[2] = xx (ch | byteMark) & byteMask; ch = ch >> 6; #through;
+        case 2; bytes[1] = xx (ch | byteMark) & byteMask; ch = ch >> 6; #through;
+        case 1; bytes[0] = xx (ch | firstByteMark[count]);
+    }
+
+    result: Utf8_Char = ---;
+    result.bytes = bytes;
+    result.count = xx count;
+    return result;
+}
+
+to_string :: (utf8_char: *Utf8_Char) -> string {
+    str: string = ---;
+    str.data  = *utf8_char.bytes[0];
+    str.count = utf8_char.count;
+    return str;
+}
+
+Utf8_Char :: struct {
+    bytes: [4] u8;
+    count: s32;
+}
+
+
+
 my_font: *Simp.Dynamic_Font;
 
 Simp  :: #import "Simp";
@@ -366,6 +459,7 @@ Input :: #import "Input";
 #import "System";  // For get_path_of_running_executable. @Cleanup.
 #import "String";  // For path_strip_filename. @Cleanup.
 #import "File";
+#import "Unicode";
 
 #run {
     #if OS == .WINDOWS {
