@@ -20,13 +20,6 @@ Document :: struct {
     lines: [..]string;
 }
 
-Rect :: struct {
-	x: s32;
-	y: s32;
-	w: s32;
-	h: s32;
-}
-
 Panel :: struct {
 	// @todo use arena to yeet entire panel memory at once
 	document: *Document;
@@ -45,13 +38,13 @@ Panel :: struct {
 editorMode := EditorMode.NORMAL;
 mainPanel : Panel;
 mainDocument : Document;
-commandLine: CommandLine;
+commandPicker: CommandPicker;
 scrollPos := 0;
 
 EditorMode :: enum_flags u8 {
 	NORMAL;
-	COMMAND;
 	INSERT;
+	COMMAND_PICKER;
 }
 
 Command :: struct {
@@ -65,14 +58,14 @@ Command :: struct {
 // we should store a hash table that maps the mapping to the command
 // Can probably generate it at startup
 commandList :: Command.[
-	.{ "enter_command_mode", enter_command_mode, .NORMAL, ":"},
-	.{ "open_file", open_file, .COMMAND, ":o"},
-	.{ "save_file", save_file, .COMMAND, ":w"},
+	.{ "Open Command List", open_command_picker, .NORMAL, ":"},
+	.{ "Open File", open_file, .COMMAND_PICKER, ":o"},
+	.{ "Save File As", save_file, .COMMAND_PICKER, ":w"},
 ];
 
-CommandLine :: struct {
+CommandPicker :: struct {
 	// @todo several arrays in here using memory, should group it all into an arena
-	text: [..]u8;
+	textInput: [..]u8;
 	cursor: s32;
 
 	// @todo, undos, cursor movement etc
@@ -89,7 +82,7 @@ CommandLine :: struct {
 
 // options
 lineWrap := true;
-textSize := 14;
+textSize := 15;
 tabSize := 4;
 lineNumbers := true;
 
@@ -128,8 +121,8 @@ main :: () {
 	mainPanel.document = *mainDocument;
 	mainPanel.rect.x = 0;
 	mainPanel.rect.y = 0;
-	mainPanel.rect.w = windowWidth;
-	mainPanel.rect.h = windowHeight;
+	mainPanel.rect.w = xx windowWidth;
+	mainPanel.rect.h = xx windowHeight;
 
 	// for loop through the file, searching for new lines
 	// should only happen on load adjust when editing
@@ -165,8 +158,8 @@ main :: () {
 
 				mainPanel.rect.x = 0;
 				mainPanel.rect.y = 0;
-				mainPanel.rect.w = windowWidth;
-				mainPanel.rect.h = windowHeight;
+				mainPanel.rect.w = xx windowWidth;
+				mainPanel.rect.h = xx windowHeight;
 				rescan_wrapped_lines(mainPanel);
 
                 if should_reinit my_init_fonts();  // Resize the font for the new window size.
@@ -179,8 +172,8 @@ main :: () {
 			if editorMode & .NORMAL {
 				normal_mode_input_handler(it);
 			}
-			else if editorMode & .COMMAND {
-				command_mode_input_handler(it);
+			else if editorMode & .COMMAND_PICKER {
+				command_picker_input_handler(it);
 			}
 		}
 
@@ -214,53 +207,65 @@ draw_one_frame :: (fileContents: string) {
     Simp.swap_buffers(window);
 }
 
-draw_command_lister :: (panel: Panel) {
-	commandLinePadding := 6;
-	commandLineHeight := my_font.character_height + commandLinePadding;
+draw_rect :: (rect: Rect, color: Vector4) {
+	Simp.immediate_quad(rect.x, rect.y, rect.x + rect.w, rect.y + rect.h, color);
+}
 
-	x: float = cast(float) panel.rect.x;
-	y: float = cast(float) panel.rect.y + panel.rect.h/2;
-	x2: float = cast(float) panel.rect.w;
-	y2: float = cast(float) panel.rect.y + (panel.rect.h - commandLineHeight);
+draw_command_picker :: (panel: Panel) {
+	// @todo pull out to general style settings
+	commandEntryPadding := 5;
+	commandEntryHeight := my_font.character_height + commandEntryPadding * 2;
+
+	// @todo, this is duplicating below, pull it out
+	headerPadding := 8;
+	headerHeight := my_font.character_height + headerPadding;
+
+	commandsRect:Rect;
+	commandsRect.w = panel.rect.w / 2;
+	commandsRect.h = cast(float) commandEntryHeight * (commandPicker.filteredCommandList.count + 1);
+	commandsRect.x = panel.rect.x + (panel.rect.w - commandsRect.w) / 2;
+	commandsRect.y = panel.rect.y + headerHeight;
+
 	Simp.set_shader_for_color();
-	Simp.immediate_quad(x, y, x2, y2, Vector4.{0.4, 0.4, 0.4, 1.0});
+	draw_rect(commandsRect, Vector4.{0.4, 0.4, 0.4, 1.0});
 
-	// @todo draw a background around the selected command
+	inputRect: Rect;
+	inputRect, commandsRect = cut_bottom(commandsRect, xx commandEntryHeight);
+	inputRect = shrink(inputRect, 3);
+	draw_rect(inputRect, Vector4.{0.5, 0.5, 0.5, 1.0});
 
-	// @todo: draw commands, and the command line itself bigger
+	Simp.prepare_text(my_font, string.{commandPicker.textInput.count, commandPicker.textInput.data});
+	textX := inputRect.x + commandEntryPadding;
+	textY := inputRect.y + commandEntryHeight - 10;
+	Simp.draw_prepared_text(my_font, xx textX, xx textY, Vector4.{0.8, 0.8, 0.8, 1.0});
 
-	commandHeight := my_font.character_height + 4;
-	textY := cast(int) y2 - 5;
-	for commandEntry, i: commandLine.filteredCommandList  {
+	entryRect := cut_bottom(commandsRect, xx commandEntryHeight);
+	for commandEntry, i: commandPicker.filteredCommandList  {
 		if commandEntry.sortKey == 0 continue;
 
-		if i == commandLine.selectedCommand {
-			cmdID := commandLine.selectedCommand+1;
-			selx: float = cast(float) panel.rect.x;
-			sely: float = cast(float) (panel.rect.y + panel.rect.h - commandLineHeight) - cmdID * commandLineHeight;
-			selx2: float = cast(float) selx + panel.rect.w;
-			sely2: float = cast(float) sely + commandLineHeight;
+		if i == commandPicker.selectedCommand {
+			cmdID := commandPicker.selectedCommand+1;
 			Simp.set_shader_for_color();
-			Simp.immediate_quad(selx, sely, selx2, sely2, Vector4.{0.5, 0.5, 0.5, 1.0});
+			draw_rect(entryRect, Vector4.{0.5, 0.5, 0.5, 1.0});
 		}
 
 		command := commandEntry.command;
 		width := Simp.prepare_text(my_font, command.name);
-		Simp.draw_prepared_text(my_font, 2, textY, Vector4.{0.8, 0.8, 0.8, 1.0});
-		textY -= commandLineHeight;
+
+		textX = entryRect.x + commandEntryPadding;
+		textY = entryRect.y + commandEntryHeight - 8;
+		Simp.draw_prepared_text(my_font, xx textX, xx textY, Vector4.{0.8, 0.8, 0.8, 1.0});
+		entryRect.y += commandEntryHeight;
 	}
 }
 
 draw_panel :: (panel: Panel) {
 
-	headerPadding := 6;
+	headerPadding := 8;
 	headerHeight := my_font.character_height + headerPadding;
 
-	commandLinePadding := 6;
-	commandLineHeight := my_font.character_height + commandLinePadding;
-    
 	// Draw actual code + line numbers
-	heightForCode := panel.rect.h - headerHeight - commandLineHeight;
+	heightForCode := panel.rect.h - headerHeight;
 
 	color: Vector4;
 	color.x = 1;
@@ -280,7 +285,7 @@ draw_panel :: (panel: Panel) {
 	visibleLines: []string;
 	if !lineWrap {
 		startVisibleLines = clamp(-scrollPos / my_font.character_height, 0, mainDocument.lines.count - 1);
-		endVisibleLines = clamp(startVisibleLines + heightForCode / my_font.character_height, 0, mainDocument.lines.count - 1);
+		endVisibleLines = clamp(startVisibleLines + cast(s64)heightForCode / my_font.character_height, 0, mainDocument.lines.count - 1);
 		visibleLines.data = mainDocument.lines.data + startVisibleLines;
 		visibleLines.count = endVisibleLines - startVisibleLines;
 
@@ -294,7 +299,7 @@ draw_panel :: (panel: Panel) {
 	}
 	else {
 		startVisibleLines = clamp(-scrollPos / my_font.character_height, 0, mainPanel.wrappedLines.count - 1);
-		endVisibleLines = clamp(startVisibleLines + heightForCode / my_font.character_height, 0, mainPanel.wrappedLines.count - 1);
+		endVisibleLines = clamp(startVisibleLines + cast(s64)heightForCode / my_font.character_height, 0, mainPanel.wrappedLines.count - 1);
 		visibleLinesTemp: [..]string;
 		visibleLinesTemp.allocator = temp;
 		array_reserve(*visibleLinesTemp, endVisibleLines - startVisibleLines);
@@ -329,28 +334,10 @@ draw_panel :: (panel: Panel) {
 	width := Simp.prepare_text(my_font, tprint("NORM | % - %:% crlf", panel.document.path, 32, 16));
 	Simp.draw_prepared_text(my_font, 2, my_font.character_height + 2, Vector4.{0.8, 0.8, 0.8, 1.0});
 
-
-	// Draw command line
-	commandLineTopEdge := (panel.rect.y + panel.rect.h) - commandLineHeight;
-	Simp.set_shader_for_color();
-	Simp.immediate_quad(cast(float)panel.rect.x,
-						cast(float)commandLineTopEdge,
-						cast(float)panel.rect.w,
-						cast(float)panel.rect.y + panel.rect.h,
-						Vector4.{0.3, 0.3, 0.3, 1.0});
-	
-	if editorMode == .COMMAND {
-		cursorX: float = cast(float)2 + Simp.get_text_width(my_font, string.{commandLine.cursor, commandLine.text.data});
-		cursorY: float = cast(float)commandLineTopEdge + 2;
-		cursorX2: float = cursorX + 3.0;
-		cursorY2: float = cursorY + cast(float)my_font.character_height;
-		Simp.immediate_quad(cursorX, cursorY, cursorX2, cursorY2, Vector4.{1.0, 1.0, 1.0, 1.0});
-
-		draw_command_lister(panel);
+	// Draw command list
+	if editorMode == .COMMAND_PICKER {
+		draw_command_picker(panel);
 	}
-
-	width = Simp.prepare_text(my_font, tprint("%", string.{commandLine.text.count, commandLine.text.data}, 32, 16));
-	Simp.draw_prepared_text(my_font, 2, commandLineTopEdge + my_font.character_height, Vector4.{0.8, 0.8, 0.8, 1.0});
 }
 
 my_init_fonts :: () {
@@ -362,28 +349,28 @@ rescan_wrapped_lines :: (panel: Panel) {
 	// todo non monospace fonts
 	assert(my_font.is_monospace);
 
-	maxLineWidth :int = panel.rect.w - my_font.mono_x_advance;
+	maxLineWidth : = (cast(s64)panel.rect.w - 1) / xx my_font.mono_x_advance;
 	if lineNumbers {
-		nDigits := tprint("%", panel.document.lines.count).count;
+		nDigits:= tprint("%", panel.document.lines.count).count;
 		maxLineWidth -= my_font.mono_x_advance * (nDigits + 2); // extra 2 for padding
 	}
 
 	array_reset_keeping_memory(*panel.wrappedLines);
-    currentLineWidth := 0;
-	currentActualLine :s32 = 1;
+    currentLineWidth:= 0;
+	currentActualLine:= 1;
 	lastLineBreak := 0;
 	for byte, i: mainDocument.bytes {
 
 		if byte == #char "\t" {
-			currentLineWidth += (tabSize - currentLineWidth % tabSize) * my_font.mono_x_advance;
+			currentLineWidth += (tabSize - currentLineWidth % tabSize);
 		} 
 		else if byte != #char "\n" && byte != #char "\r" { // don't count line endings for wrapping
-			currentLineWidth += my_font.mono_x_advance;
+			currentLineWidth += 1;
 		}
 
 		if currentLineWidth > maxLineWidth {
 			wrappedLine: Panel.WrappedLine;
-			wrappedLine.lineNum = currentActualLine;
+			wrappedLine.lineNum = cast(s32)currentActualLine;
 			wrappedLine.line.data = panel.document.bytes.data + lastLineBreak;
 			wrappedLine.line.count = i - lastLineBreak;
 			lastLineBreak = i;
@@ -393,7 +380,7 @@ rescan_wrapped_lines :: (panel: Panel) {
 
 		if byte == #char "\n" {
 			wrappedLine: Panel.WrappedLine;
-			wrappedLine.lineNum = currentActualLine;
+			wrappedLine.lineNum = cast(s32)currentActualLine;
 			wrappedLine.line.data = panel.document.bytes.data + lastLineBreak;
 			// TODO: +1 here for carraige return, if using \n line endings, don't need the +1
 			wrappedLine.line.count = i+1 - lastLineBreak;
@@ -407,7 +394,7 @@ rescan_wrapped_lines :: (panel: Panel) {
 	lastLine : Panel.WrappedLine;
 	lastLine.line.data = panel.document.bytes.data + lastLineBreak;
 	lastLine.line.count = panel.document.bytes.count - lastLineBreak;
-	lastLine.lineNum = currentActualLine;
+	lastLine.lineNum = cast(s32)currentActualLine;
 	array_add(*panel.wrappedLines, lastLine);
 }
 
@@ -449,16 +436,15 @@ open_file :: () -> string {
 save_file :: () -> string {
 	return "save file";
 }
-enter_command_mode :: () -> string {
-	editorMode = .COMMAND;
+open_command_picker :: () -> string {
+	editorMode = .COMMAND_PICKER;
 
-	array_add(*commandLine.text,#char ":");
-	commandLine.cursor = 1;
-	commandLine.selectedCommand = 0;
-	array_reset_keeping_memory(*commandLine.filteredCommandList);
+	commandPicker.cursor = 0;
+	commandPicker.selectedCommand = 0;
+	array_reset_keeping_memory(*commandPicker.filteredCommandList);
 
 	for command: commandList {
-		entry := array_add(*commandLine.filteredCommandList);
+		entry := array_add(*commandPicker.filteredCommandList);
 		entry.command = *command;
 		entry.sortKey = 10;
 	}
@@ -469,31 +455,38 @@ enter_command_mode :: () -> string {
 }
 
 // code for specific modes
-command_mode_input_handler :: (event: Input.Event) {
+command_picker_input_handler :: (event: Input.Event) {
 	if event.type == .KEYBOARD {
-		// @todo: even in command mode, keys should be mapped to a command
-		// backspace would be mapped to the same command that it would be in insert mode
-		// you may have to have different functions for each mode for commands that exist in multiple?
-		// I suppose the handler could just branch on the mode
+		// @todo refactor these into commands, bound in the appropriate mode
+		// though these are conceptually similar, for now just have a different command for
+		// command mode delete vs insert mode delete
 		if event.key_pressed && event.key_code == .BACKSPACE {
-			if commandLine.text.count == 1 return;
-			commandLine.text.count -= 1;
-			commandLine.cursor -= 1;
-			command_mode_refresh_list();
+			commandPicker.textInput.count -= 1;
+			commandPicker.cursor -= 1;
+			if commandPicker.textInput.count <= 0 {
+				commandPicker.textInput.count = 0;
+				return;
+			}
+			command_picker_refresh_list();
 		}
 
 		if event.key_pressed && event.key_code == .ESCAPE {
 			editorMode = .NORMAL;
-			commandLine.text.count = 0;
+			commandPicker.textInput.count = 0;
+		}
+
+		if event.key_pressed && event.key_code == .ENTER {
+			cmd := commandPicker.filteredCommandList[commandPicker.selectedCommand].command; 
+			cmd.execute();
 		}
 		
 		if event.key_pressed && event.key_code == .ARROW_UP {
-			maxCommand := commandLine.filteredCommandList.count - 1;
-			commandLine.selectedCommand = clamp(commandLine.selectedCommand+1, 0, xx maxCommand);
+			maxCommand := commandPicker.filteredCommandList.count - 1;
+			commandPicker.selectedCommand = clamp(commandPicker.selectedCommand-1, 0, xx maxCommand);
 		}
 		if event.key_pressed && event.key_code == .ARROW_DOWN {
-			maxCommand := commandLine.filteredCommandList.count - 1;
-			commandLine.selectedCommand = clamp(commandLine.selectedCommand-1, 0, xx maxCommand);
+			maxCommand := commandPicker.filteredCommandList.count - 1;
+			commandPicker.selectedCommand = clamp(commandPicker.selectedCommand+1, 0, xx maxCommand);
 		}
 	}
 	else if event.type == .TEXT_INPUT {
@@ -501,34 +494,34 @@ command_mode_input_handler :: (event: Input.Event) {
 
 		// process the actual text input on the command line
 		for 0..char.count-1 {
-			array_add(*commandLine.text, char.bytes[it]);
-			commandLine.cursor += 1;
+			array_add(*commandPicker.textInput, char.bytes[it]);
+			commandPicker.cursor += 1;
 		}
 
 		// update the filtered command list
-		command_mode_refresh_list();
+		command_picker_refresh_list();
 	}
 }
 
-command_mode_refresh_list :: () {
-	search_query:= string.{commandLine.text.count-1, commandLine.text.data+1};
-	array_reset_keeping_memory(*commandLine.filteredCommandList);
+command_picker_refresh_list :: () {
+	search_query:= string.{commandPicker.textInput.count-1, commandPicker.textInput.data+1};
+	array_reset_keeping_memory(*commandPicker.filteredCommandList);
 	for command: commandList {
 		score := fuzzy_search(command.name, search_query);
-		entry := array_add(*commandLine.filteredCommandList);
+		entry := array_add(*commandPicker.filteredCommandList);
 		entry.command = *command;
 		entry.sortKey = score;
 	}
 
-	compare_entries :: (e1: CommandLine.CommandEntry, e2: CommandLine.CommandEntry) -> s64 {
+	compare_entries :: (e1: CommandPicker.CommandEntry, e2: CommandPicker.CommandEntry) -> s64 {
 		diff := e2.sortKey - e1.sortKey;
 		if diff != 0 return diff;
 		return memcmp(e1.command.name.data, e2.command.name.data, min(e1.command.name.count, e2.command.name.count));
 	}
-	quick_sort(commandLine.filteredCommandList, compare_entries);
+	quick_sort(commandPicker.filteredCommandList, compare_entries);
 
-	maxCommand := commandLine.filteredCommandList.count - 1;
-	commandLine.selectedCommand = clamp(commandLine.selectedCommand-1, 0, xx maxCommand);
+	maxCommand := commandPicker.filteredCommandList.count - 1;
+	commandPicker.selectedCommand = clamp(commandPicker.selectedCommand-1, 0, xx maxCommand);
 }
 
 normal_mode_input_handler :: (event: Input.Event) {
@@ -546,6 +539,9 @@ normal_mode_input_handler :: (event: Input.Event) {
 				// and wait for another, continuing to check for a match
 				// or similarly, command such as match mode, may have "args", which we'll have to communicate
 				// in the mapping, and then wait for the required number of chars for the arg before continuing
+
+
+				// one implementation could be a hash tree, where each entry could be a leaf (a command) or another hash table
 				if input == command.mapping {
 					// found the desired command
 					mainPanel.commandMessage = command.execute();
@@ -634,6 +630,8 @@ Input :: #import "Input";
 #import "File";
 #import "Unicode";
 #import "Sort";
+
+#load "rect.jai";
 
 #run {
     #if OS == .WINDOWS {
