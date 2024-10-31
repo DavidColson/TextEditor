@@ -39,17 +39,21 @@ editorMode := EditorMode.NORMAL;
 mainPanel : Panel;
 mainDocument : Document;
 commandPicker: CommandPicker;
+fileSystemNav: FileSystemNavigator;
 scrollPos := 0;
 
 EditorMode :: enum_flags u8 {
 	NORMAL;
 	INSERT;
 	COMMAND_PICKER;
+	FILESYSTEM_NAVIGATOR;
 }
 
 Command :: struct {
 	name: string;
 	execute: ()->string;
+	// really the mapping and the mode should be tied together as one
+	// you want to be able to access any command in any mode, given an appropriate mapping
 	mode: EditorMode;
 	mapping: string;
 }
@@ -78,6 +82,21 @@ CommandPicker :: struct {
 	}
 	filteredCommandList: [..]CommandEntry;
 	selectedCommand:s32;
+}
+
+FileSystemNavigator :: struct {
+	textInput: [..]u8;
+	cursor: s32;
+
+	currentPath: [..]string; // stored in chunks for each directory/file
+	itemList: [..]Item;
+	filteredItemList: [..]s64;
+	selectedItem:s64;
+
+	Item :: struct {
+		name: string;
+		sortKey: s64;
+	}
 }
 
 // options
@@ -175,6 +194,9 @@ main :: () {
 			else if editorMode & .COMMAND_PICKER {
 				command_picker_input_handler(it);
 			}
+			else if editorMode & .FILESYSTEM_NAVIGATOR {
+				filesystem_nav_input_handler(it);
+			}
 		}
 
 		draw_one_frame(example_file);
@@ -209,6 +231,54 @@ draw_one_frame :: (fileContents: string) {
 
 draw_rect :: (rect: Rect, color: Vector4) {
 	Simp.immediate_quad(rect.x, rect.y, rect.x + rect.w, rect.y + rect.h, color);
+}
+
+draw_filesystem_navigator :: (panel: Panel) {
+	// @todo pull out to general style settings
+	entryPadding := 5;
+	entryHeight := my_font.character_height + entryPadding * 2;
+
+	// @todo, this is duplicating below, pull it out
+	headerPadding := 8;
+	headerHeight := my_font.character_height + headerPadding;
+
+	navigatorRect:Rect;
+	navigatorRect.w = panel.rect.w / 2;
+	navigatorRect.h = cast(float) entryHeight * (fileSystemNav.filteredItemList.count + 1);
+	navigatorRect.x = panel.rect.x + (panel.rect.w - navigatorRect.w) / 2;
+	navigatorRect.y = panel.rect.y + headerHeight;
+
+	Simp.set_shader_for_color();
+	draw_rect(navigatorRect, Vector4.{0.4, 0.4, 0.4, 1.0});
+
+	inputRect: Rect;
+	inputRect, navigatorRect = cut_bottom(navigatorRect, xx entryHeight);
+	inputRect = shrink(inputRect, 3);
+	draw_rect(inputRect, Vector4.{0.5, 0.5, 0.5, 1.0});
+
+	Simp.prepare_text(my_font, string.{fileSystemNav.textInput.count, fileSystemNav.textInput.data});
+	textX := inputRect.x + entryPadding;
+	textY := inputRect.y + entryHeight - 10;
+	Simp.draw_prepared_text(my_font, xx textX, xx textY, Vector4.{0.8, 0.8, 0.8, 1.0});
+
+	entryRect := cut_bottom(navigatorRect, xx entryHeight);
+	for itemId, i: fileSystemNav.filteredItemList  {
+		item: *FileSystemNavigator.Item = *fileSystemNav.itemList[itemId];
+		if item.sortKey == 0 continue;
+
+		if i == fileSystemNav.selectedItem {
+			cmdID := fileSystemNav.selectedItem+1;
+			Simp.set_shader_for_color();
+			draw_rect(entryRect, Vector4.{0.5, 0.5, 0.5, 1.0});
+		}
+
+		width := Simp.prepare_text(my_font, "folder");
+
+		textX = entryRect.x + entryPadding;
+		textY = entryRect.y + entryHeight - 8;
+		Simp.draw_prepared_text(my_font, xx textX, xx textY, Vector4.{0.8, 0.8, 0.8, 1.0});
+		entryRect.y += entryHeight;
+	}
 }
 
 draw_command_picker :: (panel: Panel) {
@@ -338,6 +408,10 @@ draw_panel :: (panel: Panel) {
 	if editorMode == .COMMAND_PICKER {
 		draw_command_picker(panel);
 	}
+
+	if editorMode == .FILESYSTEM_NAVIGATOR {
+		draw_filesystem_navigator(panel);
+	}
 }
 
 my_init_fonts :: () {
@@ -431,6 +505,14 @@ hex_to_color_vec4 :: (src_hex: string) -> Vector4, success: bool {
 
 // commands
 open_file :: () -> string {
+	editorMode = .FILESYSTEM_NAVIGATOR;
+
+	for 1..3 {
+		item := array_add(*fileSystemNav.itemList);
+		item.name = "folder";
+		item.sortKey = 10;
+		array_add(*fileSystemNav.filteredItemList, it - 1);
+	}
 	return "open file";
 }
 save_file :: () -> string {
@@ -500,6 +582,45 @@ command_picker_input_handler :: (event: Input.Event) {
 
 		// update the filtered command list
 		command_picker_refresh_list();
+	}
+}
+
+filesystem_nav_input_handler :: (event: Input.Event) {
+	if event.type == .KEYBOARD {
+		// @todo refactor these into commands, bound in the appropriate mode
+		// though these are conceptually similar, for now just have a different command for
+		// command mode delete vs insert mode delete
+		if event.key_pressed && event.key_code == .BACKSPACE {
+			fileSystemNav.textInput.count -= 1;
+			fileSystemNav.cursor -= 1;
+			if fileSystemNav.textInput.count <= 0 {
+				fileSystemNav.textInput.count = 0;
+				return;
+			}
+		}
+
+		if event.key_pressed && event.key_code == .ESCAPE {
+			editorMode = .NORMAL;
+			fileSystemNav.textInput.count = 0;
+		}
+
+		if event.key_pressed && event.key_code == .ARROW_UP {
+			maxCommand := fileSystemNav.filteredItemList.count - 1;
+			fileSystemNav.selectedItem = clamp(fileSystemNav.selectedItem-1, 0, xx maxCommand);
+		}
+		if event.key_pressed && event.key_code == .ARROW_DOWN {
+			maxCommand := fileSystemNav.filteredItemList.count - 1;
+			fileSystemNav.selectedItem = clamp(fileSystemNav.selectedItem+1, 0, xx maxCommand);
+		}
+	}
+	else if event.type == .TEXT_INPUT {
+		char: Utf8_Char = convert_utf32_to_utf8(event.utf32);
+
+		// process the actual text input on the command line
+		for 0..char.count-1 {
+			array_add(*fileSystemNav.textInput, char.bytes[it]);
+			fileSystemNav.cursor += 1;
+		}
 	}
 }
 
