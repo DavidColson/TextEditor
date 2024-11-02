@@ -88,10 +88,10 @@ FileSystemNavigator :: struct {
 	textInput: [..]u8;
 	cursor: s32;
 
-	currentPath: [..]string; // stored in chunks for each directory/file
+	currentPath: Path;
 	itemList: [..]Item;
-	filteredItemList: [..]s64;
 	selectedItem:s64;
+	numToDisplay:s64; // number of items with positive sortkeys
 
 	Item :: struct {
 		name: string;
@@ -244,7 +244,7 @@ draw_filesystem_navigator :: (panel: Panel) {
 
 	navigatorRect:Rect;
 	navigatorRect.w = panel.rect.w / 2;
-	navigatorRect.h = cast(float) entryHeight * (fileSystemNav.filteredItemList.count + 1);
+	navigatorRect.h = cast(float) entryHeight * (fileSystemNav.numToDisplay + 1);
 	navigatorRect.x = panel.rect.x + (panel.rect.w - navigatorRect.w) / 2;
 	navigatorRect.y = panel.rect.y + headerHeight;
 
@@ -256,14 +256,28 @@ draw_filesystem_navigator :: (panel: Panel) {
 	inputRect = shrink(inputRect, 3);
 	draw_rect(inputRect, Vector4.{0.5, 0.5, 0.5, 1.0});
 
-	Simp.prepare_text(my_font, string.{fileSystemNav.textInput.count, fileSystemNav.textInput.data});
-	textX := inputRect.x + entryPadding;
+	// draw current path as blocks
+	curPathRect: Rect;
+	curPathRect = shrink(inputRect, 2);
 	textY := inputRect.y + entryHeight - 10;
+	textX := curPathRect.x + 2;
+	for fileSystemNav.currentPath.words {
+		width := Simp.prepare_text(my_font, it);
+		blockRect: Rect;
+		blockRect, curPathRect = cut_left(curPathRect, xx width, 2);
+		Simp.set_shader_for_color();
+		draw_rect(blockRect, Vector4.{0.4, 0.4, 0.4, 1.0});
+
+		Simp.draw_prepared_text(my_font, xx blockRect.x, xx textY, Vector4.{0.8, 0.8, 0.8, 1.0});
+		textX = blockRect.x + blockRect.w + 2;
+	}
+
+	// draw input filter text
+	Simp.prepare_text(my_font, string.{fileSystemNav.textInput.count, fileSystemNav.textInput.data});
 	Simp.draw_prepared_text(my_font, xx textX, xx textY, Vector4.{0.8, 0.8, 0.8, 1.0});
 
 	entryRect := cut_bottom(navigatorRect, xx entryHeight);
-	for itemId, i: fileSystemNav.filteredItemList  {
-		item: *FileSystemNavigator.Item = *fileSystemNav.itemList[itemId];
+	for * item, i: fileSystemNav.itemList  {
 		if item.sortKey == 0 continue;
 
 		if i == fileSystemNav.selectedItem {
@@ -272,7 +286,7 @@ draw_filesystem_navigator :: (panel: Panel) {
 			draw_rect(entryRect, Vector4.{0.5, 0.5, 0.5, 1.0});
 		}
 
-		width := Simp.prepare_text(my_font, "folder");
+		width := Simp.prepare_text(my_font, item.name);
 
 		textX = entryRect.x + entryPadding;
 		textY = entryRect.y + entryHeight - 8;
@@ -507,17 +521,14 @@ hex_to_color_vec4 :: (src_hex: string) -> Vector4, success: bool {
 open_file :: () -> string {
 	editorMode = .FILESYSTEM_NAVIGATOR;
 
-	for 1..3 {
-		item := array_add(*fileSystemNav.itemList);
-		item.name = "folder";
-		item.sortKey = 10;
-		array_add(*fileSystemNav.filteredItemList, it - 1);
-	}
+	filesystem_nav_refresh_directory_list();
 	return "open file";
 }
+
 save_file :: () -> string {
 	return "save file";
 }
+
 open_command_picker :: () -> string {
 	editorMode = .COMMAND_PICKER;
 
@@ -547,6 +558,7 @@ command_picker_input_handler :: (event: Input.Event) {
 			commandPicker.cursor -= 1;
 			if commandPicker.textInput.count <= 0 {
 				commandPicker.textInput.count = 0;
+				command_picker_refresh_list();
 				return;
 			}
 			command_picker_refresh_list();
@@ -591,12 +603,21 @@ filesystem_nav_input_handler :: (event: Input.Event) {
 		// though these are conceptually similar, for now just have a different command for
 		// command mode delete vs insert mode delete
 		if event.key_pressed && event.key_code == .BACKSPACE {
+			if fileSystemNav.currentPath.words.count > 0 && fileSystemNav.textInput.count == 0 {
+				fileSystemNav.currentPath.words.count -= 1;
+				filesystem_nav_refresh_directory_list();
+				return;
+			}
+
 			fileSystemNav.textInput.count -= 1;
 			fileSystemNav.cursor -= 1;
 			if fileSystemNav.textInput.count <= 0 {
 				fileSystemNav.textInput.count = 0;
+				filesystem_nav_filter_directory_list();
+
 				return;
 			}
+			filesystem_nav_filter_directory_list();
 		}
 
 		if event.key_pressed && event.key_code == .ESCAPE {
@@ -604,13 +625,28 @@ filesystem_nav_input_handler :: (event: Input.Event) {
 			fileSystemNav.textInput.count = 0;
 		}
 
+		if event.key_pressed && event.key_code == .ENTER {
+			item := fileSystemNav.itemList[fileSystemNav.selectedItem];
+
+			// only if item is a directory
+			if platform_is_path_directory(fileSystemNav.currentPath) {
+				// need to append item to the current path
+				array_add(*fileSystemNav.currentPath.words, item.name);
+				// then refresh the itemlist with new entries in the new path
+				filesystem_nav_refresh_directory_list();
+
+				// then clear the filter input text
+				fileSystemNav.textInput.count = 0;
+			}
+		}
+
 		if event.key_pressed && event.key_code == .ARROW_UP {
-			maxCommand := fileSystemNav.filteredItemList.count - 1;
-			fileSystemNav.selectedItem = clamp(fileSystemNav.selectedItem-1, 0, xx maxCommand);
+			maxItems := fileSystemNav.itemList.count - 1;
+			fileSystemNav.selectedItem = clamp(fileSystemNav.selectedItem-1, 0, xx maxItems);
 		}
 		if event.key_pressed && event.key_code == .ARROW_DOWN {
-			maxCommand := fileSystemNav.filteredItemList.count - 1;
-			fileSystemNav.selectedItem = clamp(fileSystemNav.selectedItem+1, 0, xx maxCommand);
+			maxItems := fileSystemNav.itemList.count - 1;
+			fileSystemNav.selectedItem = clamp(fileSystemNav.selectedItem+1, 0, xx maxItems);
 		}
 	}
 	else if event.type == .TEXT_INPUT {
@@ -621,11 +657,59 @@ filesystem_nav_input_handler :: (event: Input.Event) {
 			array_add(*fileSystemNav.textInput, char.bytes[it]);
 			fileSystemNav.cursor += 1;
 		}
+		filesystem_nav_filter_directory_list();
 	}
 }
 
+filesystem_nav_refresh_directory_list :: () {
+	fileSystemNav.numToDisplay = 0;
+	array_reset_keeping_memory(*fileSystemNav.itemList);
+	// start with drives
+	if fileSystemNav.currentPath.words.count == 0 {
+		// @todo, at some point it should use the project directory maybe, or the current file
+		for platform_enumerate_logical_drives() {
+			item := array_add(*fileSystemNav.itemList);
+			item.name = copy_string(it);
+			item.sortKey = 1;
+			fileSystemNav.numToDisplay += 1;
+		}
+	} else {
+		visitor :: (info: *File_Visit_Info, items: *[..]FileSystemNavigator.Item) {
+			new_item: FileSystemNavigator.Item;
+			new_item.name = copy_string(info.short_name); // put in arena for fsn
+			new_item.sortKey = 1;
+			array_add(items, new_item);
+			fileSystemNav.numToDisplay += 1;
+		}
+		visit_files(path_to_string(fileSystemNav.currentPath,,temp), false, *fileSystemNav.itemList, visitor, visit_directories=true);
+	}
+}
+
+filesystem_nav_filter_directory_list :: () {
+	fileSystemNav.numToDisplay = 0;
+	search_query:= string.{fileSystemNav.textInput.count, fileSystemNav.textInput.data};
+	for * item: fileSystemNav.itemList {
+		score := fuzzy_search(item.name, search_query);
+		item.sortKey = score;
+		if score > 0 {
+			fileSystemNav.numToDisplay += 1;
+		}
+	}
+
+	compare_entries :: (e1: FileSystemNavigator.Item, e2: FileSystemNavigator.Item) -> s64 {
+		diff := e2.sortKey - e1.sortKey;
+		if diff != 0 return diff;
+		// todo: should also sort on other things like folder or file etc
+		return memcmp(e1.name.data, e2.name.data, min(e1.name.count, e2.name.count));
+	}
+	quick_sort(fileSystemNav.itemList, compare_entries);
+
+	maxItem := fileSystemNav.itemList.count - 1;
+	fileSystemNav.selectedItem = clamp(fileSystemNav.selectedItem-1, 0, xx maxItem);
+}
+
 command_picker_refresh_list :: () {
-	search_query:= string.{commandPicker.textInput.count-1, commandPicker.textInput.data+1};
+	search_query:= string.{commandPicker.textInput.count, commandPicker.textInput.data};
 	array_reset_keeping_memory(*commandPicker.filteredCommandList);
 	for command: commandList {
 		score := fuzzy_search(command.name, search_query);
@@ -672,12 +756,42 @@ normal_mode_input_handler :: (event: Input.Event) {
 	}
 }
 
+// @todo: this is windows only, move to windows file
+platform_enumerate_logical_drives :: () -> [] string {
+    drives: [..] string;
+
+    drives_buf: [500] u16;
+    GetLogicalDriveStringsW(500, drives_buf.data);
+
+    drive_wstr := drives_buf.data;
+    for drives_buf {
+        if it == 0 { // split on null terminator
+            drive, success := wide_to_utf8_new(drive_wstr,, allocator = temp);
+            if !drive || !success break;
+            drive.count -= 1;  // cut off separator
+            array_add(*drives, drive);
+            drive_wstr = *drives_buf[it_index + 1];
+        }
+    }
+
+    return drives;
+}
+
+platform_is_path_directory :: (path: Path) -> bool {
+    push_allocator(temp);
+	path_str := path_to_string(path);
+	attrib := GetFileAttributesW(utf8_to_wide_new(path_str));
+	if attrib & FILE_ATTRIBUTE_DIRECTORY {
+		return true;
+	}
+	return false;
+}
 
 // fuzzy searching
 fuzzy_search :: (stringToSearch: string, filter: string) -> s32 {
 	if filter.count == 0 return 1;
 	// @todo case insensitive
-	i := find_index_from_left(stringToSearch, filter);
+	i := find_index_from_left_nocase(stringToSearch, filter);
 
 	MAX_CHARS :: 200;
 	if i < 0 {
@@ -687,6 +801,17 @@ fuzzy_search :: (stringToSearch: string, filter: string) -> s32 {
 	// and we'll give it more if the match was closer to the start of the search
 	score := (100 + cast(s32) filter.count) * (MAX_CHARS - i);
 	return xx score;
+}
+
+find_index_from_left_nocase :: (s: string, substring: string, start_index := 0) -> s64 {
+    if !substring return -1;
+
+    for i: start_index..s.count-substring.count {
+        t := slice(s, i, substring.count);
+        if equal_nocase(t, substring) return i;
+    }
+
+    return -1;
 }
 
 
@@ -749,8 +874,14 @@ Input :: #import "Input";
 #import "System";  // For get_path_of_running_executable. @Cleanup.
 #import "String";  // For path_strip_filename. @Cleanup.
 #import "File";
+#import "File_Utilities";
 #import "Unicode";
 #import "Sort";
+
+kernel32 :: #system_library "kernel32";
+#import "Windows";
+#import "Windows_Utf8";
+GetLogicalDriveStringsW :: (nBufferLength: DWORD, lpBuffer: *u16) -> DWORD #foreign kernel32;
 
 #load "rect.jai";
 
