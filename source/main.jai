@@ -85,10 +85,15 @@ CommandPicker :: struct {
 }
 
 FileSystemNavigator :: struct {
+	// @todo: arena for currentPathStrings, itemList, and text input.
+	// reset all of it when finished with the navigator
 	textInput: [..]u8;
 	cursor: s32;
 
+	pendingAction: bool;
+	// @todo: we're not using this properly, just use an array of strings instead
 	currentPath: Path;
+	// @todo: arena for the itemlist where the strings are stored
 	itemList: [..]Item;
 	selectedItem:s64;
 	numToDisplay:s64; // number of items with positive sortkeys
@@ -130,36 +135,13 @@ main :: () {
 
     my_init_fonts();
 
-	// load our example file
-    example_file := read_entire_file("build.jai");
-
-	mainDocument.path = "test/build.jai";
-	mainDocument.bytes.data = example_file.data;
-	mainDocument.bytes.count = example_file.count;
-
-	mainPanel.document = *mainDocument;
 	mainPanel.rect.x = 0;
 	mainPanel.rect.y = 0;
 	mainPanel.rect.w = xx windowWidth;
 	mainPanel.rect.h = xx windowHeight;
+	mainPanel.document = *mainDocument;
 
-	// for loop through the file, searching for new lines
-	// should only happen on load adjust when editing
-	lastNewLine := 0;
-	for byte, i: mainDocument.bytes {
-		if byte == #char "\n" { // line feed character
-			line: string;
-			line.data = mainDocument.bytes.data + lastNewLine;
-			// TODO: +1 here for carraige return, if using \n line endings, don't need the +1
-			line.count = i+1 - lastNewLine;
-			lastNewLine = i+1;
-			array_add(*mainDocument.lines, line);
-		}
-	}
-	lastLine : string;
-	lastLine.data = mainDocument.bytes.data + lastNewLine;
-	lastLine.count = mainDocument.bytes.count - lastNewLine;
-	array_add(*mainDocument.lines, lastLine);
+	open_document("C:/Dev/TextEditor/build.jai");
 
     quit := false;
     want_screenshot := false;
@@ -199,7 +181,7 @@ main :: () {
 			}
 		}
 
-		draw_one_frame(example_file);
+		draw_one_frame();
 
 		// todo: smooth lerp animations on this
 		// have a rawscroll value, and then a lerped value that we lerp toward every frame
@@ -216,7 +198,37 @@ main :: () {
     }
 }
 
-draw_one_frame :: (fileContents: string) {
+open_document :: (path: string) {
+    file := read_entire_file(path);
+
+	mainDocument.path = copy_string(path); // @todo put in arena for this specific document (i.e. reset when document is released)
+	mainDocument.bytes.data = file.data;
+	mainDocument.bytes.count = file.count;
+
+	array_reset_keeping_memory(*mainDocument.lines);
+
+	// for loop through the file, searching for new lines
+	// should only happen on load adjust when editing
+	lastNewLine := 0;
+	for byte, i: mainDocument.bytes {
+		if byte == #char "\n" { // line feed character
+			line: string;
+			line.data = mainDocument.bytes.data + lastNewLine;
+			// TODO: +1 here for carraige return, if using \n line endings, don't need the +1
+			line.count = i+1 - lastNewLine;
+			lastNewLine = i+1;
+			array_add(*mainDocument.lines, line);
+		}
+	}
+	lastLine : string;
+	lastLine.data = mainDocument.bytes.data + lastNewLine;
+	lastLine.count = mainDocument.bytes.count - lastNewLine;
+	array_add(*mainDocument.lines, lastLine);
+
+	rescan_wrapped_lines(mainPanel);
+}
+
+draw_one_frame :: () {
 	c,_ := hex_to_color_vec4("282c34");
     Simp.clear_render_target(c.x, c.y, c.z, 0.0);
 
@@ -256,25 +268,32 @@ draw_filesystem_navigator :: (panel: Panel) {
 	inputRect = shrink(inputRect, 3);
 	draw_rect(inputRect, Vector4.{0.5, 0.5, 0.5, 1.0});
 
-	// draw current path as blocks
 	curPathRect: Rect;
 	curPathRect = shrink(inputRect, 2);
 	textY := inputRect.y + entryHeight - 10;
 	textX := curPathRect.x + 2;
-	for fileSystemNav.currentPath.words {
-		width := Simp.prepare_text(my_font, it);
-		blockRect: Rect;
-		blockRect, curPathRect = cut_left(curPathRect, xx width, 2);
-		Simp.set_shader_for_color();
-		draw_rect(blockRect, Vector4.{0.4, 0.4, 0.4, 1.0});
 
-		Simp.draw_prepared_text(my_font, xx blockRect.x, xx textY, Vector4.{0.8, 0.8, 0.8, 1.0});
-		textX = blockRect.x + blockRect.w + 2;
+	if fileSystemNav.pendingAction {
+		Simp.prepare_text(my_font, "Enter: open file - D: Delete File - R: Rename/Move");
+		Simp.draw_prepared_text(my_font, xx textX, xx textY, Vector4.{0.7, 0.7, 0.7, 1.0});
 	}
+	else {
+		// draw current path as blocks
+		for fileSystemNav.currentPath.words {
+			width := Simp.prepare_text(my_font, it);
+			blockRect: Rect;
+			blockRect, curPathRect = cut_left(curPathRect, xx width, 2);
+			Simp.set_shader_for_color();
+			draw_rect(blockRect, Vector4.{0.4, 0.4, 0.4, 1.0});
 
-	// draw input filter text
-	Simp.prepare_text(my_font, string.{fileSystemNav.textInput.count, fileSystemNav.textInput.data});
-	Simp.draw_prepared_text(my_font, xx textX, xx textY, Vector4.{0.8, 0.8, 0.8, 1.0});
+			Simp.draw_prepared_text(my_font, xx blockRect.x, xx textY, Vector4.{0.8, 0.8, 0.8, 1.0});
+			textX = blockRect.x + blockRect.w + 2;
+		}
+
+		// draw input filter text
+		Simp.prepare_text(my_font, string.{fileSystemNav.textInput.count, fileSystemNav.textInput.data});
+		Simp.draw_prepared_text(my_font, xx textX, xx textY, Vector4.{0.8, 0.8, 0.8, 1.0});
+	}
 
 	entryRect := cut_bottom(navigatorRect, xx entryHeight);
 	for * item, i: fileSystemNav.itemList  {
@@ -520,7 +539,7 @@ hex_to_color_vec4 :: (src_hex: string) -> Vector4, success: bool {
 // commands
 open_file :: () -> string {
 	editorMode = .FILESYSTEM_NAVIGATOR;
-
+	fileSystemNav.pendingAction = false;
 	filesystem_nav_refresh_directory_list();
 	return "open file";
 }
@@ -572,6 +591,7 @@ command_picker_input_handler :: (event: Input.Event) {
 		if event.key_pressed && event.key_code == .ENTER {
 			cmd := commandPicker.filteredCommandList[commandPicker.selectedCommand].command; 
 			cmd.execute();
+			commandPicker.textInput.count = 0;
 		}
 		
 		if event.key_pressed && event.key_code == .ARROW_UP {
@@ -602,51 +622,71 @@ filesystem_nav_input_handler :: (event: Input.Event) {
 		// @todo refactor these into commands, bound in the appropriate mode
 		// though these are conceptually similar, for now just have a different command for
 		// command mode delete vs insert mode delete
-		if event.key_pressed && event.key_code == .BACKSPACE {
-			if fileSystemNav.currentPath.words.count > 0 && fileSystemNav.textInput.count == 0 {
-				fileSystemNav.currentPath.words.count -= 1;
-				filesystem_nav_refresh_directory_list();
-				return;
+
+		if fileSystemNav.pendingAction {
+
+			if event.key_pressed && event.key_code == .ENTER {
+				open_document(path_to_string(fileSystemNav.currentPath,,temp));
+				fileSystemNav.pendingAction = false;
+				editorMode = .NORMAL;
+				// @todo might want to just memset filesystemnav?
+				fileSystemNav.textInput.count = 0;
+				fileSystemNav.itemList.count = 0;
+				fileSystemNav.currentPath.words.count = 0;
 			}
 
-			fileSystemNav.textInput.count -= 1;
-			fileSystemNav.cursor -= 1;
-			if fileSystemNav.textInput.count <= 0 {
-				fileSystemNav.textInput.count = 0;
+			if event.key_pressed && event.key_code == #char "D" {
+			}
+
+			if event.key_pressed && event.key_code == #char "R" {
+			}
+		}
+		else {
+			if event.key_pressed && event.key_code == .BACKSPACE {
+				if fileSystemNav.currentPath.words.count > 0 && fileSystemNav.textInput.count == 0 {
+					fileSystemNav.currentPath.words.count -= 1;
+					filesystem_nav_refresh_directory_list();
+					return;
+				}
+
+				fileSystemNav.textInput.count -= 1;
+				fileSystemNav.cursor -= 1;
+				if fileSystemNav.textInput.count <= 0 {
+					fileSystemNav.textInput.count = 0;
+					filesystem_nav_filter_directory_list();
+
+					return;
+				}
 				filesystem_nav_filter_directory_list();
-
-				return;
 			}
-			filesystem_nav_filter_directory_list();
-		}
 
-		if event.key_pressed && event.key_code == .ESCAPE {
-			editorMode = .NORMAL;
-			fileSystemNav.textInput.count = 0;
-		}
-
-		if event.key_pressed && event.key_code == .ENTER {
-			item := fileSystemNav.itemList[fileSystemNav.selectedItem];
-
-			// only if item is a directory
-			if platform_is_path_directory(fileSystemNav.currentPath) {
-				// need to append item to the current path
-				array_add(*fileSystemNav.currentPath.words, item.name);
-				// then refresh the itemlist with new entries in the new path
-				filesystem_nav_refresh_directory_list();
-
-				// then clear the filter input text
+			if event.key_pressed && event.key_code == .ESCAPE {
+				editorMode = .NORMAL;
 				fileSystemNav.textInput.count = 0;
 			}
-		}
 
-		if event.key_pressed && event.key_code == .ARROW_UP {
-			maxItems := fileSystemNav.itemList.count - 1;
-			fileSystemNav.selectedItem = clamp(fileSystemNav.selectedItem-1, 0, xx maxItems);
-		}
-		if event.key_pressed && event.key_code == .ARROW_DOWN {
-			maxItems := fileSystemNav.itemList.count - 1;
-			fileSystemNav.selectedItem = clamp(fileSystemNav.selectedItem+1, 0, xx maxItems);
+			if event.key_pressed && event.key_code == .ENTER {
+				item := fileSystemNav.itemList[fileSystemNav.selectedItem];
+
+				array_add(*fileSystemNav.currentPath.words, item.name);
+
+				if platform_is_path_directory(fileSystemNav.currentPath) {
+					filesystem_nav_refresh_directory_list();
+					fileSystemNav.textInput.count = 0;
+				}
+				else {
+					fileSystemNav.pendingAction = true;
+				}
+			}
+
+			if event.key_pressed && event.key_code == .ARROW_UP {
+				maxItems := fileSystemNav.itemList.count - 1;
+				fileSystemNav.selectedItem = clamp(fileSystemNav.selectedItem-1, 0, xx maxItems);
+			}
+			if event.key_pressed && event.key_code == .ARROW_DOWN {
+				maxItems := fileSystemNav.itemList.count - 1;
+				fileSystemNav.selectedItem = clamp(fileSystemNav.selectedItem+1, 0, xx maxItems);
+			}
 		}
 	}
 	else if event.type == .TEXT_INPUT {
@@ -669,14 +709,14 @@ filesystem_nav_refresh_directory_list :: () {
 		// @todo, at some point it should use the project directory maybe, or the current file
 		for platform_enumerate_logical_drives() {
 			item := array_add(*fileSystemNav.itemList);
-			item.name = copy_string(it);
+			item.name = copy_string(it); // @todo make an arena for the itemlist itself, reset when we refresh
 			item.sortKey = 1;
 			fileSystemNav.numToDisplay += 1;
 		}
 	} else {
 		visitor :: (info: *File_Visit_Info, items: *[..]FileSystemNavigator.Item) {
 			new_item: FileSystemNavigator.Item;
-			new_item.name = copy_string(info.short_name); // put in arena for fsn
+			new_item.name = copy_string(info.short_name); // @todo put in arena for itemlist 
 			new_item.sortKey = 1;
 			array_add(items, new_item);
 			fileSystemNav.numToDisplay += 1;
