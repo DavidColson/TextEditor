@@ -27,7 +27,7 @@ draw_filesystem_navigator :: (panel: Panel) {
 
 	navigatorRect:Rect;
 	navigatorRect.w = panel.rect.w / 2;
-	navigatorRect.h = cast(float) entryHeight * (fileSystemNav.numToDisplay + 1);
+	navigatorRect.h = cast(float) entryHeight * (filesystemNav.numToDisplay + 1);
 	navigatorRect.x = panel.rect.x + (panel.rect.w - navigatorRect.w) / 2;
 	navigatorRect.y = panel.rect.y + headerHeight;
 
@@ -44,13 +44,13 @@ draw_filesystem_navigator :: (panel: Panel) {
 	textY := inputRect.y + entryHeight - 10;
 	textX := curPathRect.x + 2;
 
-	if fileSystemNav.pendingAction {
+	if filesystemNav.pendingAction {
 		Simp.prepare_text(my_font, "Enter: open file - D: Delete File - R: Rename/Move");
 		Simp.draw_prepared_text(my_font, xx textX, xx textY, Vector4.{0.7, 0.7, 0.7, 1.0});
 	}
 	else {
 		// draw current path as blocks
-		for fileSystemNav.currentPath.words {
+		for filesystemNav.currentPath {
 			width := Simp.prepare_text(my_font, it);
 			blockRect: Rect;
 			blockRect, curPathRect = cut_left(curPathRect, xx width, 2);
@@ -62,16 +62,16 @@ draw_filesystem_navigator :: (panel: Panel) {
 		}
 
 		// draw input filter text
-		Simp.prepare_text(my_font, string.{fileSystemNav.textInput.count, fileSystemNav.textInput.data});
+		Simp.prepare_text(my_font, string.{filesystemNav.textInput.count, filesystemNav.textInput.data});
 		Simp.draw_prepared_text(my_font, xx textX, xx textY, Vector4.{0.8, 0.8, 0.8, 1.0});
 	}
 
 	entryRect := cut_bottom(navigatorRect, xx entryHeight);
-	for * item, i: fileSystemNav.itemList  {
+	for * item, i: filesystemNav.itemList  {
 		if item.sortKey == 0 continue;
 
-		if i == fileSystemNav.selectedItem {
-			cmdID := fileSystemNav.selectedItem+1;
+		if i == filesystemNav.selectedItem {
+			cmdID := filesystemNav.selectedItem+1;
 			Simp.set_shader_for_color();
 			draw_rect(entryRect, Vector4.{0.5, 0.5, 0.5, 1.0});
 		}

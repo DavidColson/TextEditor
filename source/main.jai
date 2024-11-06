@@ -40,7 +40,7 @@ editorMode := EditorMode.NORMAL;
 mainPanel : Panel;
 mainDocument : Document;
 commandPicker: CommandPicker;
-fileSystemNav: FileSystemNavigator;
+filesystemNav: FilesystemNavigator;
 scrollPos := 0;
 
 EditorMode :: enum_flags u8 {
@@ -121,10 +121,10 @@ main :: () {
 				normal_mode_input_handler(it);
 			}
 			else if editorMode & .COMMAND_PICKER {
-				command_picker_input_handler(it);
+				command_picker_input_handler(*commandPicker, it);
 			}
 			else if editorMode & .FILESYSTEM_NAVIGATOR {
-				filesystem_nav_input_handler(it);
+				filesystem_nav_input_handler(*filesystemNav, it);
 			}
 		}
 
@@ -287,8 +287,7 @@ commandList :: Command.[
 
 open_file :: () -> string {
 	editorMode = .FILESYSTEM_NAVIGATOR;
-	fileSystemNav.pendingAction = false;
-	filesystem_nav_refresh_directory_list();
+	filesystem_nav_refresh_directory_list(*filesystemNav);
 	return "open file";
 }
 
@@ -299,9 +298,7 @@ save_file :: () -> string {
 open_command_picker :: () -> string {
 	editorMode = .COMMAND_PICKER;
 
-	commandPicker.cursor = 0;
-	commandPicker.selectedCommand = 0;
-	array_reset_keeping_memory(*commandPicker.filteredCommandList);
+    push_allocator(flat_pool_allocator_proc, *commandPicker.memory);
 
 	for command: commandList {
 		entry := array_add(*commandPicker.filteredCommandList);
@@ -362,10 +359,9 @@ platform_enumerate_logical_drives :: () -> [] string {
     return drives;
 }
 
-platform_is_path_directory :: (path: Path) -> bool {
+platform_is_path_directory :: (path: string) -> bool {
     push_allocator(temp);
-	path_str := path_to_string(path);
-	attrib := GetFileAttributesW(utf8_to_wide_new(path_str));
+	attrib := GetFileAttributesW(utf8_to_wide_new(path));
 	if attrib & FILE_ATTRIBUTE_DIRECTORY {
 		return true;
 	}
@@ -460,6 +456,7 @@ Input :: #import "Input";
 #import "File_Utilities";
 #import "Unicode";
 #import "Sort";
+#import "Flat_Pool";
 
 // @todo: this should be moved to a relevant "platform file"
 kernel32 :: #system_library "kernel32";
