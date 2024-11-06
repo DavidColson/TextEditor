@@ -14,14 +14,15 @@ BuildType :: enum u8
 }
 
 Document :: struct {
-	// @todo use arena to yeet entire buffer memory at once
+	// @todo arena for the buffer so we can have lots of spare memory addresses for expansion
+	// normal memory for lines and path, make a free document function
 	path: string;
     bytes: []u8;
     lines: [..]string;
 }
 
 Panel :: struct {
-	// @todo use arena to yeet entire panel memory at once
+	// @todo make a free panel function which yeets the wrapped lines
 	document: *Document;
 
 	WrappedLine :: struct {
@@ -49,60 +50,6 @@ EditorMode :: enum_flags u8 {
 	FILESYSTEM_NAVIGATOR;
 }
 
-Command :: struct {
-	name: string;
-	execute: ()->string;
-	// really the mapping and the mode should be tied together as one
-	// you want to be able to access any command in any mode, given an appropriate mapping
-	mode: EditorMode;
-	mapping: string;
-}
-// command map
-// @Todo for fast access to the command when actually doing commands
-// we should store a hash table that maps the mapping to the command
-// Can probably generate it at startup
-commandList :: Command.[
-	.{ "Open Command List", open_command_picker, .NORMAL, ":"},
-	.{ "Open File", open_file, .COMMAND_PICKER, ":o"},
-	.{ "Save File As", save_file, .COMMAND_PICKER, ":w"},
-];
-
-CommandPicker :: struct {
-	// @todo several arrays in here using memory, should group it all into an arena
-	textInput: [..]u8;
-	cursor: s32;
-
-	// @todo, undos, cursor movement etc
-
-	CommandEntry :: struct {
-		command: *Command;
-		// right now this is just the search score, but i'd like to add
-		// the last use time of the command, or how often it's used
-		sortKey: s64;
-	}
-	filteredCommandList: [..]CommandEntry;
-	selectedCommand:s32;
-}
-
-FileSystemNavigator :: struct {
-	// @todo: arena for currentPathStrings, itemList, and text input.
-	// reset all of it when finished with the navigator
-	textInput: [..]u8;
-	cursor: s32;
-
-	pendingAction: bool;
-	// @todo: we're not using this properly, just use an array of strings instead
-	currentPath: Path;
-	// @todo: arena for the itemlist where the strings are stored
-	itemList: [..]Item;
-	selectedItem:s64;
-	numToDisplay:s64; // number of items with positive sortkeys
-
-	Item :: struct {
-		name: string;
-		sortKey: s64;
-	}
-}
 
 // options
 lineWrap := true;
@@ -228,232 +175,13 @@ open_document :: (path: string) {
 	rescan_wrapped_lines(mainPanel);
 }
 
-draw_one_frame :: () {
-	c,_ := hex_to_color_vec4("282c34");
-    Simp.clear_render_target(c.x, c.y, c.z, 0.0);
-
-    Simp.set_shader_for_color();
-
-    time := seconds_since_init();
-
-	draw_panel(mainPanel);
-    
-    Simp.swap_buffers(window);
-}
-
-draw_rect :: (rect: Rect, color: Vector4) {
-	Simp.immediate_quad(rect.x, rect.y, rect.x + rect.w, rect.y + rect.h, color);
-}
-
-draw_filesystem_navigator :: (panel: Panel) {
-	// @todo pull out to general style settings
-	entryPadding := 5;
-	entryHeight := my_font.character_height + entryPadding * 2;
-
-	// @todo, this is duplicating below, pull it out
-	headerPadding := 8;
-	headerHeight := my_font.character_height + headerPadding;
-
-	navigatorRect:Rect;
-	navigatorRect.w = panel.rect.w / 2;
-	navigatorRect.h = cast(float) entryHeight * (fileSystemNav.numToDisplay + 1);
-	navigatorRect.x = panel.rect.x + (panel.rect.w - navigatorRect.w) / 2;
-	navigatorRect.y = panel.rect.y + headerHeight;
-
-	Simp.set_shader_for_color();
-	draw_rect(navigatorRect, Vector4.{0.4, 0.4, 0.4, 1.0});
-
-	inputRect: Rect;
-	inputRect, navigatorRect = cut_bottom(navigatorRect, xx entryHeight);
-	inputRect = shrink(inputRect, 3);
-	draw_rect(inputRect, Vector4.{0.5, 0.5, 0.5, 1.0});
-
-	curPathRect: Rect;
-	curPathRect = shrink(inputRect, 2);
-	textY := inputRect.y + entryHeight - 10;
-	textX := curPathRect.x + 2;
-
-	if fileSystemNav.pendingAction {
-		Simp.prepare_text(my_font, "Enter: open file - D: Delete File - R: Rename/Move");
-		Simp.draw_prepared_text(my_font, xx textX, xx textY, Vector4.{0.7, 0.7, 0.7, 1.0});
-	}
-	else {
-		// draw current path as blocks
-		for fileSystemNav.currentPath.words {
-			width := Simp.prepare_text(my_font, it);
-			blockRect: Rect;
-			blockRect, curPathRect = cut_left(curPathRect, xx width, 2);
-			Simp.set_shader_for_color();
-			draw_rect(blockRect, Vector4.{0.4, 0.4, 0.4, 1.0});
-
-			Simp.draw_prepared_text(my_font, xx blockRect.x, xx textY, Vector4.{0.8, 0.8, 0.8, 1.0});
-			textX = blockRect.x + blockRect.w + 2;
-		}
-
-		// draw input filter text
-		Simp.prepare_text(my_font, string.{fileSystemNav.textInput.count, fileSystemNav.textInput.data});
-		Simp.draw_prepared_text(my_font, xx textX, xx textY, Vector4.{0.8, 0.8, 0.8, 1.0});
-	}
-
-	entryRect := cut_bottom(navigatorRect, xx entryHeight);
-	for * item, i: fileSystemNav.itemList  {
-		if item.sortKey == 0 continue;
-
-		if i == fileSystemNav.selectedItem {
-			cmdID := fileSystemNav.selectedItem+1;
-			Simp.set_shader_for_color();
-			draw_rect(entryRect, Vector4.{0.5, 0.5, 0.5, 1.0});
-		}
-
-		width := Simp.prepare_text(my_font, item.name);
-
-		textX = entryRect.x + entryPadding;
-		textY = entryRect.y + entryHeight - 8;
-		Simp.draw_prepared_text(my_font, xx textX, xx textY, Vector4.{0.8, 0.8, 0.8, 1.0});
-		entryRect.y += entryHeight;
-	}
-}
-
-draw_command_picker :: (panel: Panel) {
-	// @todo pull out to general style settings
-	commandEntryPadding := 5;
-	commandEntryHeight := my_font.character_height + commandEntryPadding * 2;
-
-	// @todo, this is duplicating below, pull it out
-	headerPadding := 8;
-	headerHeight := my_font.character_height + headerPadding;
-
-	commandsRect:Rect;
-	commandsRect.w = panel.rect.w / 2;
-	commandsRect.h = cast(float) commandEntryHeight * (commandPicker.filteredCommandList.count + 1);
-	commandsRect.x = panel.rect.x + (panel.rect.w - commandsRect.w) / 2;
-	commandsRect.y = panel.rect.y + headerHeight;
-
-	Simp.set_shader_for_color();
-	draw_rect(commandsRect, Vector4.{0.4, 0.4, 0.4, 1.0});
-
-	inputRect: Rect;
-	inputRect, commandsRect = cut_bottom(commandsRect, xx commandEntryHeight);
-	inputRect = shrink(inputRect, 3);
-	draw_rect(inputRect, Vector4.{0.5, 0.5, 0.5, 1.0});
-
-	Simp.prepare_text(my_font, string.{commandPicker.textInput.count, commandPicker.textInput.data});
-	textX := inputRect.x + commandEntryPadding;
-	textY := inputRect.y + commandEntryHeight - 10;
-	Simp.draw_prepared_text(my_font, xx textX, xx textY, Vector4.{0.8, 0.8, 0.8, 1.0});
-
-	entryRect := cut_bottom(commandsRect, xx commandEntryHeight);
-	for commandEntry, i: commandPicker.filteredCommandList  {
-		if commandEntry.sortKey == 0 continue;
-
-		if i == commandPicker.selectedCommand {
-			cmdID := commandPicker.selectedCommand+1;
-			Simp.set_shader_for_color();
-			draw_rect(entryRect, Vector4.{0.5, 0.5, 0.5, 1.0});
-		}
-
-		command := commandEntry.command;
-		width := Simp.prepare_text(my_font, command.name);
-
-		textX = entryRect.x + commandEntryPadding;
-		textY = entryRect.y + commandEntryHeight - 8;
-		Simp.draw_prepared_text(my_font, xx textX, xx textY, Vector4.{0.8, 0.8, 0.8, 1.0});
-		entryRect.y += commandEntryHeight;
-	}
-}
-
-draw_panel :: (panel: Panel) {
-
-	headerPadding := 8;
-	headerHeight := my_font.character_height + headerPadding;
-
-	// Draw actual code + line numbers
-	heightForCode := panel.rect.h - headerHeight;
-
-	color: Vector4;
-	color.x = 1;
-	color.y = 1;
-	color.z = 1;
-	color.w = 1;
-
-	textX := 0;
-	textY := headerHeight;
-	if lineNumbers {
-		nDigits := tprint("%", mainDocument.lines.count).count;
-		textX = my_font.mono_x_advance * (nDigits + 2); // extra 2 for padding
-	}
-
-	startVisibleLines : s64;
-	endVisibleLines : s64;
-	visibleLines: []string;
-	if !lineWrap {
-		startVisibleLines = clamp(-scrollPos / my_font.character_height, 0, mainDocument.lines.count - 1);
-		endVisibleLines = clamp(startVisibleLines + cast(s64)heightForCode / my_font.character_height, 0, mainDocument.lines.count - 1);
-		visibleLines.data = mainDocument.lines.data + startVisibleLines;
-		visibleLines.count = endVisibleLines - startVisibleLines;
-
-		// line numbers
-		lineY := textY + my_font.character_height;
-		for startVisibleLines..endVisibleLines {
-			width := Simp.prepare_text(my_font, tprint("%", it+1));
-			Simp.draw_prepared_text(my_font, (textX - width - my_font.mono_x_advance), lineY, Vector4.{0.5, 0.5, 0.5, 1.0});
-			lineY += my_font.character_height;
-		}
-	}
-	else {
-		startVisibleLines = clamp(-scrollPos / my_font.character_height, 0, mainPanel.wrappedLines.count - 1);
-		endVisibleLines = clamp(startVisibleLines + cast(s64)heightForCode / my_font.character_height, 0, mainPanel.wrappedLines.count - 1);
-		visibleLinesTemp: [..]string;
-		visibleLinesTemp.allocator = temp;
-		array_reserve(*visibleLinesTemp, endVisibleLines - startVisibleLines);
-
-		// line numbers
-		lineY := textY + my_font.character_height;
-		lastLineNum := -1;
-		for startVisibleLines..endVisibleLines {
-			wrappedLine := mainPanel.wrappedLines[it];
-			array_add(*visibleLinesTemp, wrappedLine.line);
-
-			if lastLineNum != wrappedLine.lineNum {
-				width := Simp.prepare_text(my_font, tprint("%", wrappedLine.lineNum));
-				Simp.draw_prepared_text(my_font, (textX - width - my_font.mono_x_advance), lineY, Vector4.{0.5, 0.5, 0.5, 1.0});
-				lastLineNum = wrappedLine.lineNum;
-			}
-			lineY += my_font.character_height;
-		}
-		visibleLines = visibleLinesTemp;
-	}
-
-	Simp.draw_code(my_font, textX, textY, xx my_font.character_height, visibleLines);
-
-	// Draw panel header + scroll bar
-	Simp.set_shader_for_color();
-	Simp.immediate_quad(cast(float)panel.rect.x,
-						cast(float)panel.rect.y,
-						cast(float)panel.rect.w,
-						cast(float)panel.rect.y + headerHeight,
-						Vector4.{0.3, 0.3, 0.3, 1.0});
-
-	width := Simp.prepare_text(my_font, tprint("NORM | % - %:% crlf", panel.document.path, 32, 16));
-	Simp.draw_prepared_text(my_font, 2, my_font.character_height + 2, Vector4.{0.8, 0.8, 0.8, 1.0});
-
-	// Draw command list
-	if editorMode == .COMMAND_PICKER {
-		draw_command_picker(panel);
-	}
-
-	if editorMode == .FILESYSTEM_NAVIGATOR {
-		draw_filesystem_navigator(panel);
-	}
-}
-
 my_init_fonts :: () {
     my_font = Simp.get_font_at_size("fonts", "FiraMonoNerdFontMono-Medium.ttf", textSize);
     assert(my_font != null);
 }
 
+// Panel specific code
 rescan_wrapped_lines :: (panel: Panel) {
-	// todo non monospace fonts
 	assert(my_font.is_monospace);
 
 	maxLineWidth : = (cast(s64)panel.rect.w - 1) / xx my_font.mono_x_advance;
@@ -537,6 +265,26 @@ hex_to_color_vec4 :: (src_hex: string) -> Vector4, success: bool {
 
 
 // commands
+
+Command :: struct {
+	name: string;
+	execute: ()->string;
+	// really the mapping and the mode should be tied together as one
+	// you want to be able to access any command in any mode, given an appropriate mapping
+	mode: EditorMode;
+	mapping: string;
+}
+
+// command map
+// @Todo for fast access to the command when actually doing commands
+// we should store a hash table that maps the mapping to the command
+// Can probably generate it at startup
+commandList :: Command.[
+	.{ "Open Command List", open_command_picker, .NORMAL, ":"},
+	.{ "Open File", open_file, .COMMAND_PICKER, ":o"},
+	.{ "Save File As", save_file, .COMMAND_PICKER, ":w"},
+];
+
 open_file :: () -> string {
 	editorMode = .FILESYSTEM_NAVIGATOR;
 	fileSystemNav.pendingAction = false;
@@ -562,213 +310,10 @@ open_command_picker :: () -> string {
 	}
 	
 	// @todo recommend sorting on last used command here on initial show of the command list
-
 	return "hello world";
 }
 
-// code for specific modes
-command_picker_input_handler :: (event: Input.Event) {
-	if event.type == .KEYBOARD {
-		// @todo refactor these into commands, bound in the appropriate mode
-		// though these are conceptually similar, for now just have a different command for
-		// command mode delete vs insert mode delete
-		if event.key_pressed && event.key_code == .BACKSPACE {
-			commandPicker.textInput.count -= 1;
-			commandPicker.cursor -= 1;
-			if commandPicker.textInput.count <= 0 {
-				commandPicker.textInput.count = 0;
-				command_picker_refresh_list();
-				return;
-			}
-			command_picker_refresh_list();
-		}
-
-		if event.key_pressed && event.key_code == .ESCAPE {
-			editorMode = .NORMAL;
-			commandPicker.textInput.count = 0;
-		}
-
-		if event.key_pressed && event.key_code == .ENTER {
-			cmd := commandPicker.filteredCommandList[commandPicker.selectedCommand].command; 
-			cmd.execute();
-			commandPicker.textInput.count = 0;
-		}
-		
-		if event.key_pressed && event.key_code == .ARROW_UP {
-			maxCommand := commandPicker.filteredCommandList.count - 1;
-			commandPicker.selectedCommand = clamp(commandPicker.selectedCommand-1, 0, xx maxCommand);
-		}
-		if event.key_pressed && event.key_code == .ARROW_DOWN {
-			maxCommand := commandPicker.filteredCommandList.count - 1;
-			commandPicker.selectedCommand = clamp(commandPicker.selectedCommand+1, 0, xx maxCommand);
-		}
-	}
-	else if event.type == .TEXT_INPUT {
-		char: Utf8_Char = convert_utf32_to_utf8(event.utf32);
-
-		// process the actual text input on the command line
-		for 0..char.count-1 {
-			array_add(*commandPicker.textInput, char.bytes[it]);
-			commandPicker.cursor += 1;
-		}
-
-		// update the filtered command list
-		command_picker_refresh_list();
-	}
-}
-
-filesystem_nav_input_handler :: (event: Input.Event) {
-	if event.type == .KEYBOARD {
-		// @todo refactor these into commands, bound in the appropriate mode
-		// though these are conceptually similar, for now just have a different command for
-		// command mode delete vs insert mode delete
-
-		if fileSystemNav.pendingAction {
-
-			if event.key_pressed && event.key_code == .ENTER {
-				open_document(path_to_string(fileSystemNav.currentPath,,temp));
-				fileSystemNav.pendingAction = false;
-				editorMode = .NORMAL;
-				// @todo might want to just memset filesystemnav?
-				fileSystemNav.textInput.count = 0;
-				fileSystemNav.itemList.count = 0;
-				fileSystemNav.currentPath.words.count = 0;
-			}
-
-			if event.key_pressed && event.key_code == #char "D" {
-			}
-
-			if event.key_pressed && event.key_code == #char "R" {
-			}
-		}
-		else {
-			if event.key_pressed && event.key_code == .BACKSPACE {
-				if fileSystemNav.currentPath.words.count > 0 && fileSystemNav.textInput.count == 0 {
-					fileSystemNav.currentPath.words.count -= 1;
-					filesystem_nav_refresh_directory_list();
-					return;
-				}
-
-				fileSystemNav.textInput.count -= 1;
-				fileSystemNav.cursor -= 1;
-				if fileSystemNav.textInput.count <= 0 {
-					fileSystemNav.textInput.count = 0;
-					filesystem_nav_filter_directory_list();
-
-					return;
-				}
-				filesystem_nav_filter_directory_list();
-			}
-
-			if event.key_pressed && event.key_code == .ESCAPE {
-				editorMode = .NORMAL;
-				fileSystemNav.textInput.count = 0;
-			}
-
-			if event.key_pressed && event.key_code == .ENTER {
-				item := fileSystemNav.itemList[fileSystemNav.selectedItem];
-
-				array_add(*fileSystemNav.currentPath.words, item.name);
-
-				if platform_is_path_directory(fileSystemNav.currentPath) {
-					filesystem_nav_refresh_directory_list();
-					fileSystemNav.textInput.count = 0;
-				}
-				else {
-					fileSystemNav.pendingAction = true;
-				}
-			}
-
-			if event.key_pressed && event.key_code == .ARROW_UP {
-				maxItems := fileSystemNav.itemList.count - 1;
-				fileSystemNav.selectedItem = clamp(fileSystemNav.selectedItem-1, 0, xx maxItems);
-			}
-			if event.key_pressed && event.key_code == .ARROW_DOWN {
-				maxItems := fileSystemNav.itemList.count - 1;
-				fileSystemNav.selectedItem = clamp(fileSystemNav.selectedItem+1, 0, xx maxItems);
-			}
-		}
-	}
-	else if event.type == .TEXT_INPUT {
-		char: Utf8_Char = convert_utf32_to_utf8(event.utf32);
-
-		// process the actual text input on the command line
-		for 0..char.count-1 {
-			array_add(*fileSystemNav.textInput, char.bytes[it]);
-			fileSystemNav.cursor += 1;
-		}
-		filesystem_nav_filter_directory_list();
-	}
-}
-
-filesystem_nav_refresh_directory_list :: () {
-	fileSystemNav.numToDisplay = 0;
-	array_reset_keeping_memory(*fileSystemNav.itemList);
-	// start with drives
-	if fileSystemNav.currentPath.words.count == 0 {
-		// @todo, at some point it should use the project directory maybe, or the current file
-		for platform_enumerate_logical_drives() {
-			item := array_add(*fileSystemNav.itemList);
-			item.name = copy_string(it); // @todo make an arena for the itemlist itself, reset when we refresh
-			item.sortKey = 1;
-			fileSystemNav.numToDisplay += 1;
-		}
-	} else {
-		visitor :: (info: *File_Visit_Info, items: *[..]FileSystemNavigator.Item) {
-			new_item: FileSystemNavigator.Item;
-			new_item.name = copy_string(info.short_name); // @todo put in arena for itemlist 
-			new_item.sortKey = 1;
-			array_add(items, new_item);
-			fileSystemNav.numToDisplay += 1;
-		}
-		visit_files(path_to_string(fileSystemNav.currentPath,,temp), false, *fileSystemNav.itemList, visitor, visit_directories=true);
-	}
-}
-
-filesystem_nav_filter_directory_list :: () {
-	fileSystemNav.numToDisplay = 0;
-	search_query:= string.{fileSystemNav.textInput.count, fileSystemNav.textInput.data};
-	for * item: fileSystemNav.itemList {
-		score := fuzzy_search(item.name, search_query);
-		item.sortKey = score;
-		if score > 0 {
-			fileSystemNav.numToDisplay += 1;
-		}
-	}
-
-	compare_entries :: (e1: FileSystemNavigator.Item, e2: FileSystemNavigator.Item) -> s64 {
-		diff := e2.sortKey - e1.sortKey;
-		if diff != 0 return diff;
-		// todo: should also sort on other things like folder or file etc
-		return memcmp(e1.name.data, e2.name.data, min(e1.name.count, e2.name.count));
-	}
-	quick_sort(fileSystemNav.itemList, compare_entries);
-
-	maxItem := fileSystemNav.itemList.count - 1;
-	fileSystemNav.selectedItem = clamp(fileSystemNav.selectedItem-1, 0, xx maxItem);
-}
-
-command_picker_refresh_list :: () {
-	search_query:= string.{commandPicker.textInput.count, commandPicker.textInput.data};
-	array_reset_keeping_memory(*commandPicker.filteredCommandList);
-	for command: commandList {
-		score := fuzzy_search(command.name, search_query);
-		entry := array_add(*commandPicker.filteredCommandList);
-		entry.command = *command;
-		entry.sortKey = score;
-	}
-
-	compare_entries :: (e1: CommandPicker.CommandEntry, e2: CommandPicker.CommandEntry) -> s64 {
-		diff := e2.sortKey - e1.sortKey;
-		if diff != 0 return diff;
-		return memcmp(e1.command.name.data, e2.command.name.data, min(e1.command.name.count, e2.command.name.count));
-	}
-	quick_sort(commandPicker.filteredCommandList, compare_entries);
-
-	maxCommand := commandPicker.filteredCommandList.count - 1;
-	commandPicker.selectedCommand = clamp(commandPicker.selectedCommand-1, 0, xx maxCommand);
-}
-
+// primary mode
 normal_mode_input_handler :: (event: Input.Event) {
 	if event.type == .TEXT_INPUT {
 		for command: commandList {
@@ -900,8 +445,6 @@ Utf8_Char :: struct {
     count: s32;
 }
 
-
-
 my_font: *Simp.Dynamic_Font;
 
 Simp  :: #import "Simp";
@@ -911,19 +454,23 @@ Input :: #import "Input";
 
 #import "Basic";
 #import "Math";
-#import "System";  // For get_path_of_running_executable. @Cleanup.
-#import "String";  // For path_strip_filename. @Cleanup.
+#import "System";
+#import "String";
 #import "File";
 #import "File_Utilities";
 #import "Unicode";
 #import "Sort";
 
+// @todo: this should be moved to a relevant "platform file"
 kernel32 :: #system_library "kernel32";
 #import "Windows";
 #import "Windows_Utf8";
 GetLogicalDriveStringsW :: (nBufferLength: DWORD, lpBuffer: *u16) -> DWORD #foreign kernel32;
 
 #load "rect.jai";
+#load "command_picker.jai";
+#load "filesystem_navigator.jai";
+#load "draw.jai";
 
 #run {
     #if OS == .WINDOWS {
