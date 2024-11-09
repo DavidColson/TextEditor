@@ -7,7 +7,7 @@ draw_one_frame :: () {
 
     time := seconds_since_init();
 
-	draw_panel(mainPanel);
+	draw_panel(*focusedPanel);
     
     Simp.swap_buffers(window);
 }
@@ -16,7 +16,7 @@ draw_rect :: (rect: Rect, color: Vector4) {
 	Simp.immediate_quad(rect.x, rect.y, rect.x + rect.w, rect.y + rect.h, color);
 }
 
-draw_filesystem_navigator :: (panel: Panel) {
+draw_filesystem_navigator :: (panelRect: Rect, navigator: *FilesystemNavigator) {
 	// @todo pull out to general style settings
 	entryPadding := 5;
 	entryHeight := my_font.character_height + entryPadding * 2;
@@ -26,10 +26,10 @@ draw_filesystem_navigator :: (panel: Panel) {
 	headerHeight := my_font.character_height + headerPadding;
 
 	navigatorRect:Rect;
-	navigatorRect.w = panel.rect.w / 2;
-	navigatorRect.h = cast(float) entryHeight * (filesystemNav.numToDisplay + 1);
-	navigatorRect.x = panel.rect.x + (panel.rect.w - navigatorRect.w) / 2;
-	navigatorRect.y = panel.rect.y + headerHeight;
+	navigatorRect.w = panelRect.w / 2;
+	navigatorRect.h = cast(float) entryHeight * (navigator.numToDisplay + 1);
+	navigatorRect.x = panelRect.x + (panelRect.w - navigatorRect.w) / 2;
+	navigatorRect.y = panelRect.y + headerHeight;
 
 	Simp.set_shader_for_color();
 	draw_rect(navigatorRect, Vector4.{0.4, 0.4, 0.4, 1.0});
@@ -44,13 +44,13 @@ draw_filesystem_navigator :: (panel: Panel) {
 	textY := inputRect.y + entryHeight - 10;
 	textX := curPathRect.x + 2;
 
-	if filesystemNav.pendingAction {
+	if navigator.pendingAction {
 		Simp.prepare_text(my_font, "Enter: open file - D: Delete File - R: Rename/Move");
 		Simp.draw_prepared_text(my_font, xx textX, xx textY, Vector4.{0.7, 0.7, 0.7, 1.0});
 	}
 	else {
 		// draw current path as blocks
-		for filesystemNav.currentPath {
+		for navigator.currentPath {
 			width := Simp.prepare_text(my_font, it);
 			blockRect: Rect;
 			blockRect, curPathRect = cut_left(curPathRect, xx width, 2);
@@ -62,16 +62,16 @@ draw_filesystem_navigator :: (panel: Panel) {
 		}
 
 		// draw input filter text
-		Simp.prepare_text(my_font, string.{filesystemNav.textInput.count, filesystemNav.textInput.data});
+		Simp.prepare_text(my_font, string.{navigator.textInput.count, navigator.textInput.data});
 		Simp.draw_prepared_text(my_font, xx textX, xx textY, Vector4.{0.8, 0.8, 0.8, 1.0});
 	}
 
 	entryRect := cut_bottom(navigatorRect, xx entryHeight);
-	for * item, i: filesystemNav.itemList  {
+	for * item, i: navigator.itemList  {
 		if item.sortKey == 0 continue;
 
-		if i == filesystemNav.selectedItem {
-			cmdID := filesystemNav.selectedItem+1;
+		if i == navigator.selectedItem {
+			cmdID := navigator.selectedItem+1;
 			Simp.set_shader_for_color();
 			draw_rect(entryRect, Vector4.{0.5, 0.5, 0.5, 1.0});
 		}
@@ -85,7 +85,7 @@ draw_filesystem_navigator :: (panel: Panel) {
 	}
 }
 
-draw_command_picker :: (panel: Panel) {
+draw_command_picker :: (panelRect: Rect, picker: *CommandPicker) {
 	// @todo pull out to general style settings
 	commandEntryPadding := 5;
 	commandEntryHeight := my_font.character_height + commandEntryPadding * 2;
@@ -95,10 +95,10 @@ draw_command_picker :: (panel: Panel) {
 	headerHeight := my_font.character_height + headerPadding;
 
 	commandsRect:Rect;
-	commandsRect.w = panel.rect.w / 2;
-	commandsRect.h = cast(float) commandEntryHeight * (commandPicker.filteredCommandList.count + 1);
-	commandsRect.x = panel.rect.x + (panel.rect.w - commandsRect.w) / 2;
-	commandsRect.y = panel.rect.y + headerHeight;
+	commandsRect.w = panelRect.w / 2;
+	commandsRect.h = cast(float) commandEntryHeight * (picker.filteredCommandList.count + 1);
+	commandsRect.x = panelRect.x + (panelRect.w - commandsRect.w) / 2;
+	commandsRect.y = panelRect.y + headerHeight;
 
 	Simp.set_shader_for_color();
 	draw_rect(commandsRect, Vector4.{0.4, 0.4, 0.4, 1.0});
@@ -108,17 +108,17 @@ draw_command_picker :: (panel: Panel) {
 	inputRect = shrink(inputRect, 3);
 	draw_rect(inputRect, Vector4.{0.5, 0.5, 0.5, 1.0});
 
-	Simp.prepare_text(my_font, string.{commandPicker.textInput.count, commandPicker.textInput.data});
+	Simp.prepare_text(my_font, string.{picker.textInput.count, picker.textInput.data});
 	textX := inputRect.x + commandEntryPadding;
 	textY := inputRect.y + commandEntryHeight - 10;
 	Simp.draw_prepared_text(my_font, xx textX, xx textY, Vector4.{0.8, 0.8, 0.8, 1.0});
 
 	entryRect := cut_bottom(commandsRect, xx commandEntryHeight);
-	for commandEntry, i: commandPicker.filteredCommandList  {
+	for commandEntry, i: picker.filteredCommandList  {
 		if commandEntry.sortKey == 0 continue;
 
-		if i == commandPicker.selectedCommand {
-			cmdID := commandPicker.selectedCommand+1;
+		if i == picker.selectedCommand {
+			cmdID := picker.selectedCommand+1;
 			Simp.set_shader_for_color();
 			draw_rect(entryRect, Vector4.{0.5, 0.5, 0.5, 1.0});
 		}
@@ -133,7 +133,7 @@ draw_command_picker :: (panel: Panel) {
 	}
 }
 
-draw_panel :: (panel: Panel) {
+draw_panel :: (panel: *Panel) {
 
 	headerPadding := 8;
 	headerHeight := my_font.character_height + headerPadding;
@@ -172,8 +172,8 @@ draw_panel :: (panel: Panel) {
 		}
 	}
 	else {
-		startVisibleLines = clamp(-scrollPos / my_font.character_height, 0, mainPanel.wrappedLines.count - 1);
-		endVisibleLines = clamp(startVisibleLines + cast(s64)heightForCode / my_font.character_height, 0, mainPanel.wrappedLines.count - 1);
+		startVisibleLines = clamp(-scrollPos / my_font.character_height, 0, panel.wrappedLines.count - 1);
+		endVisibleLines = clamp(startVisibleLines + cast(s64)heightForCode / my_font.character_height, 0, panel.wrappedLines.count - 1);
 		visibleLinesTemp: [..]string;
 		visibleLinesTemp.allocator = temp;
 		array_reserve(*visibleLinesTemp, endVisibleLines - startVisibleLines);
@@ -182,7 +182,7 @@ draw_panel :: (panel: Panel) {
 		lineY := textY + my_font.character_height;
 		lastLineNum := -1;
 		for startVisibleLines..endVisibleLines {
-			wrappedLine := mainPanel.wrappedLines[it];
+			wrappedLine := panel.wrappedLines[it];
 			array_add(*visibleLinesTemp, wrappedLine.line);
 
 			if lastLineNum != wrappedLine.lineNum {
@@ -210,10 +210,10 @@ draw_panel :: (panel: Panel) {
 
 	// Draw command list
 	if editorMode == .COMMAND_PICKER {
-		draw_command_picker(panel);
+		draw_command_picker(panel.rect, *panel.commandPicker);
 	}
 
 	if editorMode == .FILESYSTEM_NAVIGATOR {
-		draw_filesystem_navigator(panel);
+		draw_filesystem_navigator(panel.rect, *panel.filesystemNav);
 	}
 }

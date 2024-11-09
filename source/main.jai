@@ -2,10 +2,6 @@ window: Window_Type;
 windowWidth  : s32 = 1920;
 windowHeight : s32 = 1080;
 
-image_test: Simp.Texture;
-
-screenshot_index := 0;
-
 BuildType :: enum u8
 {
 	DEBUG;
@@ -33,14 +29,15 @@ Panel :: struct {
 
 	rect: Rect;
 	commandMessage: string;
+
+	commandPicker: CommandPicker;
+	filesystemNav: FilesystemNavigator;
 }
 
 // globals
 editorMode := EditorMode.NORMAL;
-mainPanel : Panel;
+focusedPanel : Panel;
 mainDocument : Document;
-commandPicker: CommandPicker;
-filesystemNav: FilesystemNavigator;
 scrollPos := 0;
 
 EditorMode :: enum_flags u8 {
@@ -52,12 +49,13 @@ EditorMode :: enum_flags u8 {
 
 
 // options
-lineWrap := true;
-textSize := 15;
-tabSize := 4;
-lineNumbers := true;
+lineWrap :: true;
+textSize :: 15;
+tabSize :: 4;
+lineNumbers :: true;
 
 main :: () {
+
     #if OS == .WINDOWS {
         Windows :: #import "Windows";
         Windows.SetProcessDPIAware();
@@ -82,11 +80,11 @@ main :: () {
 
     my_init_fonts();
 
-	mainPanel.rect.x = 0;
-	mainPanel.rect.y = 0;
-	mainPanel.rect.w = xx windowWidth;
-	mainPanel.rect.h = xx windowHeight;
-	mainPanel.document = *mainDocument;
+	focusedPanel.rect.x = 0;
+	focusedPanel.rect.y = 0;
+	focusedPanel.rect.w = xx windowWidth;
+	focusedPanel.rect.h = xx windowHeight;
+	focusedPanel.document = *mainDocument;
 
 	open_document("C:/Dev/TextEditor/build.jai");
 
@@ -104,11 +102,11 @@ main :: () {
                 windowWidth  = it.width;
                 windowHeight = it.height;
 
-				mainPanel.rect.x = 0;
-				mainPanel.rect.y = 0;
-				mainPanel.rect.w = xx windowWidth;
-				mainPanel.rect.h = xx windowHeight;
-				rescan_wrapped_lines(mainPanel);
+				focusedPanel.rect.x = 0;
+				focusedPanel.rect.y = 0;
+				focusedPanel.rect.w = xx windowWidth;
+				focusedPanel.rect.h = xx windowHeight;
+				rescan_wrapped_lines(focusedPanel);
 
                 if should_reinit my_init_fonts();  // Resize the font for the new window size.
             }
@@ -121,10 +119,10 @@ main :: () {
 				normal_mode_input_handler(it);
 			}
 			else if editorMode & .COMMAND_PICKER {
-				command_picker_input_handler(*commandPicker, it);
+				command_picker_input_handler(*focusedPanel.commandPicker, it);
 			}
 			else if editorMode & .FILESYSTEM_NAVIGATOR {
-				filesystem_nav_input_handler(*filesystemNav, it);
+				filesystem_nav_input_handler(*focusedPanel.filesystemNav, it);
 			}
 		}
 
@@ -137,7 +135,7 @@ main :: () {
 			scrollPos = clamp(scrollPos, -(my_font.character_height * mainDocument.lines.count) + my_font.character_height * 5, 0);
 		}
 		else {
-			scrollPos = clamp(scrollPos, -(my_font.character_height * mainPanel.wrappedLines.count) + my_font.character_height * 5, 0);
+			scrollPos = clamp(scrollPos, -(my_font.character_height * focusedPanel.wrappedLines.count) + my_font.character_height * 5, 0);
 		}
 
         sleep_milliseconds(16);
@@ -172,7 +170,7 @@ open_document :: (path: string) {
 	lastLine.count = mainDocument.bytes.count - lastNewLine;
 	array_add(*mainDocument.lines, lastLine);
 
-	rescan_wrapped_lines(mainPanel);
+	rescan_wrapped_lines(focusedPanel);
 }
 
 my_init_fonts :: () {
@@ -287,7 +285,7 @@ commandList :: Command.[
 
 open_file :: () -> string {
 	editorMode = .FILESYSTEM_NAVIGATOR;
-	filesystem_nav_refresh_directory_list(*filesystemNav);
+	filesystem_nav_refresh_directory_list(*focusedPanel.filesystemNav);
 	return "open file";
 }
 
@@ -298,10 +296,10 @@ save_file :: () -> string {
 open_command_picker :: () -> string {
 	editorMode = .COMMAND_PICKER;
 
-    push_allocator(flat_pool_allocator_proc, *commandPicker.memory);
+    push_allocator(flat_pool_allocator_proc, *focusedPanel.commandPicker.memory);
 
 	for command: commandList {
-		entry := array_add(*commandPicker.filteredCommandList);
+		entry := array_add(*focusedPanel.commandPicker.filteredCommandList);
 		entry.command = *command;
 		entry.sortKey = 10;
 	}
@@ -323,6 +321,11 @@ normal_mode_input_handler :: (event: Input.Event) {
 				// will want to match against the first character only at first
 				// if there is a match, then cool, 
 				// if there are _multiple_ matches, then you need to save the input
+				// how do we know if there are multiple matches?
+					// could put a hash map inside a hash map for the first element?
+					// You could put an element in the hashmap for the first key, and then just put the rest
+					// in the same hashmap
+					// The first key entry will just be marked as "multimap" or something
 				// and wait for another, continuing to check for a match
 				// or similarly, command such as match mode, may have "args", which we'll have to communicate
 				// in the mapping, and then wait for the required number of chars for the arg before continuing
@@ -331,7 +334,7 @@ normal_mode_input_handler :: (event: Input.Event) {
 				// one implementation could be a hash tree, where each entry could be a leaf (a command) or another hash table
 				if input == command.mapping {
 					// found the desired command
-					mainPanel.commandMessage = command.execute();
+					focusedPanel.commandMessage = command.execute();
 				}
 			}
 		}
