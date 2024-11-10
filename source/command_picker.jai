@@ -22,9 +22,11 @@ command_picker_open :: () {
     push_allocator(flat_pool_allocator_proc, *focusedPanel.commandPicker.memory);
 
 	for command: commandList {
-		entry := array_add(*focusedPanel.commandPicker.filteredCommandList);
-		entry.command = *command;
-		entry.sortKey = 10;
+		if !(command.flags & .HIDDEN) {
+			entry := array_add(*focusedPanel.commandPicker.filteredCommandList);
+			entry.command = *command;
+			entry.sortKey = 10;
+		}
 	}
 }
 
@@ -96,10 +98,12 @@ command_picker_refresh_list :: (state: *CommandPicker) {
 	array_reset_keeping_memory(*state.filteredCommandList);
 
 	for command: commandList {
-		score := fuzzy_search(command.name, search_query);
-		entry := array_add(*state.filteredCommandList);
-		entry.command = *command;
-		entry.sortKey = score;
+		if !(command.flags & .HIDDEN) {
+			score := fuzzy_search(command.name, search_query);
+			entry := array_add(*state.filteredCommandList);
+			entry.command = *command;
+			entry.sortKey = score;
+		}
 	}
 
 	compare_entries :: (e1: CommandPicker.CommandEntry, e2: CommandPicker.CommandEntry) -> s64 {

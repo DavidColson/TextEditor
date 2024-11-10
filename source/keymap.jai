@@ -4,8 +4,15 @@ KeyMappingDesc :: struct {
 	keys: string = "";
 }
 
+CommandFlags :: enum_flags u8 {
+	HIDDEN;
+	COMMAND_PICKER_ONLY;
+	FILESYSTEM_NAVIGATOR_ONLY;
+}
+
 Command :: struct {
 	name: string;
+	flags: CommandFlags;
 	execute: ();
 	mappings: []KeyMappingDesc;
 }
@@ -34,25 +41,25 @@ keyMap: KeyMap;
 // such as command picker and filesystem nav commands. They won't show up in the command picker
 // if they can't be selected, filter them out when doing fuzzy filtering
 commandList :: Command.[
-	.{ "Quit", quit, .[.{mode=.NORMAL, keys="Q"}]},
+	.{ "Quit", 0, quit, .[.{mode=.NORMAL, keys="Q"}]},
 
 	// filesystem navigator
-	.{ "Open Filesystem Navigator", open_file, .[.{ mode=.NORMAL, keys="ctrl+o"}]},
-	.{ "Filesystem Navigator - Path Delete", filesystem_nav_delete_path, .[.{ mode=.FILESYSTEM_NAVIGATOR, keys="<backspace>"}] },
-	.{ "Filesystem Navigator - Select Next", filesystem_nav_select_next, .[.{ mode=.FILESYSTEM_NAVIGATOR, keys="<down>"}] },
-	.{ "Filesystem Navigator - Select Previous", filesystem_nav_select_previous, .[.{ mode=.FILESYSTEM_NAVIGATOR, keys="<up>"}] },
-	.{ "Filesystem Navigator - Action Item", filesystem_nav_action_item, .[.{ mode=.FILESYSTEM_NAVIGATOR, keys="<enter>"}] },
-	.{ "Filesystem Navigator - Delete Item", filesystem_nav_delete_item, .[.{ mode=.FILESYSTEM_NAVIGATOR, keys="d"}] },
-	.{ "Filesystem Navigator - Rename/Move Item", filesystem_nav_rename_move_item, .[.{ mode=.FILESYSTEM_NAVIGATOR, keys="r"}] },
+	.{ "Open Filesystem Navigator", 0, open_file, .[.{ mode=.NORMAL, keys="ctrl+o"}]},
+	.{ "Path Delete", .HIDDEN | .FILESYSTEM_NAVIGATOR_ONLY, filesystem_nav_delete_path, .[.{ mode=.FILESYSTEM_NAVIGATOR, keys="<backspace>"}] },
+	.{ "Select Next", .HIDDEN | .FILESYSTEM_NAVIGATOR_ONLY, filesystem_nav_select_next, .[.{ mode=.FILESYSTEM_NAVIGATOR, keys="<down>"}] },
+	.{ "Select Previous", .HIDDEN | .FILESYSTEM_NAVIGATOR_ONLY, filesystem_nav_select_previous, .[.{ mode=.FILESYSTEM_NAVIGATOR, keys="<up>"}] },
+	.{ "Action Item", .HIDDEN | .FILESYSTEM_NAVIGATOR_ONLY, filesystem_nav_action_item, .[.{ mode=.FILESYSTEM_NAVIGATOR, keys="<enter>"}] },
+	.{ "Delete Item", .HIDDEN | .FILESYSTEM_NAVIGATOR_ONLY, filesystem_nav_delete_item, .[.{ mode=.FILESYSTEM_NAVIGATOR, keys="d"}] },
+	.{ "Rename/Move Item", .HIDDEN | .FILESYSTEM_NAVIGATOR_ONLY, filesystem_nav_rename_move_item, .[.{ mode=.FILESYSTEM_NAVIGATOR, keys="r"}] },
 
 	// Command Picker
-	.{ "Open Command Picker", command_picker_open, .[.{ mode=.NORMAL, keys=":"}] },
-	.{ "Command Picker - Delete Previous Char", command_picker_delete_char, .[.{ mode=.COMMAND_PICKER, keys="<backspace>"}] },
-	.{ "Command Picker - Execute Command", command_picker_execute_command, .[.{ mode=.COMMAND_PICKER, keys="<enter>"}] },
-	.{ "Command Picker - Select Next", command_picker_select_next, .[.{ mode=.COMMAND_PICKER, keys="<down>"}] },
-	.{ "Command Picker - Select Previous", command_picker_select_previous, .[.{ mode=.COMMAND_PICKER, keys="<up>"}] },
+	.{ "Open Command Picker", .HIDDEN, command_picker_open, .[.{ mode=.NORMAL, keys=":"}] },
+	.{ "cp Delete Previous Char", .HIDDEN | .COMMAND_PICKER_ONLY, command_picker_delete_char, .[.{ mode=.COMMAND_PICKER, keys="<backspace>"}] },
+	.{ "cp Execute Command", .HIDDEN | .COMMAND_PICKER_ONLY, command_picker_execute_command, .[.{ mode=.COMMAND_PICKER, keys="<enter>"}] },
+	.{ "cp Select Next", .HIDDEN | .COMMAND_PICKER_ONLY, command_picker_select_next, .[.{ mode=.COMMAND_PICKER, keys="<down>"}] },
+	.{ "cp Select Previous", .HIDDEN | .COMMAND_PICKER_ONLY, command_picker_select_previous, .[.{ mode=.COMMAND_PICKER, keys="<up>"}] },
 
-	.{ "Enter Normal Mode", enter_normal_mode, .[
+	.{ "Enter Normal Mode", 0, enter_normal_mode, .[
 		.{ mode=.INSERT, keys="<escape>"},
 		.{ mode=.COMMAND_PICKER, keys="<escape>"},
 		.{ mode=.FILESYSTEM_NAVIGATOR, keys="<escape>"},
@@ -216,11 +223,15 @@ input_handler :: (event: Input.Event) {
 	nodePtr := table_find_pointer(keyMap.pendingKeySequence.children, keyString);
 	if nodePtr {
 		node := <<nodePtr;
-		if node.cmd {
+		if node.cmd  {
 			// for anyone debugging, here's where the actual magic happens,
 			// a command gets called, after we've figured out
 			// what command we're supposed to execute
-			node.cmd.execute();
+			block:= false;
+			if editorMode != .COMMAND_PICKER && node.cmd.flags & .COMMAND_PICKER_ONLY block = true;
+			if editorMode != .FILESYSTEM_NAVIGATOR && node.cmd.flags & .FILESYSTEM_NAVIGATOR_ONLY block = true;
+			if !block node.cmd.execute();
+
 			keyMap.pendingKeySequence = *keyMap.root[editorMode];
 		}
 		else {
