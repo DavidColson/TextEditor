@@ -85,6 +85,8 @@ filesystem_nav_action_item :: () {
 
 filesystem_nav_delete_item :: () {
 	state := *focusedPanel.filesystemNav;
+	// This actually won't work because a letter is consumed by the text input for this widget
+	// unless you made a submode, something to think about when we get here
 	print("Not implemented, delete item");
 }
 

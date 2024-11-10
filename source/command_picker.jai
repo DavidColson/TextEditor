@@ -16,6 +16,18 @@ CommandPicker :: struct {
 	selectedCommand:s32;
 }
 
+command_picker_open :: () {
+	editorMode = .COMMAND_PICKER;
+
+    push_allocator(flat_pool_allocator_proc, *focusedPanel.commandPicker.memory);
+
+	for command: commandList {
+		entry := array_add(*focusedPanel.commandPicker.filteredCommandList);
+		entry.command = *command;
+		entry.sortKey = 10;
+	}
+}
+
 command_picker_reset :: (state: *CommandPicker) {
 	state.cursor = 0;
 	state.selectedCommand = 0;
