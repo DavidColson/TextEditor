@@ -1,7 +1,3 @@
-window: Window_Type;
-windowWidth  : s32 = 1920;
-windowHeight : s32 = 1080;
-
 BuildType :: enum u8
 {
 	DEBUG;
@@ -34,19 +30,24 @@ Panel :: struct {
 	filesystemNav: FilesystemNavigator;
 }
 
-// globals
-editorMode := EditorMode.NORMAL;
-focusedPanel : Panel;
-mainDocument : Document;
-scrollPos := 0;
-
-EditorMode :: enum_flags u8 {
+EditorMode :: enum u8 {
 	NORMAL;
 	INSERT;
 	COMMAND_PICKER;
 	FILESYSTEM_NAVIGATOR;
 }
 
+EDITOR_MODE_NUM :: #run enum_highest_value(EditorMode) + 1;
+
+// globals
+editorMode := EditorMode.NORMAL;
+focusedPanel : Panel;
+mainDocument : Document;
+scrollPos := 0;
+window: Window_Type;
+windowWidth  : s32 = 1920;
+windowHeight : s32 = 1080;
+pendingQuit := false;
 
 // options
 lineWrap :: true;
@@ -55,7 +56,6 @@ tabSize :: 4;
 lineNumbers :: true;
 
 main :: () {
-
     #if OS == .WINDOWS {
         Windows :: #import "Windows";
         Windows.SetProcessDPIAware();
@@ -80,6 +80,8 @@ main :: () {
 
     my_init_fonts();
 
+	rebuild_command_mapping();
+
 	focusedPanel.rect.x = 0;
 	focusedPanel.rect.y = 0;
 	focusedPanel.rect.w = xx windowWidth;
@@ -88,9 +90,8 @@ main :: () {
 
 	open_document("C:/Dev/TextEditor/build.jai");
 
-    quit := false;
     want_screenshot := false;
-    while !quit {
+    while !pendingQuit {
         Input.update_window_events();
 
         for Input.get_window_resizes() {
@@ -113,17 +114,8 @@ main :: () {
         }
 
         for Input.events_this_frame {
-            if it.type == .QUIT then quit = true;
-
-			if editorMode & .NORMAL {
-				normal_mode_input_handler(it);
-			}
-			else if editorMode & .COMMAND_PICKER {
-				command_picker_input_handler(*focusedPanel.commandPicker, it);
-			}
-			else if editorMode & .FILESYSTEM_NAVIGATOR {
-				filesystem_nav_input_handler(*focusedPanel.filesystemNav, it);
-			}
+            if it.type == .QUIT then pendingQuit = true;
+			input_handler(it);
 		}
 
 		draw_one_frame();
@@ -263,37 +255,172 @@ hex_to_color_vec4 :: (src_hex: string) -> Vector4, success: bool {
 
 
 // commands
+KeyMappingDesc :: struct {
+	mode: EditorMode = .NORMAL;
+	keys: string = "";
+}
 
 Command :: struct {
 	name: string;
-	execute: ()->string;
-	// really the mapping and the mode should be tied together as one
-	// you want to be able to access any command in any mode, given an appropriate mapping
-	mode: EditorMode;
-	mapping: string;
+	execute: ();
+	mappings: []KeyMappingDesc;
 }
 
-// command map
-// @Todo for fast access to the command when actually doing commands
-// we should store a hash table that maps the mapping to the command
-// Can probably generate it at startup
+KeyMap :: struct {
+	memory : Flat_Pool;
+	allocator: Allocator;
+	root: [EDITOR_MODE_NUM]KeyMapNode;
+}
+keyMap: KeyMap;
+
+KeyMapNode :: struct {
+	children: *Table(string, *KeyMapNode); // null if leaf node
+	cmd: *Command;
+}
+
 commandList :: Command.[
-	.{ "Open Command List", open_command_picker, .NORMAL, ":"},
-	.{ "Open File", open_file, .COMMAND_PICKER, ":o"},
-	.{ "Save File As", save_file, .COMMAND_PICKER, ":w"},
+	.{ "Open Command List", open_command_picker, .[.{ mode=.NORMAL, keys=":"}] },
+	.{ "Open File", open_file, .[.{ mode=.NORMAL, keys="ctrl+s"}]},
+	.{ "Save File As", save_file, .[.{}]},
+	.{ "Quit", quit, .[.{mode=.NORMAL, keys="Q"}]},
+
+	// filesystem navigator
+	.{ "FSN Path Delete", filesystem_nav_delete_path, .[.{ mode=.FILESYSTEM_NAVIGATOR, keys="<backspace>"}] },
+	.{ "FSN Select Next", filesystem_nav_select_next, .[.{ mode=.FILESYSTEM_NAVIGATOR, keys="<down>"}] },
+	.{ "FSN Select Previous", filesystem_nav_select_previous, .[.{ mode=.FILESYSTEM_NAVIGATOR, keys="<up>"}] },
+	.{ "FSN Action Item", filesystem_nav_action_item, .[.{ mode=.FILESYSTEM_NAVIGATOR, keys="<enter>"}] },
+	.{ "FSN Delete Item", filesystem_nav_delete_item, .[.{ mode=.FILESYSTEM_NAVIGATOR, keys="d"}] },
+	.{ "FSN Rename/Move Item", filesystem_nav_rename_move_item, .[.{ mode=.FILESYSTEM_NAVIGATOR, keys="r"}] },
+
+	// Command Picker
+	.{ "CP Delete Previous Char", command_picker_delete_char, .[.{ mode=.COMMAND_PICKER, keys="<backspace>"}] },
+	.{ "CP Execute Command", command_picker_execute_command, .[.{ mode=.COMMAND_PICKER, keys="<enter>"}] },
+	.{ "CP Select Next", command_picker_select_next, .[.{ mode=.COMMAND_PICKER, keys="<down>"}] },
+	.{ "CP Select Previous", command_picker_select_previous, .[.{ mode=.COMMAND_PICKER, keys="<up>"}] },
+
+	// special keys will be <backspace>, <esc> etc
+	// modifiers will be ctrl+b, W, alt+g, ctrl+<tab>
+	// note, we dont store shift as a modifier, we store the capital letter or symbol directly
+	// Modifiers plus letters would be ctrl+wl
+	.{ "Enter Normal Mode", enter_normal_mode, .[
+		.{ mode=.INSERT, keys="<escape>"},
+		.{ mode=.COMMAND_PICKER, keys="<escape>"},
+		.{ mode=.FILESYSTEM_NAVIGATOR, keys="<escape>"},
+	]},
 ];
 
-open_file :: () -> string {
+rebuild_command_mapping :: ()  {
+	keyMap.allocator = Allocator.{proc = flat_pool_allocator_proc, data = *keyMap.memory};
+
+	for mode: 0..EDITOR_MODE_NUM-1 {
+		keyMap.root[mode].children = New(Table(string, *KeyMapNode),,keyMap.allocator);
+	}
+
+	// for loop through the command list
+	for * cmd : commandList {
+		for mapping : cmd.mappings {
+			// Grab the mapping for each command
+			// for each key in the mapping (single char, or modified key, or special key)
+			keys := mapping.keys;
+			curNode := *keyMap.root[mapping.mode]; 
+			while keys.count > 0 {
+				hashKey:= keys;
+				if begins_with(keys, "ctrl+") {
+					advance(*keys, 5); 
+				}
+
+				if begins_with(keys, "shift+") {
+					assert(false, "You can't bind shift like this, use the capital letter/symbol directly");
+				}
+
+				if begins_with(keys, "alt+") {
+					advance(*keys, 4); 
+				}
+
+				if begins_with(keys, "<backspace>") {
+					advance(*keys, 11); 
+				}
+				else if begins_with(keys, "<enter>") {
+					advance(*keys, 7); 
+				}
+				else if begins_with(keys, "<escape>") {
+					advance(*keys, 8); 
+				}
+				else if begins_with(keys, "<left>") {
+					advance(*keys, 6); 
+				}
+				else if begins_with(keys, "<right>") {
+					advance(*keys, 7); 
+				}
+				else if begins_with(keys, "<up>") {
+					advance(*keys, 4); 
+				}
+				else if begins_with(keys, "<down>") {
+					advance(*keys, 6); 
+				}
+				else {
+					advance(*keys, 1); // take just the one letter key
+				}
+
+				// hashkey should be just what we grabbed from this loop iteration
+				hashKey.count = hashKey.count - keys.count;
+
+				// a few possibilities
+				// if keys.count == 0, this is a leaf
+				// If there's already an entry in the current table, assert
+				// No existing entry, add the entry now
+				// if keys.count > 0 this is not a leaf
+				// If there's no entry, add a new non-leaf entry set this as current table
+				// if there's already a non-leaf entry, set as current and loop
+				// if there's already a leaf entry, assert
+
+				if keys.count == 0 {
+					assert(!table_contains(curNode.children, hashKey), "Mapping already exists");
+					newNode := New(KeyMapNode,,keyMap.allocator);
+					newNode.cmd = cmd;
+					table_add(curNode.children, hashKey, newNode);
+				}
+				else if keys.count > 0 {
+					entry, exists := table_find(curNode.children, hashKey);
+					if !exists { 
+						newNode := New(KeyMapNode,,keyMap.allocator);
+						newNode.children = New(Table(string, *KeyMapNode),,keyMap.allocator);
+						curNode = <<table_add(curNode.children, hashKey, newNode); 
+					}
+					else {
+						assert(entry.cmd == null, "Start of this key sequence already exists as a direct mapping");
+						curNode = entry;
+					}
+				}
+			}
+		}
+	}
+	pendingKeySequence = *keyMap.root[editorMode];
+}
+
+quit :: () {
+	pendingQuit = true;
+}
+
+open_file :: () {
 	editorMode = .FILESYSTEM_NAVIGATOR;
 	filesystem_nav_refresh_directory_list(*focusedPanel.filesystemNav);
-	return "open file";
 }
 
-save_file :: () -> string {
-	return "save file";
+save_file :: () {
 }
 
-open_command_picker :: () -> string {
+enter_normal_mode :: () {
+	if editorMode == .FILESYSTEM_NAVIGATOR {
+		filesystem_nav_reset(*focusedPanel.filesystemNav);
+	}
+	else if editorMode == .COMMAND_PICKER {
+		command_picker_reset(*focusedPanel.commandPicker);
+	}
+	editorMode = .NORMAL;
+}
+
+open_command_picker :: () {
 	editorMode = .COMMAND_PICKER;
 
     push_allocator(flat_pool_allocator_proc, *focusedPanel.commandPicker.memory);
@@ -303,40 +430,113 @@ open_command_picker :: () -> string {
 		entry.command = *command;
 		entry.sortKey = 10;
 	}
-	
-	// @todo recommend sorting on last used command here on initial show of the command list
-	return "hello world";
 }
 
-// primary mode
-normal_mode_input_handler :: (event: Input.Event) {
+// @todo: move
+pendingKeySequence: *KeyMapNode;
+ctrlHeld:= false;
+altHeld:= false;
+shiftHeld:= false;
+input_handler :: (event: Input.Event) {
+	keyString: string;
+
 	if event.type == .TEXT_INPUT {
-		for command: commandList {
-			// is this command relevant for the current mode?
-			if command.mode & editorMode {
-				char: Utf8_Char = convert_utf32_to_utf8(event.utf32);
-				input:= to_string(*char);
+		char: Utf8_Char = convert_utf32_to_utf8(event.utf32);
 
-				// @todo there will be mappings that are multi character, so you 
-				// will want to match against the first character only at first
-				// if there is a match, then cool, 
-				// if there are _multiple_ matches, then you need to save the input
-				// how do we know if there are multiple matches?
-					// could put a hash map inside a hash map for the first element?
-					// You could put an element in the hashmap for the first key, and then just put the rest
-					// in the same hashmap
-					// The first key entry will just be marked as "multimap" or something
-				// and wait for another, continuing to check for a match
-				// or similarly, command such as match mode, may have "args", which we'll have to communicate
-				// in the mapping, and then wait for the required number of chars for the arg before continuing
-
-
-				// one implementation could be a hash tree, where each entry could be a leaf (a command) or another hash table
-				if input == command.mapping {
-					// found the desired command
-					focusedPanel.commandMessage = command.execute();
-				}
+		// if there are no pending key sequences allow the current mode to take the text input
+		if pendingKeySequence == *keyMap.root[editorMode] {
+			if editorMode == .COMMAND_PICKER {
+				command_picker_handle_text_input(*focusedPanel.commandPicker, char);
+				return;
 			}
+			else if editorMode == .FILESYSTEM_NAVIGATOR {
+				filesystem_nav_handle_text_input(*focusedPanel.filesystemNav, char);
+				return;
+			}
+		}
+		builder : String_Builder;
+		builder.allocator = temp;
+		init_string_builder(*builder);
+
+		if ctrlHeld {
+			append(*builder, "ctrl+");
+		}
+		if altHeld {
+			append(*builder, "alt+");
+		}
+		append(*builder, to_string(*char));
+
+		keyString= builder_to_string(*builder,,temp);
+	}
+	else if event.type == .KEYBOARD {
+		builder : String_Builder;
+		builder.allocator = temp;
+		init_string_builder(*builder);
+
+		if event.key_pressed && event.key_code == .CTRL {
+			ctrlHeld = true;
+		}
+		else if !event.key_pressed && event.key_code == .CTRL {
+			ctrlHeld = false;
+		}
+		if event.key_pressed && event.key_code == .ALT {
+			altHeld = true;
+		}
+		else if !event.key_pressed && event.key_code == .ALT {
+			altHeld = false;
+		}
+		if event.key_pressed && event.key_code == .SHIFT {
+			shiftHeld = true;
+		}
+		else if !event.key_pressed && event.key_code == .SHIFT {
+			shiftHeld = false;
+		}
+
+		// modifiers first
+		if ctrlHeld {
+			append(*builder, "ctrl+");
+		}
+		if shiftHeld {
+			append(*builder, "shift+");
+		}
+		if altHeld {
+			append(*builder, "alt+");
+		}
+
+		gotInput := true;
+		if event.key_pressed && event.key_code == .BACKSPACE {
+			append(*builder, "<backspace>");
+		}
+		else if event.key_pressed && event.key_code == .ESCAPE {
+			append(*builder, "<escape>");
+		}
+		else if event.key_pressed && event.key_code == .ARROW_UP {
+			append(*builder, "<up>");
+		}
+		else if event.key_pressed && event.key_code == .ARROW_DOWN {
+			append(*builder, "<down>");
+		}
+		else if event.key_pressed && event.key_code == .ENTER {
+			append(*builder, "<enter>");
+		}
+		else {
+			gotInput = false;
+		}
+
+		if gotInput keyString = builder_to_string(*builder,,temp);
+	}
+
+	if keyString.count == 0 return;
+
+	nodePtr := table_find_pointer(pendingKeySequence.children, keyString);
+	if nodePtr {
+		node := <<nodePtr;
+		if node.cmd {
+			node.cmd.execute();
+			pendingKeySequence = *keyMap.root[editorMode];
+		}
+		else {
+			pendingKeySequence = node;
 		}
 	}
 }
@@ -460,6 +660,7 @@ Input :: #import "Input";
 #import "Unicode";
 #import "Sort";
 #import "Flat_Pool";
+#import "Hash_Table";
 
 // @todo: this should be moved to a relevant "platform file"
 kernel32 :: #system_library "kernel32";

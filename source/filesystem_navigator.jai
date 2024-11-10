@@ -29,82 +29,76 @@ filesystem_nav_reset :: (state: *FilesystemNavigator) {
 	array_reset(*state.currentPath);
 }
 
-filesystem_nav_input_handler :: (state: *FilesystemNavigator, event: Input.Event) {
-	if event.type == .KEYBOARD {
-		// @todo refactor these into commands, bound in the appropriate mode
-		// though these are conceptually similar, for now just have a different command for
-		// command mode delete vs insert mode delete
+filesystem_nav_delete_path :: () {
+	state := *focusedPanel.filesystemNav;
 
-		if state.pendingAction {
-			if event.key_pressed && event.key_code == .ENTER {
-				open_document(make_path_from_strings(state.currentPath,,temp));
-				editorMode = .NORMAL;
-				filesystem_nav_reset(state);
-			}
+	if state.currentPath.count > 0 && state.textInput.count == 0 {
+		state.currentPath.count -= 1;
+		filesystem_nav_refresh_directory_list(state);
+		return;
+	}
 
-			if event.key_pressed && event.key_code == #char "D" {
-			}
+	state.textInput.count -= 1;
+	state.cursor -= 1;
+	if state.textInput.count <= 0 {
+		state.textInput.count = 0;
+		filesystem_nav_filter_directory_list(state);
 
-			if event.key_pressed && event.key_code == #char "R" {
-			}
+		return;
+	}
+	filesystem_nav_filter_directory_list(state);
+}
+
+filesystem_nav_select_next :: () {
+	state := *focusedPanel.filesystemNav;
+	maxItems := state.itemList.count - 1;
+	state.selectedItem = clamp(state.selectedItem+1, 0, xx maxItems);
+}
+
+filesystem_nav_select_previous :: () {
+	state := *focusedPanel.filesystemNav;
+	maxItems := state.itemList.count - 1;
+	state.selectedItem = clamp(state.selectedItem-1, 0, xx maxItems);
+}
+
+filesystem_nav_action_item :: () {
+	state := *focusedPanel.filesystemNav;
+
+	if state.pendingAction {
+		open_document(make_path_from_strings(state.currentPath,,temp));
+		editorMode = .NORMAL;
+		filesystem_nav_reset(state);
+	} else {
+		item := state.itemList[state.selectedItem];
+
+		array_add(*state.currentPath, item.name,, get_allocator(state));
+
+		if platform_is_path_directory(make_path_from_strings(state.currentPath,,temp)) {
+			filesystem_nav_refresh_directory_list(state);
+			state.textInput.count = 0;
 		}
 		else {
-			if event.key_pressed && event.key_code == .BACKSPACE {
-				if state.currentPath.count > 0 && state.textInput.count == 0 {
-					state.currentPath.count -= 1;
-					filesystem_nav_refresh_directory_list(state);
-					return;
-				}
-
-				state.textInput.count -= 1;
-				state.cursor -= 1;
-				if state.textInput.count <= 0 {
-					state.textInput.count = 0;
-					filesystem_nav_filter_directory_list(state);
-
-					return;
-				}
-				filesystem_nav_filter_directory_list(state);
-			}
-
-			if event.key_pressed && event.key_code == .ESCAPE {
-				editorMode = .NORMAL;
-				filesystem_nav_reset(state);
-			}
-
-			if event.key_pressed && event.key_code == .ENTER {
-				item := state.itemList[state.selectedItem];
-
-				array_add(*state.currentPath, item.name,, get_allocator(state));
-
-				if platform_is_path_directory(make_path_from_strings(state.currentPath,,temp)) {
-					filesystem_nav_refresh_directory_list(state);
-					state.textInput.count = 0;
-				}
-				else {
-					state.pendingAction = true;
-				}
-			}
-
-			if event.key_pressed && event.key_code == .ARROW_UP {
-				maxItems := state.itemList.count - 1;
-				state.selectedItem = clamp(state.selectedItem-1, 0, xx maxItems);
-			}
-			if event.key_pressed && event.key_code == .ARROW_DOWN {
-				maxItems := state.itemList.count - 1;
-				state.selectedItem = clamp(state.selectedItem+1, 0, xx maxItems);
-			}
+			state.pendingAction = true;
 		}
 	}
-	else if event.type == .TEXT_INPUT {
-		char: Utf8_Char = convert_utf32_to_utf8(event.utf32);
+}
 
-		for 0..char.count-1 {
-			array_add(*state.textInput, char.bytes[it],,get_allocator(state));
-			state.cursor += 1;
-		}
-		filesystem_nav_filter_directory_list(state);
+filesystem_nav_delete_item :: () {
+	state := *focusedPanel.filesystemNav;
+	print("Not implemented, delete item");
+}
+
+filesystem_nav_rename_move_item :: () {
+	state := *focusedPanel.filesystemNav;
+	print("Not implemented, rename/move item");
+}
+
+filesystem_nav_handle_text_input :: (state: *FilesystemNavigator, char: Utf8_Char) {
+	for 0..char.count-1 {
+		array_add(*state.textInput, char.bytes[it],,get_allocator(state));
+		state.cursor += 1;
 	}
+	filesystem_nav_filter_directory_list(state);
 }
 
 filesystem_nav_refresh_directory_list :: (state: *FilesystemNavigator) {

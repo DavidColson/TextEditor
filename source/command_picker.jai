@@ -28,58 +28,53 @@ command_picker_reset :: (state: *CommandPicker) {
 	}
 }
 
-command_picker_input_handler :: (state: *CommandPicker, event: Input.Event) {
-	if event.type == .KEYBOARD {
-		// @todo refactor these into commands, bound in the appropriate mode
-		// though these are conceptually similar, for now just have a different command for
-		// command mode delete vs insert mode delete
-		if event.key_pressed && event.key_code == .BACKSPACE {
-			state.textInput.count -= 1;
-			state.cursor -= 1;
-			if state.textInput.count <= 0 {
-				state.textInput.count = 0;
-				command_picker_refresh_list(state);
-				return;
-			}
-			command_picker_refresh_list(state);
-		}
+command_picker_delete_char :: () {
+	state := *focusedPanel.commandPicker;
 
-		if event.key_pressed && event.key_code == .ESCAPE {
-			editorMode = .NORMAL;
-			command_picker_reset(state);
-		}
-
-		if event.key_pressed && event.key_code == .ENTER {
-			cmd := state.filteredCommandList[state.selectedCommand].command; 
-			editorMode = .NORMAL;
-			cmd.execute();
-			command_picker_reset(state);
-		}
-		
-		if event.key_pressed && event.key_code == .ARROW_UP {
-			maxCommand := state.filteredCommandList.count - 1;
-			state.selectedCommand = clamp(state.selectedCommand-1, 0, xx maxCommand);
-		}
-		if event.key_pressed && event.key_code == .ARROW_DOWN {
-			maxCommand := state.filteredCommandList.count - 1;
-			state.selectedCommand = clamp(state.selectedCommand+1, 0, xx maxCommand);
-		}
-	}
-	else if event.type == .TEXT_INPUT {
-		char: Utf8_Char = convert_utf32_to_utf8(event.utf32);
-
-		// process the actual text input on the command line
-		{
-			push_allocator(flat_pool_allocator_proc, *state.memory);
-			for 0..char.count-1 {
-				array_add(*state.textInput, char.bytes[it]);
-				state.cursor += 1;
-			}
-		}
-
-		// update the filtered command list
+	state.textInput.count -= 1;
+	state.cursor -= 1;
+	if state.textInput.count <= 0 {
+		state.textInput.count = 0;
 		command_picker_refresh_list(state);
+		return;
 	}
+	command_picker_refresh_list(state);
+}
+
+command_picker_execute_command :: () {
+	state := *focusedPanel.commandPicker;
+
+	cmd := state.filteredCommandList[state.selectedCommand].command; 
+	editorMode = .NORMAL;
+	cmd.execute();
+	command_picker_reset(state);
+}
+
+command_picker_select_next :: () {
+	state := *focusedPanel.commandPicker;
+
+	maxCommand := state.filteredCommandList.count - 1;
+	state.selectedCommand = clamp(state.selectedCommand+1, 0, xx maxCommand);
+}
+
+command_picker_select_previous :: () {
+	state := *focusedPanel.commandPicker;
+
+	maxCommand := state.filteredCommandList.count - 1;
+	state.selectedCommand = clamp(state.selectedCommand-1, 0, xx maxCommand);
+}
+
+command_picker_handle_text_input :: (state: *CommandPicker, char: Utf8_Char) {
+	{
+		push_allocator(flat_pool_allocator_proc, *state.memory);
+		for 0..char.count-1 {
+			array_add(*state.textInput, char.bytes[it]);
+			state.cursor += 1;
+		}
+	}
+
+	// update the filtered command list
+	command_picker_refresh_list(state);
 }
 
 command_picker_refresh_list :: (state: *CommandPicker) {
