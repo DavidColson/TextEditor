@@ -43,21 +43,60 @@ keyMap: KeyMap;
 commandList :: Command.[
 	.{ "Quit", 0, quit, .[.{mode=.NORMAL, keys="Q"}]},
 
+	// normal mode stuff
+	.{ "Move one char left", 0, move_one_char_left, .[
+		.{ mode=.NORMAL, keys="h"}
+	]},
+	.{ "Move one char right", 0, move_one_char_right, .[
+		.{ mode=.NORMAL, keys="l"}
+	]},
+	.{ "Move one line down", 0, move_one_line_down, .[
+		.{ mode=.NORMAL, keys="j"}
+	]},
+	.{ "Move one line up", 0, move_one_line_up, .[
+		.{ mode=.NORMAL, keys="k"}
+	]},
+
+
 	// filesystem navigator
-	.{ "Open Filesystem Navigator", 0, open_file, .[.{ mode=.NORMAL, keys="ctrl+o"}]},
-	.{ "Path Delete", .HIDDEN | .FILESYSTEM_NAVIGATOR_ONLY, filesystem_nav_delete_path, .[.{ mode=.FILESYSTEM_NAVIGATOR, keys="<backspace>"}] },
-	.{ "Select Next", .HIDDEN | .FILESYSTEM_NAVIGATOR_ONLY, filesystem_nav_select_next, .[.{ mode=.FILESYSTEM_NAVIGATOR, keys="<down>"}] },
-	.{ "Select Previous", .HIDDEN | .FILESYSTEM_NAVIGATOR_ONLY, filesystem_nav_select_previous, .[.{ mode=.FILESYSTEM_NAVIGATOR, keys="<up>"}] },
-	.{ "Action Item", .HIDDEN | .FILESYSTEM_NAVIGATOR_ONLY, filesystem_nav_action_item, .[.{ mode=.FILESYSTEM_NAVIGATOR, keys="<enter>"}] },
-	.{ "Delete Item", .HIDDEN | .FILESYSTEM_NAVIGATOR_ONLY, filesystem_nav_delete_item, .[.{ mode=.FILESYSTEM_NAVIGATOR, keys="d"}] },
-	.{ "Rename/Move Item", .HIDDEN | .FILESYSTEM_NAVIGATOR_ONLY, filesystem_nav_rename_move_item, .[.{ mode=.FILESYSTEM_NAVIGATOR, keys="r"}] },
+	.{ "Open Filesystem Navigator", 0, open_file, .[
+		.{ mode=.NORMAL, keys="ctrl+o"}
+	]},
+	.{ "Path Delete", .HIDDEN | .FILESYSTEM_NAVIGATOR_ONLY, filesystem_nav_delete_path, .[
+		.{ mode=.FILESYSTEM_NAVIGATOR, keys="<backspace>"}
+	]},
+	.{ "Select Next", .HIDDEN | .FILESYSTEM_NAVIGATOR_ONLY, filesystem_nav_select_next, .[
+		.{ mode=.FILESYSTEM_NAVIGATOR, keys="<down>"}
+	]},
+	.{ "Select Previous", .HIDDEN | .FILESYSTEM_NAVIGATOR_ONLY, filesystem_nav_select_previous, .[
+		.{ mode=.FILESYSTEM_NAVIGATOR, keys="<up>"}
+	]},
+	.{ "Action Item", .HIDDEN | .FILESYSTEM_NAVIGATOR_ONLY, filesystem_nav_action_item, .[
+		.{ mode=.FILESYSTEM_NAVIGATOR, keys="<enter>"}
+	]},
+	.{ "Delete Item", .HIDDEN | .FILESYSTEM_NAVIGATOR_ONLY, filesystem_nav_delete_item, .[
+		.{ mode=.FILESYSTEM_NAVIGATOR, keys="d"}
+	]},
+	.{ "Rename/Move Item", .HIDDEN | .FILESYSTEM_NAVIGATOR_ONLY, filesystem_nav_rename_move_item, .[
+		.{ mode=.FILESYSTEM_NAVIGATOR, keys="r"}
+	]},
 
 	// Command Picker
-	.{ "Open Command Picker", .HIDDEN, command_picker_open, .[.{ mode=.NORMAL, keys=":"}] },
-	.{ "cp Delete Previous Char", .HIDDEN | .COMMAND_PICKER_ONLY, command_picker_delete_char, .[.{ mode=.COMMAND_PICKER, keys="<backspace>"}] },
-	.{ "cp Execute Command", .HIDDEN | .COMMAND_PICKER_ONLY, command_picker_execute_command, .[.{ mode=.COMMAND_PICKER, keys="<enter>"}] },
-	.{ "cp Select Next", .HIDDEN | .COMMAND_PICKER_ONLY, command_picker_select_next, .[.{ mode=.COMMAND_PICKER, keys="<down>"}] },
-	.{ "cp Select Previous", .HIDDEN | .COMMAND_PICKER_ONLY, command_picker_select_previous, .[.{ mode=.COMMAND_PICKER, keys="<up>"}] },
+	.{ "Open Command Picker", .HIDDEN, command_picker_open, .[
+		.{ mode=.NORMAL, keys=":"}
+	]},
+	.{ "Delete Previous Char", .HIDDEN | .COMMAND_PICKER_ONLY, command_picker_delete_char, .[
+		.{ mode=.COMMAND_PICKER, keys="<backspace>"}
+	]},
+	.{ "Execute Command", .HIDDEN | .COMMAND_PICKER_ONLY, command_picker_execute_command, .[
+		.{ mode=.COMMAND_PICKER, keys="<enter>"}
+	]},
+	.{ "Select Next", .HIDDEN | .COMMAND_PICKER_ONLY, command_picker_select_next, .[
+		.{ mode=.COMMAND_PICKER, keys="<down>"}
+	]},
+	.{ "Select Previous", .HIDDEN | .COMMAND_PICKER_ONLY, command_picker_select_previous, .[
+		.{ mode=.COMMAND_PICKER, keys="<up>"}
+	]},
 
 	.{ "Enter Normal Mode", 0, enter_normal_mode, .[
 		.{ mode=.INSERT, keys="<escape>"},

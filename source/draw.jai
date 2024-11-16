@@ -150,52 +150,52 @@ draw_panel :: (panel: *Panel) {
 	textX := 0;
 	textY := headerHeight;
 	if lineNumbers {
-		nDigits := tprint("%", mainDocument.lines.count).count;
+		nDigits := tprint("%", mainDocument.lineStarts.count).count;
 		textX = my_font.mono_x_advance * (nDigits + 2); // extra 2 for padding
 	}
 
 	startVisibleLines : s64;
 	endVisibleLines : s64;
-	visibleLines: []string;
-	if !lineWrap {
-		startVisibleLines = clamp(-scrollPos / my_font.character_height, 0, mainDocument.lines.count - 1);
-		endVisibleLines = clamp(startVisibleLines + cast(s64)heightForCode / my_font.character_height, 0, mainDocument.lines.count - 1);
-		visibleLines.data = mainDocument.lines.data + startVisibleLines;
-		visibleLines.count = endVisibleLines - startVisibleLines;
+	visibleLines: [..]string;
+	visibleLines.allocator = temp;
 
-		// line numbers
-		lineY := textY + my_font.character_height;
-		for startVisibleLines..endVisibleLines {
-			width := Simp.prepare_text(my_font, tprint("%", it+1));
-			Simp.draw_prepared_text(my_font, (textX - width - my_font.mono_x_advance), lineY, Vector4.{0.5, 0.5, 0.5, 1.0});
-			lineY += my_font.character_height;
-		}
-	}
-	else {
-		startVisibleLines = clamp(-scrollPos / my_font.character_height, 0, panel.wrappedLines.count - 1);
-		endVisibleLines = clamp(startVisibleLines + cast(s64)heightForCode / my_font.character_height, 0, panel.wrappedLines.count - 1);
-		visibleLinesTemp: [..]string;
-		visibleLinesTemp.allocator = temp;
-		array_reserve(*visibleLinesTemp, endVisibleLines - startVisibleLines);
+	startVisibleLines = clamp(-scrollPos / my_font.character_height, 0, mainDocument.lineStarts.count - 1);
+	endVisibleLines = clamp(startVisibleLines + cast(s64)heightForCode / my_font.character_height, 0, mainDocument.lineStarts.count - 1);
 
-		// line numbers
-		lineY := textY + my_font.character_height;
-		lastLineNum := -1;
-		for startVisibleLines..endVisibleLines {
-			wrappedLine := panel.wrappedLines[it];
-			array_add(*visibleLinesTemp, wrappedLine.line);
-
-			if lastLineNum != wrappedLine.lineNum {
-				width := Simp.prepare_text(my_font, tprint("%", wrappedLine.lineNum));
-				Simp.draw_prepared_text(my_font, (textX - width - my_font.mono_x_advance), lineY, Vector4.{0.5, 0.5, 0.5, 1.0});
-				lastLineNum = wrappedLine.lineNum;
-			}
-			lineY += my_font.character_height;
-		}
-		visibleLines = visibleLinesTemp;
+	// Draw line numbers
+	lineY := textY + my_font.character_height;
+	for startVisibleLines..endVisibleLines {
+		width := Simp.prepare_text(my_font, tprint("%", it+1));
+		Simp.draw_prepared_text(my_font, (textX - width - my_font.mono_x_advance), lineY, Vector4.{0.5, 0.5, 0.5, 1.0});
+		lineY += my_font.character_height;
 	}
 
-	Simp.draw_code(my_font, textX, textY, xx my_font.character_height, visibleLines);
+	// Draw the actual code glyphs, with custom rendering
+	Simp.draw_code_prepare(my_font,xx textX,xx textY, xx my_font.character_height);
+	lineY = textY + my_font.character_height;
+	for startVisibleLines..endVisibleLines {
+		line:= document_get_line_content(panel.document, xx it);
+		Simp.draw_code_line(line);
+	}
+	Simp.draw_code_end();
+
+	// Draw cursor
+	if panel.cursorLine >= startVisibleLines && panel.cursorLine <= endVisibleLines {
+		Simp.set_shader_for_color();
+
+
+		cursorRect: Rect;
+		cursorRect.x = cast(float)(textX + my_font.mono_x_advance * panel.cursorColumn);
+		cursorRect.y = cast(float)(textY - my_font.typical_descender + my_font.character_height * (panel.cursorLine-startVisibleLines));
+		cursorRect.w = cast(float)my_font.mono_x_advance;
+		cursorRect.h = cast(float)my_font.character_height;
+
+		draw_rect(cursorRect, Vector4.{0.9, 0.9, 0.9, 1.0});
+
+		overlayChar := document_offset_from_coordinate(panel.document, panel.cursorLine, panel.cursorColumn);
+		Simp.prepare_text(my_font, tprint("%", cast(string) u8.[panel.document.bytes[overlayChar]]));
+		Simp.draw_prepared_text(my_font, xx cursorRect.x, xx cursorRect.y + my_font.typical_descender + my_font.character_height, Vector4.{0.1, 0.1, 0.1, 1.0});
+	}
 
 	// Draw panel header + scroll bar
 	Simp.set_shader_for_color();

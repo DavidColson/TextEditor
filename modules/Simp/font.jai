@@ -449,7 +449,7 @@ convert_to_temporary_glyphs :: (using font: *Dynamic_Font, s: string, effect_fla
     if (latin_font) flush_my_latin_font(font, effect_flags);
 }
 
-draw_code :: (font: *Dynamic_Font, x: s64, y: s64, line_height: float, visible_lines: [] string, tab_size: s64 = 4, start_col := 0) {
+draw_code_prepare :: (font: *Dynamic_Font, x: s32, y: s32, float, tab_size: s32 = 4) {
     // Setup OpenGL stuff. We do it all in one place because it's easier and there will be only one backend - GL.
     // Otherwise we would have to create temporary glyphs and pass them on to the backend draw function.
     CheckInit();
@@ -464,126 +464,123 @@ draw_code :: (font: *Dynamic_Font, x: s64, y: s64, line_height: float, visible_l
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
-    last_texture: GLuint = 0xFFFFFFFF;
+	state.code_font = font;
+	state.code_x = x;
+	state.code_y = xx (y + font.character_height);
+	state.code_tab_size = tab_size;
+	state.code_last_used_tex = 0xFFFFFFFF;
+}
+
+draw_code_line :: (line_content: string) {
+    CheckInit();
 
 	draw_letter_quad :: (font: *Dynamic_Font, quad: Font_Quad, color: Vector4) {
+		page := quad.glyph.page;
 
-/*
-        // @Robustness: These assume our coordinates are in screenspace...
-        if quad.x1 < 0 return;
-        if quad.x0 > cast(float) render_target_width return;
-        if quad.y1 < 0 return;
-        if quad.y0 > cast(float) render_target_height return;
-*/
-        page := quad.glyph.page;
+		if page.bitmap_data.width  <= 1 return;
+		if page.bitmap_data.height <= 1 return;
 
-        if page.bitmap_data.width  <= 1 return;
-        if page.bitmap_data.height <= 1 return;
+		using quad;
+		uv0 := Vector2.{u0, v0};
+		uv1 := Vector2.{u1, v0};
+		uv2 := Vector2.{u1, v1};
+		uv3 := Vector2.{u0, v1};
 
-        using quad;
-        uv0 := Vector2.{u0, v0};
-        uv1 := Vector2.{u1, v0};
-        uv2 := Vector2.{u1, v1};
-        uv3 := Vector2.{u0, v1};
+		immediate_quad(p0, p1, p2, p3, color, uv0, uv1, uv2, uv3);
+	}
 
-        immediate_quad(p0, p1, p2, p3, color, uv0, uv1, uv2, uv3);
-    }
-    sy := cast(float) y+line_height;
+	sx  := cast(float) (state.code_x);
+	col := 0;
 
-    // Draw all lines
-    for line, i: visible_lines {
-        sx  := cast(float) (x);
-        col := start_col;
+	// Draw one line
+	t := line_content.data;
+	while t < line_content.data + line_content.count {
+		// Convert current char to glyph
+		utf32 := character_utf8_to_utf32(t, line_content.data + line_content.count - t);
+		glyph := find_or_create_glyph(state.code_font, utf32);
+		assert(glyph != null, "find_or_create_glyph returned null");
+		assert(glyph.page != null, "glyph has no font page");
 
-        // Draw one line
-        t := line.data;
-        while t < line.data + line.count {
-            // Convert current char to glyph
-            utf32 := character_utf8_to_utf32(t, line.data + line.count - t);
-            glyph := find_or_create_glyph(font, utf32);
-            assert(glyph != null, "find_or_create_glyph returned null");
-            assert(glyph.page != null, "glyph has no font page");
+		texture := *glyph.page.texture;
+		if glyph.page.dirty {
+			glyph.page.dirty = false;
+			texture_load_from_bitmap(texture, glyph.page.bitmap_data);
+		}
 
-            texture := *glyph.page.texture;
-            if glyph.page.dirty {
-                glyph.page.dirty = false;
-                texture_load_from_bitmap(texture, glyph.page.bitmap_data);
-            }
+		if texture.gl_handle != state.code_last_used_tex {
+			immediate_flush();
+			state.code_last_used_tex = texture.gl_handle;
 
-            if texture.gl_handle != last_texture {
-                immediate_flush();
-                last_texture = texture.gl_handle;
+			shader := state.current_shader;
+			loc := glGetUniformLocation(shader.gl_handle, "text_sampler");
+			if loc < 0  log_error("Unable to find text_sampler in shader_text!");
+			glActiveTexture(GL_TEXTURE0);
+			glBindTexture(GL_TEXTURE_2D, texture.gl_handle);  // Bind handle to slot 0.
+			glUniform1i(loc, 0);
+		}
 
-                shader := state.current_shader;
-                loc := glGetUniformLocation(shader.gl_handle, "text_sampler");
-                if loc < 0  log_error("Unable to find text_sampler in shader_text!");
-                glActiveTexture(GL_TEXTURE0);
-                glBindTexture(GL_TEXTURE_2D, texture.gl_handle);  // Bind handle to slot 0.
-                glUniform1i(loc, 0);
-            }
+		// Draw glyph
+		{
+			sx1 := sx  + cast(float) glyph.offset_x;
+			sx2 := sx1 + cast(float) glyph.width;
 
-            // Draw glyph
-			{
-				sx1 := sx  + cast(float) glyph.offset_x;
-				sx2 := sx1 + cast(float) glyph.width;
-
-				sy1, sy2: float = ---;
-				if context.simp.coordinate_system == .LEFT_HANDED {
-					sy1 = sy  - cast(float) glyph.ascent;
-					sy2 = sy1 + cast(float) glyph.height;
-				} else {
-					sy2 = sy  + cast(float) glyph.ascent;
-					sy1 = sy2 - cast(float) glyph.height;
-				}
-
-				// if maybe_offset && is_latin(glyph.utf32) {
-				// 	// e.g. our Chinese font did not seem to make characters
-				// 	// line up properly.
-				// 	sy1 += font.y_offset_for_my_latin_characters;
-				// 	sy2 += font.y_offset_for_my_latin_characters;
-				// }
-
-				quad: Font_Quad = ---;
-				quad.glyph = glyph;
-				quad.p0 = .{sx1, sy1};
-				quad.p1 = .{sx2, sy1};
-				quad.p2 = .{sx2, sy2};
-				quad.p3 = .{sx1, sy2};
-
-				width  := glyph.page.bitmap_data.width;  // *Not* map.width, as map may be dirty.
-				height := glyph.page.bitmap_data.height; // Ibid.
-
-				quad.u0 = glyph.x0 / cast(float) width;
-				quad.u1 = (cast(float) glyph.x0 + glyph.width) / width;
-
-				if context.simp.coordinate_system == .LEFT_HANDED {
-					quad.v1 = glyph.y0 / cast(float) height;
-					quad.v0 = (cast(float) glyph.y0 + glyph.height) / height;
-				} else {
-					quad.v0 = glyph.y0 / cast(float) height;
-					quad.v1 = (cast(float) glyph.y0 + glyph.height) / height;
-				}
-
-
-				if utf32 != #char "\t" {
-					sx += cast(float) glyph.advance;
-                    col += 1;
-                } else {
-                    chars_to_tabstop := tab_size - col % tab_size;
-                    sx  += chars_to_tabstop * glyph.advance;
-                    col += chars_to_tabstop;
-				}
-				draw_letter_quad(font, quad, Vector4.{1, 1, 1, 1});
+			sy1, sy2: float = ---;
+			if context.simp.coordinate_system == .LEFT_HANDED {
+				sy1 = state.code_y  - cast(float) glyph.ascent;
+				sy2 = sy1 + cast(float) glyph.height;
+			} else {
+				sy2 = state.code_y  + cast(float) glyph.ascent;
+				sy1 = sy2 - cast(float) glyph.height;
 			}
 
-            t = unicode_next_character(t);
-        }
+			// if maybe_offset && is_latin(glyph.utf32) {
+			// 	// e.g. our Chinese font did not seem to make characters
+			// 	// line up properly.
+			// 	sy1 += font.y_offset_for_my_latin_characters;
+			// 	sy2 += font.y_offset_for_my_latin_characters;
+			// }
 
-        sy += line_height;
-    }
+			quad: Font_Quad = ---;
+			quad.glyph = glyph;
+			quad.p0 = .{sx1, sy1};
+			quad.p1 = .{sx2, sy1};
+			quad.p2 = .{sx2, sy2};
+			quad.p3 = .{sx1, sy2};
 
+			width  := glyph.page.bitmap_data.width;  // *Not* map.width, as map may be dirty.
+			height := glyph.page.bitmap_data.height; // Ibid.
+
+			quad.u0 = glyph.x0 / cast(float) width;
+			quad.u1 = (cast(float) glyph.x0 + glyph.width) / width;
+
+			if context.simp.coordinate_system == .LEFT_HANDED {
+				quad.v1 = glyph.y0 / cast(float) height;
+				quad.v0 = (cast(float) glyph.y0 + glyph.height) / height;
+			} else {
+				quad.v0 = glyph.y0 / cast(float) height;
+				quad.v1 = (cast(float) glyph.y0 + glyph.height) / height;
+			}
+
+
+			if utf32 != #char "\t" {
+				sx += cast(float) glyph.advance;
+				col += 1;
+			} else {
+				chars_to_tabstop := state.code_tab_size - col % state.code_tab_size;
+				sx  += chars_to_tabstop * glyph.advance;
+				col += chars_to_tabstop;
+			}
+			draw_letter_quad(state.code_font, quad, Vector4.{1, 1, 1, 1});
+		}
+
+		t = unicode_next_character(t);
+	}
+
+	state.code_y += xx state.code_font.character_height;
+}
+
+draw_code_end :: () {
     immediate_flush();
-
     glDisable(GL_BLEND);
 }
 

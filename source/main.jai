@@ -10,18 +10,23 @@ Document :: struct {
 	// normal memory for lines and path, make a free document function
 	path: string;
     bytes: []u8;
-    lines: [..]string;
+    lineStarts: [..]s32;
 }
 
 Panel :: struct {
 	// @todo make a free panel function which yeets the wrapped lines
 	document: *Document;
 
-	WrappedLine :: struct {
-		line: string;
-		lineNum: s32;
-	}
-	wrappedLines: [..]WrappedLine;
+	// cursor stored in line/column so that finding it's 
+	// position each frame doesn't require looping through
+	// all the lines, if you want the byte location it's a
+	// O(1) calculation
+	cursorLine: s32; 
+	cursorColumn: s32; 
+	// when users move up and down lines, this stores the 
+	// column that we should try stick to as we move up and down
+	// gets reset when the user actually moves left or right
+	cursorColumnVirtual: s32; 
 
 	rect: Rect;
 	commandMessage: string;
@@ -50,7 +55,6 @@ windowHeight : s32 = 1080;
 pendingQuit := false;
 
 // options
-lineWrap :: true;
 textSize :: 15;
 tabSize :: 4;
 lineNumbers :: true;
@@ -87,6 +91,8 @@ main :: () {
 	focusedPanel.rect.w = xx windowWidth;
 	focusedPanel.rect.h = xx windowHeight;
 	focusedPanel.document = *mainDocument;
+	focusedPanel.cursorLine = 0;
+	focusedPanel.cursorColumn = 0;
 
 	open_document("C:/Dev/TextEditor/build.jai");
 
@@ -107,7 +113,6 @@ main :: () {
 				focusedPanel.rect.y = 0;
 				focusedPanel.rect.w = xx windowWidth;
 				focusedPanel.rect.h = xx windowHeight;
-				rescan_wrapped_lines(focusedPanel);
 
                 if should_reinit my_init_fonts();  // Resize the font for the new window size.
             }
@@ -123,12 +128,7 @@ main :: () {
 		// todo: smooth lerp animations on this
 		// have a rawscroll value, and then a lerped value that we lerp toward every frame
 		scrollPos += Input.mouse_delta_z;
-		if !lineWrap {
-			scrollPos = clamp(scrollPos, -(my_font.character_height * mainDocument.lines.count) + my_font.character_height * 5, 0);
-		}
-		else {
-			scrollPos = clamp(scrollPos, -(my_font.character_height * focusedPanel.wrappedLines.count) + my_font.character_height * 5, 0);
-		}
+		scrollPos = clamp(scrollPos, -(my_font.character_height * mainDocument.lineStarts.count) + my_font.character_height * 5, 0);
 
         sleep_milliseconds(16);
         reset_temporary_storage();
@@ -142,85 +142,51 @@ open_document :: (path: string) {
 	mainDocument.bytes.data = file.data;
 	mainDocument.bytes.count = file.count;
 
-	array_reset_keeping_memory(*mainDocument.lines);
+	array_reset_keeping_memory(*mainDocument.lineStarts);
 
-	// for loop through the file, searching for new lines
+	// for loop through the file, searching for hard line breaks
 	// should only happen on load adjust when editing
-	lastNewLine := 0;
+	array_add(*mainDocument.lineStarts, 0);
 	for byte, i: mainDocument.bytes {
-		if byte == #char "\n" { // line feed character
-			line: string;
-			line.data = mainDocument.bytes.data + lastNewLine;
-			// TODO: +1 here for carraige return, if using \n line endings, don't need the +1
-			line.count = i+1 - lastNewLine;
-			lastNewLine = i+1;
-			array_add(*mainDocument.lines, line);
+		if byte == #char "\n" {
+			// @TODO: +1 to skip over \r, if using \n line endings, don't need the +1
+			array_add(*mainDocument.lineStarts, xx (i+1));
 		}
 	}
-	lastLine : string;
-	lastLine.data = mainDocument.bytes.data + lastNewLine;
-	lastLine.count = mainDocument.bytes.count - lastNewLine;
-	array_add(*mainDocument.lines, lastLine);
+}
 
-	rescan_wrapped_lines(focusedPanel);
+document_get_line_content :: (doc: *Document, lineNum: s32) -> string {
+	line: string;
+	if lineNum == doc.lineStarts.count-1 {
+		line.data = doc.bytes.data + doc.lineStarts[lineNum];
+		line.count = (doc.bytes.data + doc.bytes.count) - line.data;
+	}
+	else {
+		line.data = doc.bytes.data + doc.lineStarts[lineNum];
+		line.count = (doc.bytes.data + doc.lineStarts[lineNum+1]) - line.data;
+	}
+	return line;
+}
+
+document_offset_from_coordinate :: (doc: *Document, line: s32, col: s32) -> s64 {
+	return doc.lineStarts[line] + col;
+}
+
+document_get_line_length :: (doc: *Document, lineNum: s32, excludeEnding: bool = true) -> s32 {
+	// @todo: when excluding endings you want 3 characters less for crlf, should be 2 for lf
+	if lineNum == doc.lineStarts.count-1 {
+		len := cast(s32) doc.bytes.count - doc.lineStarts[lineNum];
+		return max(len-1, 0);
+	}
+	else {
+		len := doc.lineStarts[lineNum+1] - doc.lineStarts[lineNum];
+		return max(ifx excludeEnding len-3 else len, 0);
+	}
 }
 
 my_init_fonts :: () {
     my_font = Simp.get_font_at_size("fonts", "FiraMonoNerdFontMono-Medium.ttf", textSize);
     assert(my_font != null);
-}
-
-// Panel specific code
-rescan_wrapped_lines :: (panel: Panel) {
-	assert(my_font.is_monospace);
-
-	maxLineWidth : = (cast(s64)panel.rect.w - 1) / xx my_font.mono_x_advance;
-	if lineNumbers {
-		nDigits:= tprint("%", panel.document.lines.count).count;
-		maxLineWidth -= my_font.mono_x_advance * (nDigits + 2); // extra 2 for padding
-	}
-
-	array_reset_keeping_memory(*panel.wrappedLines);
-    currentLineWidth:= 0;
-	currentActualLine:= 1;
-	lastLineBreak := 0;
-	for byte, i: mainDocument.bytes {
-
-		if byte == #char "\t" {
-			currentLineWidth += (tabSize - currentLineWidth % tabSize);
-		} 
-		else if byte != #char "\n" && byte != #char "\r" { // don't count line endings for wrapping
-			currentLineWidth += 1;
-		}
-
-		if currentLineWidth > maxLineWidth {
-			wrappedLine: Panel.WrappedLine;
-			wrappedLine.lineNum = cast(s32)currentActualLine;
-			wrappedLine.line.data = panel.document.bytes.data + lastLineBreak;
-			wrappedLine.line.count = i - lastLineBreak;
-			lastLineBreak = i;
-			array_add(*panel.wrappedLines, wrappedLine);
-			currentLineWidth = 0;
-		}
-
-		if byte == #char "\n" {
-			wrappedLine: Panel.WrappedLine;
-			wrappedLine.lineNum = cast(s32)currentActualLine;
-			wrappedLine.line.data = panel.document.bytes.data + lastLineBreak;
-			// TODO: +1 here for carraige return, if using \n line endings, don't need the +1
-			wrappedLine.line.count = i+1 - lastLineBreak;
-			lastLineBreak = i+1;
-			array_add(*panel.wrappedLines, wrappedLine);
-			currentLineWidth = 0;
-			currentActualLine += 1;
-		}
-	}
-	// last line
-	lastLine : Panel.WrappedLine;
-	lastLine.line.data = panel.document.bytes.data + lastLineBreak;
-	lastLine.line.count = panel.document.bytes.count - lastLineBreak;
-	lastLine.lineNum = cast(s32)currentActualLine;
-	array_add(*panel.wrappedLines, lastLine);
 }
 
 // color stuff
@@ -271,6 +237,32 @@ enter_normal_mode :: () {
 		command_picker_reset(*focusedPanel.commandPicker);
 	}
 	editorMode = .NORMAL;
+}
+
+move_one_char_left :: () {
+	focusedPanel.cursorColumn = max(focusedPanel.cursorColumn-1, 0);
+	focusedPanel.cursorColumnVirtual = focusedPanel.cursorColumn;
+}
+
+move_one_char_right :: () {
+	lineLen:= document_get_line_length(focusedPanel.document, focusedPanel.cursorLine);
+	focusedPanel.cursorColumn = min(focusedPanel.cursorColumn+1, lineLen);
+	focusedPanel.cursorColumnVirtual = focusedPanel.cursorColumn;
+}
+
+move_one_line_down :: () {
+	numLines:s32 = cast(s32)focusedPanel.document.lineStarts.count;
+	focusedPanel.cursorLine = min(focusedPanel.cursorLine+1, numLines - 1);
+
+	newLineLen:= document_get_line_length(focusedPanel.document, focusedPanel.cursorLine);
+	focusedPanel.cursorColumn = min(focusedPanel.cursorColumnVirtual, newLineLen);
+}
+
+move_one_line_up :: () {
+	focusedPanel.cursorLine = max(focusedPanel.cursorLine-1, 0);
+
+	newLineLen:= document_get_line_length(focusedPanel.document, focusedPanel.cursorLine);
+	focusedPanel.cursorColumn = min(focusedPanel.cursorColumnVirtual, newLineLen);
 }
 
 

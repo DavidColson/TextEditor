@@ -17,6 +17,13 @@ Immediate_State :: struct {
     coordinate_system := Simp_Coordinate_System.RIGHT_HANDED;
 
     // We may wish to add a user-data pointer here.
+
+	// state for code drawing routines
+	code_font: *Dynamic_Font;
+	code_x: s32;
+	code_y: s32;
+	code_tab_size: s32;
+	code_last_used_tex: GLuint;
 }
 
 // We add a pointer to the context, so that we don't use much memory
