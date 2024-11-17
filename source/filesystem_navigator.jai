@@ -125,6 +125,9 @@ filesystem_nav_refresh_directory_list :: (state: *FilesystemNavigator) {
 		visit_files(make_path_from_strings(state.currentPath,,temp), false, state, visitor, visit_directories=true);
 		state.numToDisplay = state.itemList.count;
 	}
+
+	maxItems := state.itemList.count - 1;
+	state.selectedItem = clamp(state.selectedItem, 0, xx maxItems);
 }
 
 filesystem_nav_filter_directory_list :: (state: *FilesystemNavigator) {
