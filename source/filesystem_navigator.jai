@@ -65,7 +65,7 @@ filesystem_nav_action_item :: () {
 	state := *focusedPanel.filesystemNav;
 
 	if state.pendingAction {
-		open_document(make_path_from_strings(state.currentPath,,temp));
+		document_open(make_path_from_strings(state.currentPath,,temp));
 		editorMode = .NORMAL;
 		filesystem_nav_reset(state);
 	} else {

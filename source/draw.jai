@@ -147,10 +147,11 @@ draw_panel :: (panel: *Panel) {
 	color.z = 1;
 	color.w = 1;
 
+	documentLines := document_get_num_lines(panel.document);
 	textX := 0;
 	textY := headerHeight;
 	if lineNumbers {
-		nDigits := tprint("%", mainDocument.lineStarts.count).count;
+		nDigits := tprint("%", documentLines).count;
 		textX = my_font.mono_x_advance * (nDigits + 2); // extra 2 for padding
 	}
 
@@ -159,8 +160,8 @@ draw_panel :: (panel: *Panel) {
 	visibleLines: [..]string;
 	visibleLines.allocator = temp;
 
-	startVisibleLines = clamp(-scrollPos / my_font.character_height, 0, mainDocument.lineStarts.count - 1);
-	endVisibleLines = clamp(startVisibleLines + cast(s64)heightForCode / my_font.character_height, 0, mainDocument.lineStarts.count - 1);
+	startVisibleLines = clamp(-scrollPos / my_font.character_height, 0, documentLines - 1);
+	endVisibleLines = clamp(startVisibleLines + cast(s64)heightForCode / my_font.character_height, 0, documentLines - 1);
 
 	// Draw line numbers
 	lineY := textY + my_font.character_height;
@@ -202,8 +203,8 @@ draw_panel :: (panel: *Panel) {
 
 		draw_rect(cursorRect, Vector4.{0.9, 0.9, 0.9, 1.0});
 
-		overlayChar := document_offset_from_coordinate(panel.document, panel.cursorLine, panel.cursorColumn);
-		Simp.prepare_text(my_font, tprint("%", cast(string) u8.[panel.document.bytes[overlayChar]]));
+		overlayChar := document_get_char_at_location(panel.document, panel.cursorLine, panel.cursorColumn);
+		Simp.prepare_text(my_font, tprint("%", cast(string) u8.[overlayChar]));
 		Simp.draw_prepared_text(my_font, xx cursorRect.x, xx cursorRect.y + my_font.typical_descender + my_font.character_height, Vector4.{0.1, 0.1, 0.1, 1.0});
 	}
 

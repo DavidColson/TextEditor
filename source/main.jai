@@ -5,14 +5,6 @@ BuildType :: enum u8
 	RELEASE;
 }
 
-Document :: struct {
-	// @todo arena for the buffer so we can have lots of spare memory addresses for expansion
-	// normal memory for lines and path, make a free document function
-	path: string;
-    bytes: []u8;
-    lineStarts: [..]s32;
-}
-
 Panel :: struct {
 	// @todo make a free panel function which yeets the wrapped lines
 	document: *Document;
@@ -21,12 +13,12 @@ Panel :: struct {
 	// position each frame doesn't require looping through
 	// all the lines, if you want the byte location it's a
 	// O(1) calculation
-	cursorLine: s32; 
-	cursorColumn: s32; 
+	cursorLine: s64; 
+	cursorColumn: s64; 
 	// when users move up and down lines, this stores the 
 	// column that we should try stick to as we move up and down
 	// gets reset when the user actually moves left or right
-	cursorColumnVirtual: s32; 
+	cursorColumnVirtual: s64; 
 
 	rect: Rect;
 	commandMessage: string;
@@ -94,7 +86,7 @@ main :: () {
 	focusedPanel.cursorLine = 0;
 	focusedPanel.cursorColumn = 0;
 
-	open_document("C:/Dev/TextEditor/build.jai");
+	document_open("C:/Dev/TextEditor/build.jai");
 
     want_screenshot := false;
     while !pendingQuit {
@@ -127,61 +119,13 @@ main :: () {
 
 		// todo: smooth lerp animations on this
 		// have a rawscroll value, and then a lerped value that we lerp toward every frame
+		numLines := document_get_num_lines(*mainDocument);
 		scrollPos += Input.mouse_delta_z;
-		scrollPos = clamp(scrollPos, -(my_font.character_height * mainDocument.lineStarts.count) + my_font.character_height * 5, 0);
+		scrollPos = clamp(scrollPos, -(my_font.character_height * numLines) + my_font.character_height * 5, 0);
 
         sleep_milliseconds(16);
         reset_temporary_storage();
     }
-}
-
-open_document :: (path: string) {
-    file := read_entire_file(path);
-
-	mainDocument.path = copy_string(path); // @todo put in arena for this specific document (i.e. reset when document is released)
-	mainDocument.bytes.data = file.data;
-	mainDocument.bytes.count = file.count;
-
-	array_reset_keeping_memory(*mainDocument.lineStarts);
-
-	// for loop through the file, searching for hard line breaks
-	// should only happen on load adjust when editing
-	array_add(*mainDocument.lineStarts, 0);
-	for byte, i: mainDocument.bytes {
-		if byte == #char "\n" {
-			// @TODO: +1 to skip over \r, if using \n line endings, don't need the +1
-			array_add(*mainDocument.lineStarts, xx (i+1));
-		}
-	}
-}
-
-document_get_line_content :: (doc: *Document, lineNum: s32) -> string {
-	line: string;
-	if lineNum == doc.lineStarts.count-1 {
-		line.data = doc.bytes.data + doc.lineStarts[lineNum];
-		line.count = (doc.bytes.data + doc.bytes.count) - line.data;
-	}
-	else {
-		line.data = doc.bytes.data + doc.lineStarts[lineNum];
-		line.count = (doc.bytes.data + doc.lineStarts[lineNum+1]) - line.data;
-	}
-	return line;
-}
-
-document_offset_from_coordinate :: (doc: *Document, line: s32, col: s32) -> s64 {
-	return doc.lineStarts[line] + col;
-}
-
-document_get_line_length :: (doc: *Document, lineNum: s32, excludeEnding: bool = true) -> s32 {
-	// @todo: when excluding endings you want 3 characters less for crlf, should be 2 for lf
-	if lineNum == doc.lineStarts.count-1 {
-		len := cast(s32) doc.bytes.count - doc.lineStarts[lineNum];
-		return max(len-1, 0);
-	}
-	else {
-		len := doc.lineStarts[lineNum+1] - doc.lineStarts[lineNum];
-		return max(ifx excludeEnding len-3 else len, 0);
-	}
 }
 
 my_init_fonts :: () {
@@ -251,7 +195,7 @@ move_one_char_right :: () {
 }
 
 move_one_line_down :: () {
-	numLines:s32 = cast(s32)focusedPanel.document.lineStarts.count;
+	numLines := document_get_num_lines(focusedPanel.document);
 	focusedPanel.cursorLine = min(focusedPanel.cursorLine+1, numLines - 1);
 
 	newLineLen:= document_get_line_length(focusedPanel.document, focusedPanel.cursorLine);
@@ -398,6 +342,7 @@ GetLogicalDriveStringsW :: (nBufferLength: DWORD, lpBuffer: *u16) -> DWORD #fore
 #load "filesystem_navigator.jai";
 #load "draw.jai";
 #load "keymap.jai";
+#load "document.jai";
 
 #run {
     #if OS == .WINDOWS {
