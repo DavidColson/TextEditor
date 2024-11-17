@@ -183,9 +183,19 @@ draw_panel :: (panel: *Panel) {
 	if panel.cursorLine >= startVisibleLines && panel.cursorLine <= endVisibleLines {
 		Simp.set_shader_for_color();
 
-
+		line:= document_get_line_content(panel.document, panel.cursorLine);
+		line.count = panel.cursorColumn;
+		cursorX := 0;
+		for line {
+			if it == #char "\t" {
+				cursorX = cursorX + my_font.mono_x_advance * tabSize;
+			}
+			else {
+				cursorX = cursorX + my_font.mono_x_advance;
+			}
+		}
 		cursorRect: Rect;
-		cursorRect.x = cast(float)(textX + my_font.mono_x_advance * panel.cursorColumn);
+		cursorRect.x = cast(float)(textX + cursorX);
 		cursorRect.y = cast(float)(textY - my_font.typical_descender + my_font.character_height * (panel.cursorLine-startVisibleLines));
 		cursorRect.w = cast(float)my_font.mono_x_advance;
 		cursorRect.h = cast(float)my_font.character_height;
