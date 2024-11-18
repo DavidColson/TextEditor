@@ -86,8 +86,17 @@ document_get_line_content :: (doc: *Document, lineNum: s64) -> string {
 		// lines remaining is equal to line starts but there is no more nodes
 			// it's the end of the document and the line ends in this node
 
+		// node.lineStarts.count becomes node.lineFeedCount
+		// node.offset becomes (buffer.linestarts[node.start.line] + node.start.col)
+		// node.lineStarts[0] becomes buffer.lineStarts[node.start.line+1]
+		// node.lineStarts[n] becomes buffer.lineStarts[node.start.line+1+n] (as long as n < node.linefeedcount)
+
+		// Consider storing only line breaks, i.e. not offset 0 as a line start
+
 		if linesRemaining == 0 && node.lineStarts.count == 0 {
 			// the line doesn't start or end in this node but the content is in the line
+
+			// start would become buffer.data + (buffer.linestarts[node.start.line] + node.start.col)
 			start: *u8 = buffer.data + node.offset;
 			len := node.length;
 			append(*builder, start, len);
@@ -96,6 +105,8 @@ document_get_line_content :: (doc: *Document, lineNum: s64) -> string {
 		else if linesRemaining == 0 && node.lineStarts.count > 0 {
 			// the line ends in this node, but did not start here
 			start: *u8 = buffer.data + node.offset;
+			// We started  mid way through a line, and we want the offset to the _next_ line
+			// you want buffer.lineStarts[node.start.line+1] - node.offset (above)
 			len := node.lineStarts[0] - node.offset;
 			append(*builder, start, len);
 			break;
