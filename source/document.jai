@@ -9,8 +9,12 @@ Document :: struct {
 	documentAlloc: Allocator;
 	pieceTableAlloc : Allocator;
 
-	originalData: []u8;
-	addedData: []u8;
+	Buffer :: struct {
+		text: []u8;
+		lineStarts: [..]s64;
+	}
+	originalData: Buffer;
+	addedData: Buffer;
 
 	pieceTableHead: *PieceTableNode;
 	pieceTableTail: *PieceTableNode;
@@ -23,10 +27,14 @@ PieceTableNode :: struct {
 	next: *PieceTableNode;
 	prev: *PieceTableNode;
 
+	Pos :: struct {
+		line: s64;
+		col: s64;
+	};
 	added: bool;
-	offset: s64;
+	start: Pos;
 	length: s64;
-	lineStarts: [..]s64;
+	lineStartCount: s64;
 }
 
 document_open :: (path: string) {
@@ -37,22 +45,24 @@ document_open :: (path: string) {
 	doc.path = copy_string(path,,doc.documentAlloc);
 	
     file := read_entire_file(path,,doc.documentAlloc);
-	doc.originalData.data = file.data;
-	doc.originalData.count = file.count;
-
-	doc.pieceTableHead = New(PieceTableNode,, doc.pieceTableAlloc);
-	doc.pieceTableHead.offset = 0; 
-	doc.pieceTableHead.length = doc.originalData.count; 
-	doc.pieceTableHead.lineStarts.allocator = doc.pieceTableAlloc;
+	doc.originalData.text.data = file.data;
+	doc.originalData.text.count = file.count;
 
 	// for loop through the file, searching for hard line breaks
-	array_add(*doc.pieceTableHead.lineStarts, 0);
-	for byte, i: doc.originalData {
+	doc.originalData.lineStarts.allocator = pieceTableAlloc;
+	array_add(*doc.originalData.lineStarts, 0);
+	for byte, i: doc.originalData.text {
 		if byte == #char "\n" {
 			// @TODO: +1 to skip over \r, if using \n line endings, don't need the +1
-			array_add(*doc.pieceTableHead.lineStarts, xx (i+1));
+			array_add(*doc.originalData.lineStarts, xx (i+1));
 		}
 	}
+
+	doc.pieceTableHead = New(PieceTableNode,, doc.pieceTableAlloc);
+	doc.pieceTableHead.start = PieceTableNode.Pos.{0,0}; 
+	doc.pieceTableHead.length = doc.originalData.text.count; 
+	doc.pieceTableHead.lineStartCount = doc.originalData.lineStarts.count; 
+	doc.pieceTableHead.added = false;
 
 	// temp
 	mainDocument = doc;
@@ -68,10 +78,10 @@ document_get_line_content :: (doc: *Document, lineNum: s64) -> string {
 	// additionally you can cache the last queried line, under the assumption that there
 	// will be repeated queries for the line the cursor is currently sat on
 
-	linesRemaining := lineNum+1;
+	linesRemaining := lineNum;
 	node: *PieceTableNode = doc.pieceTableHead;
 	while node != null {
-		buffer : *[]u8;
+		buffer : *Document.Buffer;
 		ifx node.added then buffer = *doc.addedData else buffer = *doc.originalData;
 
 		// few possible cases here
@@ -93,41 +103,44 @@ document_get_line_content :: (doc: *Document, lineNum: s64) -> string {
 
 		// Consider storing only line breaks, i.e. not offset 0 as a line start
 
-		if linesRemaining == 0 && node.lineStarts.count == 0 {
+		if linesRemaining == 0 && node.lineStartCount == 0 {
 			// the line doesn't start or end in this node but the content is in the line
-
-			// start would become buffer.data + (buffer.linestarts[node.start.line] + node.start.col)
-			start: *u8 = buffer.data + node.offset;
+			offset := buffer.lineStarts[node.start.line] + node.start.col;
+			start: *u8 = buffer.text.data + offset;
 			len := node.length;
 			append(*builder, start, len);
 			node = node.next;
 		}
-		else if linesRemaining == 0 && node.lineStarts.count > 0 {
+		else if linesRemaining == 0 && node.lineStartCount > 0 {
 			// the line ends in this node, but did not start here
-			start: *u8 = buffer.data + node.offset;
+			offset := buffer.lineStarts[node.start.line] + node.start.col;
+			start: *u8 = buffer.text.data + offset;
 			// We started  mid way through a line, and we want the offset to the _next_ line
-			// you want buffer.lineStarts[node.start.line+1] - node.offset (above)
-			len := node.lineStarts[0] - node.offset;
+			len := buffer.lineStarts[node.start.line + 1] - offset;
 			append(*builder, start, len);
 			break;
 		}
-		else if node.lineStarts.count == linesRemaining {
+		else if node.lineStartCount-1 == linesRemaining {
 			// the target line starts in this node, and either the document ends, or the line does not end in this node
-			start: *u8 = buffer.data + node.lineStarts[linesRemaining-1];
-			len := (node.offset+node.length) - node.lineStarts[linesRemaining-1];
+			nodeOffset := buffer.lineStarts[node.start.line] + node.start.col;
+			targetLineOffset := buffer.lineStarts[node.start.line+linesRemaining];
+			start: *u8 = buffer.text.data + targetLineOffset;
+			len := (nodeOffset+node.length) - targetLineOffset;
 			append(*builder, start, len); 
 			linesRemaining = 0;
 			node = node.next;
 		}
-		else if node.lineStarts.count > linesRemaining {
+		else if node.lineStartCount-1 > linesRemaining {
 			// the target line is fully in this node
-			start: *u8 = buffer.data + node.lineStarts[linesRemaining-1];
-			len := node.lineStarts[linesRemaining] - node.lineStarts[linesRemaining-1];
+			targetLineOffset := buffer.lineStarts[node.start.line+linesRemaining];
+			nextLineOffset := buffer.lineStarts[node.start.line+linesRemaining+1];
+			start: *u8 = buffer.text.data + targetLineOffset;
+			len := nextLineOffset - targetLineOffset;
 			append(*builder, start, len); 
 			break;
 		}
 		else {
-			linesRemaining = linesRemaining - node.lineStarts.count;
+			linesRemaining = linesRemaining - node.lineStartCount;
 			node = node.next;
 		}
 	}
@@ -139,7 +152,7 @@ document_get_num_lines :: (doc: *Document) -> s64 {
 	lines := 0;
 	node: *PieceTableNode = doc.pieceTableHead;
 	while node != null {
-		lines = lines + node.lineStarts.count;
+		lines = lines + node.lineStartCount;
 		node = node.next;
 	}
 	return lines;
