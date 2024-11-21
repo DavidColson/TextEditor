@@ -98,6 +98,10 @@ commandList :: Command.[
 		.{ mode=.COMMAND_PICKER, keys="<up>"}
 	]},
 
+
+	.{ "Enter Insert Mode", 0, enter_insert_mode, .[
+		.{ mode=.NORMAL, keys="i"}
+	]},
 	.{ "Enter Normal Mode", 0, enter_normal_mode, .[
 		.{ mode=.INSERT, keys="<escape>"},
 		.{ mode=.COMMAND_PICKER, keys="<escape>"},
@@ -200,7 +204,11 @@ input_handler :: (event: Input.Event) {
 
 		// if there are no pending key sequences allow the current mode to take the text input
 		if keyMap.pendingKeySequence == *keyMap.root[editorMode] {
-			if editorMode == .COMMAND_PICKER {
+			if editorMode == .INSERT {
+				insert_mode_handle_text_input(char);
+				return;
+			}
+			else if editorMode == .COMMAND_PICKER {
 				command_picker_handle_text_input(*focusedPanel.commandPicker, char);
 				return;
 			}

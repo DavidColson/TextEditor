@@ -13,6 +13,7 @@ Panel :: struct {
 	// position each frame doesn't require looping through
 	// all the lines, if you want the byte location it's a
 	// O(1) calculation
+
 	cursorLine: s64; 
 	cursorColumn: s64; 
 	// when users move up and down lines, this stores the 
@@ -183,6 +184,16 @@ enter_normal_mode :: () {
 	editorMode = .NORMAL;
 }
 
+enter_insert_mode :: () {
+	if editorMode == .FILESYSTEM_NAVIGATOR {
+		filesystem_nav_reset(*focusedPanel.filesystemNav);
+	}
+	else if editorMode == .COMMAND_PICKER {
+		command_picker_reset(*focusedPanel.commandPicker);
+	}
+	editorMode = .INSERT;
+}
+
 move_one_char_left :: () {
 	focusedPanel.cursorColumn = max(focusedPanel.cursorColumn-1, 0);
 	focusedPanel.cursorColumnVirtual = focusedPanel.cursorColumn;
@@ -209,6 +220,10 @@ move_one_line_up :: () {
 	focusedPanel.cursorColumn = min(focusedPanel.cursorColumnVirtual, newLineLen);
 }
 
+// insert mode text handler
+insert_mode_handle_text_input :: (char: Utf8_Char) {
+	// actually insert text into the document
+}
 
 // @todo: this is windows only, move to windows file
 platform_enumerate_logical_drives :: () -> [] string {
