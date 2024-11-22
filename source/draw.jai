@@ -216,7 +216,12 @@ draw_panel :: (panel: *Panel) {
 						cast(float)panel.rect.y + headerHeight,
 						Vector4.{0.3, 0.3, 0.3, 1.0});
 
-	width := Simp.prepare_text(my_font, tprint("NORM | % - %:% crlf", panel.document.path, 32, 16));
+	modeText := "NORM";
+	if editorMode == .INSERT {
+		modeText = "INSERT";
+	}
+
+	width := Simp.prepare_text(my_font, tprint("% | % - %:% crlf", modeText, panel.document.path, 32, 16));
 	Simp.draw_prepared_text(my_font, 2, my_font.character_height + 2, Vector4.{0.8, 0.8, 0.8, 1.0});
 
 	// Draw command list

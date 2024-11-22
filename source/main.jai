@@ -79,6 +79,8 @@ main :: () {
 
 	rebuild_key_map();
 
+	document_open("C:/Dev/TextEditor/build.jai");
+
 	focusedPanel.rect.x = 0;
 	focusedPanel.rect.y = 0;
 	focusedPanel.rect.w = xx windowWidth;
@@ -86,8 +88,6 @@ main :: () {
 	focusedPanel.document = *mainDocument;
 	focusedPanel.cursorLine = 0;
 	focusedPanel.cursorColumn = 0;
-
-	document_open("C:/Dev/TextEditor/build.jai");
 
     want_screenshot := false;
     while !pendingQuit {
@@ -222,7 +222,8 @@ move_one_line_up :: () {
 
 // insert mode text handler
 insert_mode_handle_text_input :: (char: Utf8_Char) {
-	// actually insert text into the document
+	textToInsert := to_string(*char);
+	document_insert_text(focusedPanel.document, Position.{focusedPanel.cursorLine, focusedPanel.cursorColumn}, textToInsert);
 }
 
 // @todo: this is windows only, move to windows file
