@@ -201,7 +201,7 @@ move_one_char_left :: () {
 
 move_one_char_right :: () {
 	lineLen:= document_get_line_length(focusedPanel.document, focusedPanel.cursorLine);
-	focusedPanel.cursorColumn = min(focusedPanel.cursorColumn+1, lineLen);
+	focusedPanel.cursorColumn = min(focusedPanel.cursorColumn+1, lineLen+1);
 	focusedPanel.cursorColumnVirtual = focusedPanel.cursorColumn;
 }
 
@@ -224,6 +224,7 @@ move_one_line_up :: () {
 insert_mode_handle_text_input :: (char: Utf8_Char) {
 	textToInsert := to_string(*char);
 	document_insert_text(focusedPanel.document, Position.{focusedPanel.cursorLine, focusedPanel.cursorColumn}, textToInsert);
+	focusedPanel.cursorColumn += 1;
 }
 
 // @todo: this is windows only, move to windows file
