@@ -238,7 +238,8 @@ insert_mode_delete_left_char :: () {
 		deletePos.line -= 1;
 		prevLineLength:= document_get_line_length(focusedPanel.document, deletePos.line, false);
 		deletePos.col = prevLineLength;
-		document_delete_text(focusedPanel.document, deletePos, 1);
+		// @todo deleting two chars because of crlf line endings, change when doing another line ending type
+		document_delete_text(focusedPanel.document, deletePos, 2);
 
 		// move the cursor back up to the deletion point
 		focusedPanel.cursorLine = focusedPanel.cursorLine-1;

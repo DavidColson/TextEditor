@@ -74,7 +74,6 @@ document_open :: (path: string) {
 	array_add(*doc.originalData.lineStarts, 0);
 	for byte, i: doc.originalData.text {
 		if byte == #char "\n" {
-			// @TODO: +1 to skip over \r, if using \n line endings, don't need the +1
 			array_add(*doc.originalData.lineStarts, xx (i+1));
 		}
 	}
@@ -101,12 +100,11 @@ document_insert_text :: (doc: *Document, location: Position, t: string) {
 
 	// actually add the new text to a buffer, updating linestarts and what not
 	text := copy_string(t,, doc.documentAlloc);
+	currentBufferEnd := doc.addedData.text.count;
 	doc.addedData.text.count = doc.addedData.text.count + text.count;
-	lineIndex := doc.addedData.lineStarts.count - 1;
 	for byte, i: text {
 		if byte == #char "\n" {
-			// @TODO: +1 to skip over \r, if using \n line endings, don't need the +1
-			array_add(*doc.addedData.lineStarts, xx (lineIndex + i + 1));
+			array_add(*doc.addedData.lineStarts, xx (currentBufferEnd + i + 1));
 		}
 	}
 	doc.size += text.count;
