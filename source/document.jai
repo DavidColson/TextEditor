@@ -177,25 +177,11 @@ document_insert_text :: (doc: *Document, location: Position, t: string) {
 		nodeBuffer : *Buffer;
 		ifx nodeToEdit.added then nodeBuffer = *doc.addedData else nodeBuffer = *doc.originalData;
 
-		// calculate the left and right side split nodes using the insertPos
-		bufferOffsetStart := buffer_cursor_to_offset(nodeBuffer, nodeToEdit.start);
-		bufferOffsetSplit := buffer_cursor_to_offset(nodeBuffer, insertPos);
-		lenLeft := bufferOffsetSplit - bufferOffsetStart;
-		lenRight := (bufferOffsetStart + nodeToEdit.length) - bufferOffsetSplit;
-
-		// copy the left node to make the right, updating start and length and line count
+		// copy the old node and then trim left and right to get the new nodes
 		newPieceRight := New(PieceChainNode,, doc.pieceChainAlloc);
-		newPieceRight.next = nodeToEdit.next;
-		newPieceRight.added = nodeToEdit.added;
-		newPieceRight.start = insertPos;
-		newPieceRight.end = nodeToEdit.end;
-		newPieceRight.length = lenRight;
-		newPieceRight.lineFeedCount = buffer_line_start_count(newPieceRight.start, newPieceRight.end);
-
-		// update the left node
-		nodeToEdit.end = insertPos;
-		nodeToEdit.length = lenLeft;
-		nodeToEdit.lineFeedCount = buffer_line_start_count(nodeToEdit.start, nodeToEdit.end);
+		<<newPieceRight = <<nodeToEdit;
+		nodeTrimLeft(newPieceRight, nodeBuffer, insertPos);
+		nodeTrimRight(nodeToEdit, nodeBuffer, insertPos);
 
 		// create a new piece with the appended text data
 		endOffset := doc.addedData.text.count;
@@ -222,10 +208,67 @@ document_insert_text :: (doc: *Document, location: Position, t: string) {
 	}
 }
 
-document_replace_text :: (doc: *Document, index: s64, text: string) {
+document_delete_text :: (doc: *Document, location: Position, count: s64) {
+	// sigh, what do we do here then?
+
+
+	// cases:
+	// The deletion range is fully inside one node
+		// Trim left or right side if that's what's needed
+		// or remove and replace with two nodes with a gap
+	// the deletion covers multiple nodes
+		// first node gets split or not
+		// 0 or more nodes until the final node are removed
+		// the final node gets it's left trimmed or not
+	
+
+	// todo list
+	// get the node at the end, and the node at the start of the range
+	startNode, start, startOffset := document_query_at_position(doc, location);
+	endNode, end := document_query_at_offset(doc, startOffset + count);
+
+	if startNode == endNode {
+		buffer : *Buffer;
+		ifx startNode.added then buffer = *doc.addedData else buffer = *doc.originalData;
+
+		if start == startNode.start {
+			nodeTrimLeft(startNode, buffer, end);
+		}
+		else if end == startNode.end {
+			nodeTrimRight(startNode, buffer, start);
+		}
+		else {
+			newPieceRight := New(PieceChainNode,, doc.pieceChainAlloc);
+			<<newPieceRight = <<startNode;
+			nodeTrimLeft(newPieceRight, buffer, end);
+			nodeTrimRight(startNode, buffer, start);
+
+			startNode.next = newPieceRight;
+			newPieceRight.prev = startNode;
+		}
+	}
+	else {
+		// one or more full nodes are being deleted
+		if endNode.end == end {
+			// the full node must be deleted here
+			startNode.next = endNode.next;
+			startNode.next.prev = startNode;
+			if startNode.prev != null {
+				startNode.prev.next = startNode;
+			}
+			else {
+				doc.pieceChainHead = startNode;
+			}
+		}
+
+		// @todo need to cover other cases
+		// start by building the replacement start and end nodes
+		// then remove all the nodes in the range
+		// then put in the new start/end nodes
+	}
 }
 
-document_delete_text :: (doc: *Document, index: s64, count: s64) {
+document_replace_text :: (doc: *Document, index: s64, text: string) {
 }
 
 // given a coordinate position in the document (line, column), find the absolute offset in the document (inverse of below)
@@ -246,7 +289,7 @@ document_query_at_position :: (doc: *Document, pos: Position) -> *PieceChainNode
 		if linesRemaining == 0 {
 			if node.length >= columnsRemaining {
 				// this is the node
-				offset += pos.col;
+				offset += columnsRemaining;
 				return node, .{node.start.line, node.start.offset + columnsRemaining}, offset;
 			}
 			else {
@@ -318,6 +361,7 @@ document_query_at_offset :: (doc: *Document, offset: s64) -> *PieceChainNode, Bu
 		else {
 			remainingOffset -= node.length;
 			lineCounter += node.lineFeedCount;
+			node = node.next;
 		}
 	}
 	// @todo, unsure if this is even possible to reach, if so, give back a nill node, rather than a null
@@ -462,4 +506,26 @@ buffer_cursor_to_offset :: (buffer: *Buffer, cursor: BufferCursor) -> s64 {
 // figure out how many linestarts are between start and length in the given buffer
 buffer_line_start_count :: (start: BufferCursor, end: BufferCursor) -> s64 {
 	return (end.line - start.line);
+}
+
+nodeTrimLeft :: (node: *PieceChainNode, buffer: *Buffer, pos: BufferCursor) {
+	// remove the left side of node up to pos
+	bufferOffsetStart := buffer_cursor_to_offset(buffer, node.start);
+	bufferOffsetSplit := buffer_cursor_to_offset(buffer, pos);
+	lenRight := (bufferOffsetStart + node.length) - bufferOffsetSplit;
+
+	node.start = pos;
+	node.length = lenRight;
+	node.lineFeedCount = buffer_line_start_count(node.start, node.end);
+}
+
+nodeTrimRight :: (node: *PieceChainNode, buffer: *Buffer, pos: BufferCursor) {
+	// remove the right side of node from pos
+	bufferOffsetStart := buffer_cursor_to_offset(buffer, node.start);
+	bufferOffsetSplit := buffer_cursor_to_offset(buffer, pos);
+	lenLeft := bufferOffsetSplit - bufferOffsetStart;
+
+	node.end = pos;
+	node.length = lenLeft;
+	node.lineFeedCount = buffer_line_start_count(node.start, node.end);
 }

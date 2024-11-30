@@ -48,7 +48,7 @@ windowHeight : s32 = 1080;
 pendingQuit := false;
 
 // options
-textSize :: 15;
+textSize :: 30;
 tabSize :: 4;
 lineNumbers :: true;
 
@@ -224,7 +224,38 @@ move_one_line_up :: () {
 insert_mode_handle_text_input :: (char: Utf8_Char) {
 	textToInsert := to_string(*char);
 	document_insert_text(focusedPanel.document, Position.{focusedPanel.cursorLine, focusedPanel.cursorColumn}, textToInsert);
-	focusedPanel.cursorColumn += 1;
+	move_one_char_right();
+}
+
+insert_mode_delete_left_char :: () {
+	if focusedPanel.cursorLine == 0 && focusedPanel.cursorColumn == 0 {
+		return;
+	}
+
+	// @todo What happens if you delete and cursorColumn is 0?
+	deletePos := Position.{focusedPanel.cursorLine, focusedPanel.cursorColumn-1};
+	if focusedPanel.cursorColumn == 0 {
+		deletePos.line -= 1;
+		prevLineLength:= document_get_line_length(focusedPanel.document, deletePos.line, false);
+		deletePos.col = prevLineLength;
+		document_delete_text(focusedPanel.document, deletePos, 1);
+
+		// move the cursor back up to the deletion point
+		focusedPanel.cursorLine = focusedPanel.cursorLine-1;
+		focusedPanel.cursorColumn = prevLineLength-1;
+	}
+	else {
+		document_delete_text(focusedPanel.document, deletePos, 1);
+		move_one_char_left();
+	}
+}
+
+insert_mode_line_break :: () {
+	textToInsert := "\r\n"; // @todo this should be changed depenending on document type
+	document_insert_text(focusedPanel.document, Position.{focusedPanel.cursorLine, focusedPanel.cursorColumn}, textToInsert);
+	move_one_line_down();
+	focusedPanel.cursorColumn = 0;
+	focusedPanel.cursorColumnVirtual = focusedPanel.cursorColumn;
 }
 
 // @todo: this is windows only, move to windows file

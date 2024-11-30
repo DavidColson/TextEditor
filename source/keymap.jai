@@ -57,6 +57,15 @@ commandList :: Command.[
 		.{ mode=.NORMAL, keys="k"}
 	]},
 
+	// insert mode stuff
+	.{ "Delete left char", 0, insert_mode_delete_left_char, .[
+		.{ mode=.INSERT, keys="<backspace>"}
+	]},
+	.{ "Insert line break", 0, insert_mode_line_break, .[
+		.{ mode=.INSERT, keys="<enter>"}
+	]},
+
+
 
 	// filesystem navigator
 	.{ "Open Filesystem Navigator", 0, open_file, .[
