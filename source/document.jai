@@ -271,7 +271,7 @@ document_query_at_position :: (doc: *Document, pos: Position) -> *PieceChainNode
 			offset += (lineStartOffset - nodeStartOffset);
 			
 			columnsInThisNode := nodeEndOffset - lineStartOffset;
-			if columnsInThisNode > pos.col {
+			if columnsInThisNode >= pos.col {
 				// yep this is definitely the node
 				offset += pos.col;
 				return node, .{node.start.line + linesRemaining, pos.col}, offset;
