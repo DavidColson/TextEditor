@@ -234,9 +234,9 @@ draw_panel :: (panel: *Panel) {
 					selectionW = lineWidth - selectionX;
 				}
 				if isLastLine {
-					selectionX = 0;
-					selectionW = rangeEnd.col * my_font.mono_x_advance;
+					selectionW = rangeEnd.col * my_font.mono_x_advance - selectionX;
 				}
+				
 
 				selection: Rect;
 				selection.x = cast(float)(textRegionX + selectionX);
@@ -261,7 +261,6 @@ draw_panel :: (panel: *Panel) {
 	if panel.cursor.line >= startVisibleLines && panel.cursor.line <= endVisibleLines {
 		Simp.set_shader_for_color();
 
-		
 		line := linesOnScreen[panel.cursor.line - startVisibleLines];
 		line.count = panel.cursor.column;
 		cursorX := calculate_string_length_pixels(my_font, line);
