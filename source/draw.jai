@@ -148,12 +148,12 @@ draw_panel :: (panel: *Panel) {
 	color.w = 1;
 
 	documentLines := document_get_num_lines(panel.document);
-	textX := 0;
-	textY := headerHeight;
+	textRegionX := 0;
+	textRegionY := headerHeight;
 	if lineNumbers {
 		nDigits := tprint("%", documentLines).count;
 		// @monospace
-		textX = my_font.mono_x_advance * (nDigits + 2); // extra 2 for padding
+		textRegionX = my_font.mono_x_advance * (nDigits + 2); // extra 2 for padding
 	}
 
 	startVisibleLines : s64;
@@ -165,19 +165,94 @@ draw_panel :: (panel: *Panel) {
 	endVisibleLines = clamp(startVisibleLines + cast(s64)heightForCode / my_font.character_height, 0, documentLines - 1);
 
 	// Draw line numbers
-	lineY := textY + my_font.character_height;
+	lineY := textRegionY + my_font.character_height;
 	for startVisibleLines..endVisibleLines {
 		width := Simp.prepare_text(my_font, tprint("%", it+1));
 		// @monospace doesn't work for non-monospace numbers
-		Simp.draw_prepared_text(my_font, (textX - width - my_font.mono_x_advance), lineY, Vector4.{0.5, 0.5, 0.5, 1.0});
+		Simp.draw_prepared_text(my_font, (textRegionX - width - my_font.mono_x_advance), lineY, Vector4.{0.5, 0.5, 0.5, 1.0});
 		lineY += my_font.character_height;
 	}
 
-	// Draw the actual code glyphs, with custom rendering
-	Simp.draw_code_prepare(my_font,xx textX,xx textY, xx my_font.character_height);
-	lineY = textY + my_font.character_height;
+	// collect together the actual lines of text we need to render
+	linesOnScreen: [..]string;
+	linesOnScreen.allocator = temp;
 	for startVisibleLines..endVisibleLines {
-		line:= document_get_line_content(panel.document, xx it);
+		array_add(*linesOnScreen, document_get_line_content(panel.document, xx it));
+	}
+
+	// draw the cursor selection
+	if panel.cursor.line >= startVisibleLines && panel.cursor.line <= endVisibleLines {
+		Simp.set_shader_for_color();
+		if panel.cursor.anchorLine != panel.cursor.line || panel.cursor.anchorColumn != panel.cursor.column {
+
+			// need to deal with the case where the anchor is behind or ahead of the cursor
+			rangeStart: Position;
+			rangeEnd: Position;
+			if panel.cursor.line < panel.cursor.anchorLine {
+				// cursor is clearly earlier than the anchor
+				rangeStart.line = panel.cursor.line;
+				rangeStart.col = panel.cursor.column;
+				rangeEnd.line = panel.cursor.anchorLine;
+				rangeEnd.col = panel.cursor.anchorColumn;
+			}
+			else if panel.cursor.line > panel.cursor.anchorLine { 
+				// anchor is clearly earlier than the cursor
+				rangeStart.line = panel.cursor.anchorLine;
+				rangeStart.col = panel.cursor.anchorColumn;
+				rangeEnd.line = panel.cursor.line;
+				rangeEnd.col = panel.cursor.column;
+			}
+			else {
+				// they are on the same line, pick based on column
+				if panel.cursor.column <= panel.cursor.anchorColumn {
+					rangeStart.line = panel.cursor.line;
+					rangeStart.col = panel.cursor.column;
+					rangeEnd.line = panel.cursor.anchorLine;
+					rangeEnd.col = panel.cursor.anchorColumn;
+				}
+				else {
+					rangeStart.line = panel.cursor.anchorLine;
+					rangeStart.col = panel.cursor.anchorColumn;
+					rangeEnd.line = panel.cursor.line;
+					rangeEnd.col = panel.cursor.column;
+				}
+			}
+
+			lineWidths: [..] s32;
+			lineWidths.allocator = temp;
+			for rangeStart.line..rangeEnd.line {
+				line := linesOnScreen[it - startVisibleLines];
+				lineWidth := calculate_string_length_pixels(my_font, line);
+
+				isFirstLine:= it == rangeStart.line;
+				isLastLine:= it == rangeEnd.line;
+
+				selectionX := 0;
+				selectionW := lineWidth;
+				if isFirstLine {
+					selectionX = rangeStart.col * my_font.mono_x_advance;
+					selectionW = lineWidth - selectionX;
+				}
+				if isLastLine {
+					selectionX = 0;
+					selectionW = rangeEnd.col * my_font.mono_x_advance;
+				}
+
+				selection: Rect;
+				selection.x = cast(float)(textRegionX + selectionX);
+				selection.y = cast(float)(textRegionY - my_font.typical_descender + my_font.character_height * (it-startVisibleLines));
+				selection.w = cast(float)selectionW;
+				selection.h = cast(float)my_font.character_height;
+
+				draw_rect(selection, .{0.4, 0.4, 0.4, 1.0});
+			}
+		}
+	}
+
+	// Draw the actual code glyphs, with custom rendering
+	Simp.draw_code_prepare(my_font,xx textRegionX,xx textRegionY, xx my_font.character_height);
+	lineY = textRegionY + my_font.character_height;
+	for line: linesOnScreen {
 		Simp.draw_code_line(line);
 	}
 	Simp.draw_code_end();
@@ -186,22 +261,15 @@ draw_panel :: (panel: *Panel) {
 	if panel.cursor.line >= startVisibleLines && panel.cursor.line <= endVisibleLines {
 		Simp.set_shader_for_color();
 
-		line:= document_get_line_content(panel.document, panel.cursor.line);
+		
+		line := linesOnScreen[panel.cursor.line - startVisibleLines];
 		line.count = panel.cursor.column;
-		cursorX := 0;
-		for line {
-			// @monospace would need to calculate line width properly for non-monospace
-			if it == #char "\t" {
-				cursorX = cursorX + my_font.mono_x_advance * tabSize;
-			}
-			else {
-				cursorX = cursorX + my_font.mono_x_advance;
-			}
-		}
+		cursorX := calculate_string_length_pixels(my_font, line);
+
 		// @monospace need actual letter width here 
 		cursorRect: Rect;
-		cursorRect.x = cast(float)(textX + cursorX);
-		cursorRect.y = cast(float)(textY - my_font.typical_descender + my_font.character_height * (panel.cursor.line-startVisibleLines));
+		cursorRect.x = cast(float)(textRegionX + cursorX);
+		cursorRect.y = cast(float)(textRegionY - my_font.typical_descender + my_font.character_height * (panel.cursor.line-startVisibleLines));
 		cursorRect.w = cast(float)my_font.mono_x_advance;
 		cursorRect.h = cast(float)my_font.character_height;
 
@@ -240,4 +308,21 @@ draw_panel :: (panel: *Panel) {
 	if editorMode == .FILESYSTEM_NAVIGATOR {
 		draw_filesystem_navigator(panel.rect, *panel.filesystemNav);
 	}
+}
+
+#scope_file
+calculate_string_length_pixels :: (font: *Simp.Dynamic_Font, s: string) -> s64 {
+	len := 0;
+	for s {
+		if it == #char "\t" {
+			len = len + my_font.mono_x_advance * tabSize;
+		}
+		else if it == #char "\r" || it == #char "\n" {
+			continue;
+		}
+		else {
+			len = len + my_font.mono_x_advance;
+		}
+	}
+	return len;
 }

@@ -428,7 +428,7 @@ document_get_line_content :: (doc: *Document, lineNum: s64) -> string {
 
 	}
 
-	return builder_to_string(*builder);
+	return builder_to_string(*builder,,temp);
 }
 
 document_get_num_lines :: (doc: *Document) -> s64 {
