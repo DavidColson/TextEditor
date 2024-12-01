@@ -45,16 +45,20 @@ commandList :: Command.[
 
 	// normal mode stuff
 	.{ "Move one char left", 0, move_one_char_left, .[
-		.{ mode=.NORMAL, keys="h"}
+		.{ mode=.NORMAL, keys="h"},
+		.{ mode=.INSERT, keys="<left>"},
 	]},
 	.{ "Move one char right", 0, move_one_char_right, .[
-		.{ mode=.NORMAL, keys="l"}
+		.{ mode=.NORMAL, keys="l"},
+		.{ mode=.INSERT, keys="<right>"},
 	]},
 	.{ "Move one line down", 0, move_one_line_down, .[
-		.{ mode=.NORMAL, keys="j"}
+		.{ mode=.NORMAL, keys="j"},
+		.{ mode=.INSERT, keys="<down>"},
 	]},
 	.{ "Move one line up", 0, move_one_line_up, .[
-		.{ mode=.NORMAL, keys="k"}
+		.{ mode=.NORMAL, keys="k"},
+		.{ mode=.INSERT, keys="<up>"}
 	]},
 
 	// insert mode stuff
@@ -262,6 +266,12 @@ input_handler :: (event: Input.Event) {
 		}
 		else if event.key_pressed && event.key_code == .ARROW_DOWN {
 			append(*builder, "<down>");
+		}
+		else if event.key_pressed && event.key_code == .ARROW_LEFT {
+			append(*builder, "<left>");
+		}
+		else if event.key_pressed && event.key_code == .ARROW_RIGHT {
+			append(*builder, "<right>");
 		}
 		else if event.key_pressed && event.key_code == .ENTER {
 			append(*builder, "<enter>");
