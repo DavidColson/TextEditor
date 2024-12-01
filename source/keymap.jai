@@ -44,7 +44,7 @@ keyMap: KeyMap;
 commandList :: Command.[
 	.{ "Quit", 0, quit, .[.{mode=.NORMAL, keys="Q"}]},
 
-	// normal mode stuff
+	// motions
 	.{ "Move one char left", 0, move_one_char_left, .[
 		.{ mode=.NORMAL, keys="h"},
 		.{ mode=.INSERT, keys="<left>"},
@@ -74,7 +74,13 @@ commandList :: Command.[
 		.{ mode=.NORMAL, keys="K"},
 	]},
 
+	// changes
+	.{ "Delete selection", 0, delete_selection, .[
+		.{ mode=.NORMAL, keys="d"},
+	]},
+
 	// insert mode stuff
+	// @todo, may be able to unify this with some other commands?
 	.{ "Delete left char", 0, insert_mode_delete_left_char, .[
 		.{ mode=.INSERT, keys="<backspace>"}
 	]},

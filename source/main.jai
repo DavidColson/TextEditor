@@ -168,6 +168,8 @@ hex_to_color_vec4 :: (src_hex: string) -> Vector4, success: bool {
 }
 
 // basic commands
+// @todo move these into files
+// for example file for "motions", file for "changes"
 quit :: (panel: *Panel, extend: bool) {
 	pendingQuit = true;
 }
@@ -252,6 +254,21 @@ move_one_line_up :: (using panel: *Panel, extend: bool) {
 	}
 }
 
+delete_selection :: (using panel: *Panel, extend: bool) {
+	rangeStart, rangeEnd := convert_cursor_to_range(panel.cursor);
+
+	// @todo don't end the deletion in the middle of a crlf
+	// cursorChar := document_get_char_at_location(document, rangeEnd.line, rangeEnd.col);
+	// if cursorChar == #char "\n" then rangeEnd.col += 1;
+
+	document_delete_text(document, rangeStart, rangeEnd);
+
+	cursor.line = rangeStart.line;
+	cursor.column = rangeStart.col;
+	cursor.anchorLine = rangeStart.line;
+	cursor.anchorColumn = rangeStart.col;
+}
+
 // insert mode text handler
 insert_mode_handle_text_input :: (char: Utf8_Char) {
 	textToInsert := to_string(*char);
@@ -268,14 +285,17 @@ insert_mode_delete_left_char :: (using panel: *Panel, extend: bool) {
 	deletePos := Position.{cursor.line, cursor.column-1};
 	if cursor.column == 0 {
 		deletePos.line -= 1;
-		prevLineLength:= document_get_line_length(document, deletePos.line, false);
-		deletePos.col = prevLineLength;
+		// get back to the end of the previous line (before line endings)
+		deletePos.col = document_get_line_length(document, deletePos.line, true);
+
 		// @todo deleting two chars because of crlf line endings, change when doing another line ending type
 		document_delete_text(document, deletePos, 2);
 
 		// move the cursor back up to the deletion point
-		cursor.line = cursor.line-1;
-		cursor.column = prevLineLength-1;
+		cursor.line = deletePos.line;
+		cursor.column = deletePos.col;
+		cursor.anchorLine = cursor.line;
+		cursor.anchorColumn = cursor.column;
 	}
 	else {
 		document_delete_text(document, deletePos, 1);
@@ -286,10 +306,51 @@ insert_mode_delete_left_char :: (using panel: *Panel, extend: bool) {
 insert_mode_line_break :: (using panel: *Panel, extend: bool) {
 	textToInsert := "\r\n"; // @todo this should be changed depenending on document type
 	document_insert_text(document, Position.{cursor.line, cursor.column}, textToInsert);
+
 	move_one_line_down(panel, false);
 	cursor.column = 0;
 	cursor.virtualColumn = cursor.column;
+	cursor.anchorLine = cursor.line;
+	cursor.anchorColumn = cursor.column;
 }
+
+// utilities 
+convert_cursor_to_range :: (cursor: Cursor, includeCursor: bool = true) -> start: Position, end: Position {
+	rangeStart: Position;
+	rangeEnd: Position;
+	cursorBonus := ifx includeCursor then 1 else 0;
+	if cursor.line < cursor.anchorLine {
+		// cursor is clearly earlier than the anchor
+		rangeStart.line = cursor.line;
+		rangeStart.col = cursor.column;
+		rangeEnd.line = cursor.anchorLine;
+		rangeEnd.col = cursor.anchorColumn;
+	}
+	else if cursor.line > cursor.anchorLine { 
+		// anchor is clearly earlier than the cursor
+		rangeStart.line = cursor.anchorLine;
+		rangeStart.col = cursor.anchorColumn;
+		rangeEnd.line = cursor.line;
+		rangeEnd.col = cursor.column+cursorBonus; // cursor itself is considered part of the selection
+	}
+	else {
+		// they are on the same line, pick based on column
+		if cursor.column <= cursor.anchorColumn {
+			rangeStart.line = cursor.line;
+			rangeStart.col = cursor.column;
+			rangeEnd.line = cursor.anchorLine;
+			rangeEnd.col = cursor.anchorColumn;
+		}
+		else {
+			rangeStart.line = cursor.anchorLine;
+			rangeStart.col = cursor.anchorColumn;
+			rangeEnd.line = cursor.line;
+			rangeEnd.col = cursor.column+cursorBonus;
+		}
+	}
+	return rangeStart, rangeEnd;
+}
+
 
 // @todo: this is windows only, move to windows file
 platform_enumerate_logical_drives :: () -> [] string {

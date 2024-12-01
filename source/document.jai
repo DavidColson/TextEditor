@@ -57,8 +57,17 @@ operator == :: (a: BufferCursor, b: BufferCursor) -> bool {
 	return a.line == b.line && a.offset == b.offset;
 }
 
+document_free :: (doc: *Document) {
+	fini(*doc.documentMemory);
+	fini(*doc.pieceChainMemory);
+	initializer_of(Document)(doc);
+}
+
 document_open :: (path: string) {
+	// @todo hack until we have multi buffer support
 	doc := *mainDocument;
+	document_free(doc);
+
 	doc.documentMemory.alignment = 1; // @Todo, check this is okay, but it should be fine, we just want an endless char array
 	doc.documentAlloc = Allocator.{ proc = flat_pool_allocator_proc, data = *doc.documentMemory };
 	doc.pieceChainAlloc = Allocator.{ proc = flat_pool_allocator_proc, data = *doc.pieceChainMemory };
@@ -196,35 +205,34 @@ document_insert_text :: (doc: *Document, location: Position, t: string) {
 		doc.lastInsert = newPiece.end;
 
 		// update the chain pointers 
-		if doc.pieceChainTail == nodeToEdit {
-			doc.pieceChainTail = newPieceRight;
-		}
 		nodeToEdit.next = newPiece;
 		newPiece.prev = nodeToEdit;
 		newPiece.next = newPieceRight;
 		newPieceRight.prev = newPiece;
+		if newPieceRight.next != null {
+			newPieceRight.next.prev = newPieceRight;
+		}
+		else {
+			doc.pieceChainTail = newPieceRight;
+		}
 	}
 }
 
-document_delete_text :: (doc: *Document, location: Position, count: s64) {
-	// sigh, what do we do here then?
+document_delete_text :: (doc: *Document, startPos: Position, endPos: Position) {
+	startNode, start, startOffset := document_query_at_position(doc, startPos);
+	endNode, end, endOffset := document_query_at_position(doc, endPos);
 
-
-	// cases:
-	// The deletion range is fully inside one node
-		// Trim left or right side if that's what's needed
-		// or remove and replace with two nodes with a gap
-	// the deletion covers multiple nodes
-		// first node gets split or not
-		// 0 or more nodes until the final node are removed
-		// the final node gets it's left trimmed or not
-	
-
-	// todo list
-	// get the node at the end, and the node at the start of the range
-	startNode, start, startOffset := document_query_at_position(doc, location);
+	document_delete_text_internal(doc, startNode, start, startOffset, endNode, end, endOffset);
+}
+document_delete_text :: (doc: *Document, startPos: Position, count: s64) {
+	startNode, start, startOffset := document_query_at_position(doc, startPos);
 	endNode, end := document_query_at_offset(doc, startOffset + count);
 
+	document_delete_text_internal(doc, startNode, start, startOffset, endNode, end, startOffset + count);
+}
+
+document_delete_text_internal :: (doc: *Document, startNode: *PieceChainNode, start: BufferCursor, startOffset: s64,
+												  endNode: *PieceChainNode, end: BufferCursor, endOffset: s64) {
 	if startNode == endNode {
 		buffer : *Buffer;
 		ifx startNode.added then buffer = *doc.addedData else buffer = *doc.originalData;
@@ -246,23 +254,47 @@ document_delete_text :: (doc: *Document, location: Position, count: s64) {
 		}
 	}
 	else {
-		// one or more full nodes are being deleted
-		if endNode.end == end {
-			// the full node must be deleted here
-			startNode.next = endNode.next;
-			startNode.next.prev = startNode;
-			if startNode.prev != null {
-				startNode.prev.next = startNode;
+		remove_node_range :: (doc: *Document, first: *PieceChainNode, last: *PieceChainNode) {
+			if first.prev != null {
+				first.prev.next = last.next;
 			}
 			else {
-				doc.pieceChainHead = startNode;
+				doc.pieceChainHead = first.prev;
+			}
+
+			if last.next != null {
+				last.next.prev = first.prev;
+			}
+			else {
+				doc.pieceChainTail = last.next;
 			}
 		}
 
-		// @todo need to cover other cases
-		// start by building the replacement start and end nodes
-		// then remove all the nodes in the range
-		// then put in the new start/end nodes
+		firstToDelete := startNode.next;
+		if startNode.start == start {
+			// delete whole start node
+			firstToDelete = startNode;
+		}
+		else {
+			// take some of start node
+			buffer : *Buffer;
+			ifx startNode.added then buffer = *doc.addedData else buffer = *doc.originalData;
+			nodeTrimRight(startNode, buffer, start);
+		}
+		lastToDelete := endNode.prev;
+		if endNode.end == end {
+			// delete whole end node
+			lastToDelete = endNode;
+		}
+		else {
+			// take some of end node
+			buffer : *Buffer;
+			ifx startNode.added then buffer = *doc.addedData else buffer = *doc.originalData;
+			nodeTrimLeft(endNode, buffer, end);
+		}
+		
+		// delete all nodes that are no longer needed
+		remove_node_range(doc, firstToDelete, lastToDelete);
 	}
 }
 
@@ -456,7 +488,7 @@ document_get_line_length :: (doc: *Document, lineNum: s64, excludeEnding: bool =
 			lineContent.count = lineContent.count - 1;
 		}
 	}
-	return max(lineContent.count - 1, 0);
+	return max(lineContent.count, 0);
 }
 
 document_debug_print_piece_chain :: (doc: *Document) {
@@ -473,7 +505,19 @@ document_debug_print_piece_chain :: (doc: *Document) {
 
 		startOffset:= buffer_cursor_to_offset(buffer, node.start);
 		endOffset := buffer_cursor_to_offset(buffer, node.end);
-		append(*builder, buffer.text.data + startOffset, endOffset - startOffset);
+		text := string.{endOffset-startOffset, buffer.text.data + startOffset};
+		for text {
+			// @todo: assumes crlf endings
+			if it == #char "\r" {
+				append(*builder, "CR");
+			} 
+			else if it == #char "\n" {
+				append(*builder, "LF\n");
+			}
+			else {
+				append(*builder, it);
+			}
+		}
 		append(*builder, "\"]");
 		node = node.next;
 	}
@@ -535,7 +579,14 @@ nodeTrimLeft :: (node: *PieceChainNode, buffer: *Buffer, pos: BufferCursor) {
 	bufferOffsetSplit := buffer_cursor_to_offset(buffer, pos);
 	lenRight := (bufferOffsetStart + node.length) - bufferOffsetSplit;
 
-	node.start = pos;
+	// @todo crlf support, prevent splitting in the middle of a crlf
+	splitPos := pos;
+	if buffer.text[bufferOffsetSplit] == #char "\n" {
+		splitPos.offset -= 1;
+		lenRight =+ 1;
+	}
+
+	node.start = splitPos;
 	node.length = lenRight;
 	node.lineFeedCount = buffer_line_start_count(node.start, node.end);
 }
@@ -546,7 +597,14 @@ nodeTrimRight :: (node: *PieceChainNode, buffer: *Buffer, pos: BufferCursor) {
 	bufferOffsetSplit := buffer_cursor_to_offset(buffer, pos);
 	lenLeft := bufferOffsetSplit - bufferOffsetStart;
 
-	node.end = pos;
+	// @todo crlf support, prevent splitting in the middle of a crlf
+	splitPos := pos;
+	if buffer.text[bufferOffsetSplit] == #char "\n" {
+		splitPos.offset -= 1;
+		lenLeft -= 1;
+	}
+
+	node.end = splitPos;
 	node.length = lenLeft;
 	node.lineFeedCount = buffer_line_start_count(node.start, node.end);
 }

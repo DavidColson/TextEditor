@@ -184,40 +184,7 @@ draw_panel :: (panel: *Panel) {
 	if panel.cursor.line >= startVisibleLines && panel.cursor.line <= endVisibleLines {
 		Simp.set_shader_for_color();
 		if panel.cursor.anchorLine != panel.cursor.line || panel.cursor.anchorColumn != panel.cursor.column {
-
-			// need to deal with the case where the anchor is behind or ahead of the cursor
-			rangeStart: Position;
-			rangeEnd: Position;
-			if panel.cursor.line < panel.cursor.anchorLine {
-				// cursor is clearly earlier than the anchor
-				rangeStart.line = panel.cursor.line;
-				rangeStart.col = panel.cursor.column;
-				rangeEnd.line = panel.cursor.anchorLine;
-				rangeEnd.col = panel.cursor.anchorColumn;
-			}
-			else if panel.cursor.line > panel.cursor.anchorLine { 
-				// anchor is clearly earlier than the cursor
-				rangeStart.line = panel.cursor.anchorLine;
-				rangeStart.col = panel.cursor.anchorColumn;
-				rangeEnd.line = panel.cursor.line;
-				rangeEnd.col = panel.cursor.column;
-			}
-			else {
-				// they are on the same line, pick based on column
-				if panel.cursor.column <= panel.cursor.anchorColumn {
-					rangeStart.line = panel.cursor.line;
-					rangeStart.col = panel.cursor.column;
-					rangeEnd.line = panel.cursor.anchorLine;
-					rangeEnd.col = panel.cursor.anchorColumn;
-				}
-				else {
-					rangeStart.line = panel.cursor.anchorLine;
-					rangeStart.col = panel.cursor.anchorColumn;
-					rangeEnd.line = panel.cursor.line;
-					rangeEnd.col = panel.cursor.column;
-				}
-			}
-
+			rangeStart, rangeEnd := convert_cursor_to_range(panel.cursor, false);
 			lineWidths: [..] s32;
 			lineWidths.allocator = temp;
 			for rangeStart.line..rangeEnd.line {
@@ -230,11 +197,11 @@ draw_panel :: (panel: *Panel) {
 				selectionX := 0;
 				selectionW := lineWidth;
 				if isFirstLine {
-					selectionX = rangeStart.col * my_font.mono_x_advance;
+					selectionX = calculate_string_length_pixels(my_font, string.{rangeStart.col,line.data});
 					selectionW = lineWidth - selectionX;
 				}
 				if isLastLine {
-					selectionW = rangeEnd.col * my_font.mono_x_advance - selectionX;
+					selectionW = calculate_string_length_pixels(my_font, string.{rangeEnd.col,line.data});
 				}
 				
 
