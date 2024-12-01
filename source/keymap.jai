@@ -66,7 +66,6 @@ commandList :: Command.[
 	]},
 
 
-
 	// filesystem navigator
 	.{ "Open Filesystem Navigator", 0, open_file, .[
 		.{ mode=.NORMAL, keys="ctrl+o"}
@@ -116,6 +115,9 @@ commandList :: Command.[
 		.{ mode=.COMMAND_PICKER, keys="<escape>"},
 		.{ mode=.FILESYSTEM_NAVIGATOR, keys="<escape>"},
 	]},
+
+	// misc commands
+	.{ "Print piece chain debug", 0, print_piece_chain_debug, .[]},
 ];
 
 rebuild_key_map :: ()  {
@@ -128,6 +130,8 @@ rebuild_key_map :: ()  {
 	// for loop through the command list
 	for * cmd : commandList {
 		for mapping : cmd.mappings {
+			if mapping.keys == "" continue;
+
 			// Grab the mapping for each command
 			// for each key in the mapping (single char, or modified key, or special key)
 			keys := mapping.keys;

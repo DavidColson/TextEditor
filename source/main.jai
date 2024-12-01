@@ -48,7 +48,7 @@ windowHeight : s32 = 1080;
 pendingQuit := false;
 
 // options
-textSize :: 30;
+textSize :: 15;
 tabSize :: 4;
 lineNumbers :: true;
 
@@ -172,6 +172,10 @@ quit :: () {
 open_file :: () {
 	editorMode = .FILESYSTEM_NAVIGATOR;
 	filesystem_nav_refresh_directory_list(*focusedPanel.filesystemNav);
+}
+
+print_piece_chain_debug :: () {
+	document_debug_print_piece_chain(focusedPanel.document);
 }
 
 enter_normal_mode :: () {
@@ -396,6 +400,6 @@ GetLogicalDriveStringsW :: (nBufferLength: DWORD, lpBuffer: *u16) -> DWORD #fore
 #run {
     #if OS == .WINDOWS {
         WR :: #import "Windows_Resources";
-        WR.disable_runtime_console();
+        // WR.disable_runtime_console();
     }
 }

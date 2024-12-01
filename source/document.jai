@@ -266,7 +266,9 @@ document_delete_text :: (doc: *Document, location: Position, count: s64) {
 	}
 }
 
-document_replace_text :: (doc: *Document, index: s64, text: string) {
+document_replace_text :: (doc: *Document, location: Position, text: string) {
+	document_delete_text(focusedPanel.document, location, text.count);
+	document_insert_text(focusedPanel.document, location, text);
 }
 
 // given a coordinate position in the document (line, column), find the absolute offset in the document (inverse of below)
@@ -455,6 +457,27 @@ document_get_line_length :: (doc: *Document, lineNum: s64, excludeEnding: bool =
 		}
 	}
 	return max(lineContent.count - 1, 0);
+}
+
+document_debug_print_piece_chain :: (doc: *Document) {
+	builder: String_Builder;
+	builder.allocator = temp;
+
+	node: *PieceChainNode = doc.pieceChainHead;
+	while node != null {
+		buffer : *Buffer;
+		ifx node.added then buffer = *doc.addedData else buffer = *doc.originalData;
+
+		print_to_builder(*builder, "[a=%,l=%,lfc=%,s=(%,%),e=(%,%),\"",
+			node.added, node.length, node.lineFeedCount, node.start.line, node.start.offset, node.end.line, node.end.offset);
+
+		startOffset:= buffer_cursor_to_offset(buffer, node.start);
+		endOffset := buffer_cursor_to_offset(buffer, node.end);
+		append(*builder, buffer.text.data + startOffset, endOffset - startOffset);
+		append(*builder, "\"]");
+		node = node.next;
+	}
+	print(builder_to_string(*builder,,temp));
 }
 
 #scope_file
