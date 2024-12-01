@@ -289,7 +289,7 @@ document_delete_text_internal :: (doc: *Document, startNode: *PieceChainNode, st
 		else {
 			// take some of end node
 			buffer : *Buffer;
-			ifx startNode.added then buffer = *doc.addedData else buffer = *doc.originalData;
+			ifx endNode.added then buffer = *doc.addedData else buffer = *doc.originalData;
 			nodeTrimLeft(endNode, buffer, end);
 		}
 		
@@ -581,7 +581,7 @@ nodeTrimLeft :: (node: *PieceChainNode, buffer: *Buffer, pos: BufferCursor) {
 
 	// @todo crlf support, prevent splitting in the middle of a crlf
 	splitPos := pos;
-	if buffer.text[bufferOffsetSplit] == #char "\n" {
+	if bufferOffsetSplit < buffer.text.count && buffer.text[bufferOffsetSplit] == #char "\n" {
 		splitPos.offset -= 1;
 		lenRight =+ 1;
 	}
@@ -599,7 +599,7 @@ nodeTrimRight :: (node: *PieceChainNode, buffer: *Buffer, pos: BufferCursor) {
 
 	// @todo crlf support, prevent splitting in the middle of a crlf
 	splitPos := pos;
-	if buffer.text[bufferOffsetSplit] == #char "\n" {
+	if bufferOffsetSplit < buffer.text.count && buffer.text[bufferOffsetSplit] == #char "\n" {
 		splitPos.offset -= 1;
 		lenLeft -= 1;
 	}

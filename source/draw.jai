@@ -201,7 +201,7 @@ draw_panel :: (panel: *Panel) {
 					selectionW = lineWidth - selectionX;
 				}
 				if isLastLine {
-					selectionW = calculate_string_length_pixels(my_font, string.{rangeEnd.col,line.data});
+					selectionW = calculate_string_length_pixels(my_font, string.{rangeEnd.col,line.data}) - selectionX;
 				}
 				
 
@@ -281,7 +281,8 @@ calculate_string_length_pixels :: (font: *Simp.Dynamic_Font, s: string) -> s64 {
 	len := 0;
 	for s {
 		if it == #char "\t" {
-			len = len + my_font.mono_x_advance * tabSize;
+			chars_to_tabstop := tabSize - it_index % tabSize;
+			len = len + my_font.mono_x_advance * chars_to_tabstop;
 		}
 		else if it == #char "\r" || it == #char "\n" {
 			continue;
