@@ -205,7 +205,11 @@ draw_panel :: (panel: *Panel) {
 		cursorRect.w = cast(float)my_font.mono_x_advance;
 		cursorRect.h = cast(float)my_font.character_height;
 
-		draw_rect(cursorRect, Vector4.{0.9, 0.9, 0.9, 1.0});
+		color: Vector4 = .{0.8, 0.8, 0.8, 1.0};
+		if editorMode == .INSERT {
+			color = .{1.0, 1.0, 1.0, 1.0};
+		}
+		draw_rect(cursorRect, color);
 
 		overlayChar := document_get_char_at_location(panel.document, panel.cursor.line, panel.cursor.column);
 		Simp.prepare_text(my_font, tprint("%", cast(string) u8.[overlayChar]));
