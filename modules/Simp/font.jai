@@ -151,6 +151,9 @@ Dynamic_Font :: struct {
     temporary_glyphs_byte_offsets: [..] int;
     temporary_glyphs_width_in_pixels: s64;
 
+	render_new_lines: bool;
+	render_tabs: bool;
+
     // draw_quads_proc := default_draw_quads_proc;
     current_quads: [..] Font_Quad;
 }
@@ -879,6 +882,10 @@ generate_quads_for_prepared_text :: (font: *Dynamic_Font,
     }
 }
 
+force_regenerate_glyph_table :: (font: *Dynamic_Font) {
+	table_reset(*font.glyph_lookup);
+}
+
 #scope_file
 
 ft_library    : FT_Library;
@@ -1034,12 +1041,24 @@ find_or_create_glyph :: (using font: *Dynamic_Font,
 
     face := font.private1;  // XXX Why not using?
 
-    if utf32 == #char "\t" then utf32 = #char " ";  // draw tabs as space
-    if utf32 == #char "\n" then utf32 = #char " ";  // draw newlines spaces
-    if utf32 == #char "\r" then utf32 = #char " ";  // draw newlines spaces
+	if font.render_tabs {
+		if utf32 == #char "\t" then utf32 = #char "→";
+	}
+	else {
+		if utf32 == #char "\t" then utf32 = #char " ";
+	}
 
-    // @Move: Make this happen at font construction time.  @Speed.
-    // However we can't right now, because we share this face among
+	if font.render_new_lines {
+		if utf32 == #char "\n" then utf32 = #char "¶";
+		if utf32 == #char "\r" then utf32 = #char "←";
+	}
+	else {
+		if utf32 == #char "\n" then utf32 = #char " ";
+		if utf32 == #char "\r" then utf32 = #char " ";
+	}
+
+	// @Move: Make this happen at font construction time.  @Speed.
+	// However we can't right now, because we share this face among
     // multiple Dynamic_Fonts...
 
     error := FT_Set_Pixel_Sizes(face, 0, cast(u32) font.character_height);    // XXX WHy not using?

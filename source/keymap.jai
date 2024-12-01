@@ -118,6 +118,7 @@ commandList :: Command.[
 
 	// misc commands
 	.{ "Print piece chain debug", 0, print_piece_chain_debug, .[]},
+	.{ "Toggle line endings", 0, toggle_render_line_endings, .[]},
 ];
 
 rebuild_key_map :: ()  {

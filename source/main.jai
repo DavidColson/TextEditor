@@ -131,6 +131,8 @@ main :: () {
 
 my_init_fonts :: () {
     my_font = Simp.get_font_at_size("fonts", "FiraMonoNerdFontMono-Medium.ttf", textSize);
+	my_font.render_tabs = false;
+	my_font.render_new_lines = false;
     assert(my_font != null);
 }
 
@@ -176,6 +178,11 @@ open_file :: () {
 
 print_piece_chain_debug :: () {
 	document_debug_print_piece_chain(focusedPanel.document);
+}
+
+toggle_render_line_endings :: () {
+	my_font.render_new_lines = !my_font.render_new_lines;
+	Simp.force_regenerate_glyph_table(my_font);
 }
 
 enter_normal_mode :: () {
