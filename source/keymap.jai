@@ -5,6 +5,7 @@ KeyMappingDesc :: struct {
 }
 
 CommandFlags :: enum_flags u8 {
+	EXTEND;
 	HIDDEN;
 	COMMAND_PICKER_ONLY;
 	FILESYSTEM_NAVIGATOR_ONLY;
@@ -13,7 +14,7 @@ CommandFlags :: enum_flags u8 {
 Command :: struct {
 	name: string;
 	flags: CommandFlags;
-	execute: ();
+	execute: (*Panel, bool);
 	mappings: []KeyMappingDesc;
 }
 
@@ -59,6 +60,18 @@ commandList :: Command.[
 	.{ "Move one line up", 0, move_one_line_up, .[
 		.{ mode=.NORMAL, keys="k"},
 		.{ mode=.INSERT, keys="<up>"}
+	]},
+	.{ "Extend one char left", .EXTEND, move_one_char_left, .[
+		.{ mode=.NORMAL, keys="H"},
+	]},
+	.{ "Extend one char right", .EXTEND, move_one_char_right, .[
+		.{ mode=.NORMAL, keys="L"},
+	]},
+	.{ "Extend one line down", .EXTEND, move_one_line_down, .[
+		.{ mode=.NORMAL, keys="J"},
+	]},
+	.{ "Extend one line up", .EXTEND, move_one_line_up, .[
+		.{ mode=.NORMAL, keys="K"},
 	]},
 
 	// insert mode stuff
@@ -301,7 +314,9 @@ input_handler :: (event: Input.Event) {
 			block:= false;
 			if editorMode != .COMMAND_PICKER && node.cmd.flags & .COMMAND_PICKER_ONLY block = true;
 			if editorMode != .FILESYSTEM_NAVIGATOR && node.cmd.flags & .FILESYSTEM_NAVIGATOR_ONLY block = true;
-			if !block node.cmd.execute();
+
+			extendCommand := ifx node.cmd.flags & .EXTEND then true else false;
+			if !block node.cmd.execute(*focusedPanel, extendCommand);
 
 			keyMap.pendingKeySequence = *keyMap.root[editorMode];
 		}

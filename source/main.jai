@@ -5,22 +5,23 @@ BuildType :: enum u8
 	RELEASE;
 }
 
+Cursor :: struct {
+	line: s64; 
+	column: s64; 
+	anchorLine: s64;
+	anchorColumn: s64;
+
+	// when users move up and down lines, this stores the 
+	// column that we should try stick to as we move up and down
+	// gets reset when the user actually moves left or right
+	virtualColumn: s64; 
+}
+
 Panel :: struct {
 	// @todo make a free panel function which yeets the wrapped lines
 	document: *Document;
 
-	// cursor stored in line/column so that finding it's 
-	// position each frame doesn't require looping through
-	// all the lines, if you want the byte location it's a
-	// O(1) calculation
-
-	cursorLine: s64; 
-	cursorColumn: s64; 
-	// when users move up and down lines, this stores the 
-	// column that we should try stick to as we move up and down
-	// gets reset when the user actually moves left or right
-	cursorColumnVirtual: s64; 
-
+	cursor: Cursor;
 	rect: Rect;
 	commandMessage: string;
 
@@ -86,8 +87,8 @@ main :: () {
 	focusedPanel.rect.w = xx windowWidth;
 	focusedPanel.rect.h = xx windowHeight;
 	focusedPanel.document = *mainDocument;
-	focusedPanel.cursorLine = 0;
-	focusedPanel.cursorColumn = 0;
+	focusedPanel.cursor.line = 0;
+	focusedPanel.cursor.column = 0;
 
     want_screenshot := false;
     while !pendingQuit {
@@ -167,107 +168,127 @@ hex_to_color_vec4 :: (src_hex: string) -> Vector4, success: bool {
 }
 
 // basic commands
-quit :: () {
+quit :: (panel: *Panel, extend: bool) {
 	pendingQuit = true;
 }
 
-open_file :: () {
+open_file :: (panel: *Panel, extend: bool) {
 	editorMode = .FILESYSTEM_NAVIGATOR;
-	filesystem_nav_refresh_directory_list(*focusedPanel.filesystemNav);
+	filesystem_nav_refresh_directory_list(*panel.filesystemNav);
 }
 
-print_piece_chain_debug :: () {
-	document_debug_print_piece_chain(focusedPanel.document);
+print_piece_chain_debug :: (panel: *Panel, extend: bool) {
+	document_debug_print_piece_chain(panel.document);
 }
 
-toggle_render_line_endings :: () {
+toggle_render_line_endings :: (panel: *Panel, extend: bool) {
 	my_font.render_new_lines = !my_font.render_new_lines;
 	Simp.force_regenerate_glyph_table(my_font);
 }
 
-enter_normal_mode :: () {
+enter_normal_mode :: (panel: *Panel, extend: bool) {
 	if editorMode == .FILESYSTEM_NAVIGATOR {
-		filesystem_nav_reset(*focusedPanel.filesystemNav);
+		filesystem_nav_reset(*panel.filesystemNav);
 	}
 	else if editorMode == .COMMAND_PICKER {
-		command_picker_reset(*focusedPanel.commandPicker);
+		command_picker_reset(*panel.commandPicker);
 	}
 	editorMode = .NORMAL;
 }
 
-enter_insert_mode :: () {
+enter_insert_mode :: (panel: *Panel, extend: bool) {
 	if editorMode == .FILESYSTEM_NAVIGATOR {
-		filesystem_nav_reset(*focusedPanel.filesystemNav);
+		filesystem_nav_reset(*panel.filesystemNav);
 	}
 	else if editorMode == .COMMAND_PICKER {
-		command_picker_reset(*focusedPanel.commandPicker);
+		command_picker_reset(*panel.commandPicker);
 	}
 	editorMode = .INSERT;
 }
 
-move_one_char_left :: () {
-	focusedPanel.cursorColumn = max(focusedPanel.cursorColumn-1, 0);
-	focusedPanel.cursorColumnVirtual = focusedPanel.cursorColumn;
+move_one_char_left :: (using panel: *Panel, extend: bool) {
+	cursor.column = max(cursor.column-1, 0);
+	cursor.virtualColumn = cursor.column;
+
+	if !extend {
+		cursor.anchorLine = cursor.line;
+		cursor.anchorColumn = cursor.column;
+	}
 }
 
-move_one_char_right :: () {
-	lineLen:= document_get_line_length(focusedPanel.document, focusedPanel.cursorLine);
-	focusedPanel.cursorColumn = min(focusedPanel.cursorColumn+1, lineLen+1);
-	focusedPanel.cursorColumnVirtual = focusedPanel.cursorColumn;
+move_one_char_right :: (using panel: *Panel, extend: bool) {
+	lineLen:= document_get_line_length(document, cursor.line);
+	cursor.column = min(cursor.column+1, lineLen+1);
+	cursor.virtualColumn = cursor.column;
+
+	if !extend {
+		cursor.anchorLine = cursor.line;
+		cursor.anchorColumn = cursor.column;
+	}
 }
 
-move_one_line_down :: () {
-	numLines := document_get_num_lines(focusedPanel.document);
-	focusedPanel.cursorLine = min(focusedPanel.cursorLine+1, numLines - 1);
+move_one_line_down :: (using panel: *Panel, extend: bool) {
+	numLines := document_get_num_lines(document);
+	cursor.line = min(cursor.line+1, numLines - 1);
 
-	newLineLen:= document_get_line_length(focusedPanel.document, focusedPanel.cursorLine);
-	focusedPanel.cursorColumn = min(focusedPanel.cursorColumnVirtual, newLineLen);
+	newLineLen:= document_get_line_length(document, cursor.line);
+	cursor.column = min(cursor.virtualColumn, newLineLen);
+
+	if !extend {
+		cursor.anchorLine = cursor.line;
+		cursor.anchorColumn = cursor.column;
+	}
 }
 
-move_one_line_up :: () {
-	focusedPanel.cursorLine = max(focusedPanel.cursorLine-1, 0);
+move_one_line_up :: (using panel: *Panel, extend: bool) {
+	cursor.line = max(cursor.line-1, 0);
 
-	newLineLen:= document_get_line_length(focusedPanel.document, focusedPanel.cursorLine);
-	focusedPanel.cursorColumn = min(focusedPanel.cursorColumnVirtual, newLineLen);
+	newLineLen:= document_get_line_length(document, cursor.line);
+	cursor.column = min(cursor.virtualColumn, newLineLen);
+
+	if !extend {
+		cursor.anchorLine = cursor.line;
+		cursor.anchorColumn = cursor.column;
+	}
 }
 
 // insert mode text handler
 insert_mode_handle_text_input :: (char: Utf8_Char) {
 	textToInsert := to_string(*char);
-	document_insert_text(focusedPanel.document, Position.{focusedPanel.cursorLine, focusedPanel.cursorColumn}, textToInsert);
-	move_one_char_right();
+	document_insert_text(focusedPanel.document, Position.{focusedPanel.cursor.line, focusedPanel.cursor.column}, textToInsert);
+	move_one_char_right(*focusedPanel, false);
 }
 
-insert_mode_delete_left_char :: () {
-	if focusedPanel.cursorLine == 0 && focusedPanel.cursorColumn == 0 {
+insert_mode_delete_left_char :: (using panel: *Panel, extend: bool) {
+	if cursor.line == 0 && cursor.column == 0 {
 		return;
 	}
 
-	// @todo What happens if you delete and cursorColumn is 0?
-	deletePos := Position.{focusedPanel.cursorLine, focusedPanel.cursorColumn-1};
-	if focusedPanel.cursorColumn == 0 {
+	// @todo What happens if you delete and cursor.column is 0?
+	deletePos := Position.{cursor.line, cursor.column-1};
+	if cursor.column == 0 {
 		deletePos.line -= 1;
-		prevLineLength:= document_get_line_length(focusedPanel.document, deletePos.line, false);
+		prevLineLength:= document_get_line_length(document, deletePos.line, false);
 		deletePos.col = prevLineLength;
 		// @todo deleting two chars because of crlf line endings, change when doing another line ending type
-		document_delete_text(focusedPanel.document, deletePos, 2);
+		document_delete_text(document, deletePos, 2);
 
 		// move the cursor back up to the deletion point
-		focusedPanel.cursorLine = focusedPanel.cursorLine-1;
-		focusedPanel.cursorColumn = prevLineLength-1;
+		cursor.line = cursor.line-1;
+		cursor.column = prevLineLength-1;
 	}
 	else {
-		document_delete_text(focusedPanel.document, deletePos, 1);
-		move_one_char_left();
+		document_delete_text(document, deletePos, 1);
+		move_one_char_left(panel, false);
 	}
 }
 
-insert_mode_line_break :: () {
+insert_mode_line_break :: (using panel: *Panel, extend: bool) {
 	textToInsert := "\r\n"; // @todo this should be changed depenending on document type
-	document_insert_text(focusedPanel.document, Position.{focusedPanel.cursorLine, focusedPanel.cursorColumn}, textToInsert);
-	move_one_line_down();
-	focusedPanel.cursorColumn = 0;
-	focusedPanel.cursorColumnVirtual = focusedPanel.cursorColumn;
+	document_insert_text(document, Position.{cursor.line, cursor.column}, textToInsert);
+	move_one_line_down(panel, false);
+	cursor.column = 0;
+	cursor.virtualColumn = cursor.column;
 }
 
 // @todo: this is windows only, move to windows file

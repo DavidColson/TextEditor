@@ -183,11 +183,11 @@ draw_panel :: (panel: *Panel) {
 	Simp.draw_code_end();
 
 	// Draw cursor
-	if panel.cursorLine >= startVisibleLines && panel.cursorLine <= endVisibleLines {
+	if panel.cursor.line >= startVisibleLines && panel.cursor.line <= endVisibleLines {
 		Simp.set_shader_for_color();
 
-		line:= document_get_line_content(panel.document, panel.cursorLine);
-		line.count = panel.cursorColumn;
+		line:= document_get_line_content(panel.document, panel.cursor.line);
+		line.count = panel.cursor.column;
 		cursorX := 0;
 		for line {
 			// @monospace would need to calculate line width properly for non-monospace
@@ -201,13 +201,13 @@ draw_panel :: (panel: *Panel) {
 		// @monospace need actual letter width here 
 		cursorRect: Rect;
 		cursorRect.x = cast(float)(textX + cursorX);
-		cursorRect.y = cast(float)(textY - my_font.typical_descender + my_font.character_height * (panel.cursorLine-startVisibleLines));
+		cursorRect.y = cast(float)(textY - my_font.typical_descender + my_font.character_height * (panel.cursor.line-startVisibleLines));
 		cursorRect.w = cast(float)my_font.mono_x_advance;
 		cursorRect.h = cast(float)my_font.character_height;
 
 		draw_rect(cursorRect, Vector4.{0.9, 0.9, 0.9, 1.0});
 
-		overlayChar := document_get_char_at_location(panel.document, panel.cursorLine, panel.cursorColumn);
+		overlayChar := document_get_char_at_location(panel.document, panel.cursor.line, panel.cursor.column);
 		Simp.prepare_text(my_font, tprint("%", cast(string) u8.[overlayChar]));
 		Simp.draw_prepared_text(my_font, xx cursorRect.x, xx cursorRect.y + my_font.typical_descender + my_font.character_height, Vector4.{0.1, 0.1, 0.1, 1.0});
 	}

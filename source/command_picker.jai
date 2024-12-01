@@ -16,14 +16,14 @@ CommandPicker :: struct {
 	selectedCommand:s32;
 }
 
-command_picker_open :: () {
+command_picker_open :: (using panel: *Panel, extend: bool) {
 	editorMode = .COMMAND_PICKER;
 
-    push_allocator(flat_pool_allocator_proc, *focusedPanel.commandPicker.memory);
+    push_allocator(flat_pool_allocator_proc, *commandPicker.memory);
 
 	for command: commandList {
 		if !(command.flags & .HIDDEN) {
-			entry := array_add(*focusedPanel.commandPicker.filteredCommandList);
+			entry := array_add(*commandPicker.filteredCommandList);
 			entry.command = *command;
 			entry.sortKey = 10;
 		}
@@ -42,8 +42,8 @@ command_picker_reset :: (state: *CommandPicker) {
 	}
 }
 
-command_picker_delete_char :: () {
-	state := *focusedPanel.commandPicker;
+command_picker_delete_char :: (using panel: *Panel, extend: bool) {
+	state := *commandPicker;
 
 	state.textInput.count -= 1;
 	state.cursor -= 1;
@@ -55,24 +55,24 @@ command_picker_delete_char :: () {
 	command_picker_refresh_list(state);
 }
 
-command_picker_execute_command :: () {
-	state := *focusedPanel.commandPicker;
+command_picker_execute_command :: (using panel: *Panel, extend: bool) {
+	state := *commandPicker;
 
 	cmd := state.filteredCommandList[state.selectedCommand].command; 
 	editorMode = .NORMAL;
-	cmd.execute();
+	cmd.execute(panel, false);
 	command_picker_reset(state);
 }
 
-command_picker_select_next :: () {
-	state := *focusedPanel.commandPicker;
+command_picker_select_next :: (using panel: *Panel, extend: bool) {
+	state := *commandPicker;
 
 	maxCommand := state.filteredCommandList.count - 1;
 	state.selectedCommand = clamp(state.selectedCommand+1, 0, xx maxCommand);
 }
 
-command_picker_select_previous :: () {
-	state := *focusedPanel.commandPicker;
+command_picker_select_previous :: (using panel: *Panel, extend: bool) {
+	state := *commandPicker;
 
 	maxCommand := state.filteredCommandList.count - 1;
 	state.selectedCommand = clamp(state.selectedCommand-1, 0, xx maxCommand);

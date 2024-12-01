@@ -29,8 +29,8 @@ filesystem_nav_reset :: (state: *FilesystemNavigator) {
 	array_reset(*state.currentPath);
 }
 
-filesystem_nav_delete_path :: () {
-	state := *focusedPanel.filesystemNav;
+filesystem_nav_delete_path :: (using panel: *Panel, extend: bool) {
+	state := *filesystemNav;
 
 	if state.currentPath.count > 0 && state.textInput.count == 0 {
 		state.currentPath.count -= 1;
@@ -49,20 +49,20 @@ filesystem_nav_delete_path :: () {
 	filesystem_nav_filter_directory_list(state);
 }
 
-filesystem_nav_select_next :: () {
-	state := *focusedPanel.filesystemNav;
+filesystem_nav_select_next :: (using panel: *Panel, extend: bool) {
+	state := *filesystemNav;
 	maxItems := state.itemList.count - 1;
 	state.selectedItem = clamp(state.selectedItem+1, 0, xx maxItems);
 }
 
-filesystem_nav_select_previous :: () {
-	state := *focusedPanel.filesystemNav;
+filesystem_nav_select_previous :: (using panel: *Panel, extend: bool) {
+	state := *filesystemNav;
 	maxItems := state.itemList.count - 1;
 	state.selectedItem = clamp(state.selectedItem-1, 0, xx maxItems);
 }
 
-filesystem_nav_action_item :: () {
-	state := *focusedPanel.filesystemNav;
+filesystem_nav_action_item :: (using panel: *Panel, extend: bool) {
+	state := *filesystemNav;
 
 	if state.pendingAction {
 		document_open(make_path_from_strings(state.currentPath,,temp));
@@ -83,15 +83,15 @@ filesystem_nav_action_item :: () {
 	}
 }
 
-filesystem_nav_delete_item :: () {
-	state := *focusedPanel.filesystemNav;
+filesystem_nav_delete_item :: (using panel: *Panel, extend: bool) {
+	state := *filesystemNav;
 	// This actually won't work because a letter is consumed by the text input for this widget
 	// unless you made a submode, something to think about when we get here
 	print("Not implemented, delete item");
 }
 
-filesystem_nav_rename_move_item :: () {
-	state := *focusedPanel.filesystemNav;
+filesystem_nav_rename_move_item :: (using panel: *Panel, extend: bool) {
+	state := *filesystemNav;
 	print("Not implemented, rename/move item");
 }
 
