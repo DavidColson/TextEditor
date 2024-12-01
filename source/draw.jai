@@ -246,8 +246,10 @@ draw_panel :: (panel: *Panel) {
 		draw_rect(cursorRect, color);
 
 		overlayChar := document_get_char_at_location(panel.document, panel.cursor.line, panel.cursor.column);
-		Simp.prepare_text(my_font, tprint("%", cast(string) u8.[overlayChar]));
-		Simp.draw_prepared_text(my_font, xx cursorRect.x, xx cursorRect.y + my_font.typical_descender + my_font.character_height, Vector4.{0.1, 0.1, 0.1, 1.0});
+		if overlayChar != 0 {
+			Simp.prepare_text(my_font, tprint("%", cast(string) u8.[overlayChar]));
+			Simp.draw_prepared_text(my_font, xx cursorRect.x, xx cursorRect.y + my_font.typical_descender + my_font.character_height, Vector4.{0.1, 0.1, 0.1, 1.0});
+		}
 	}
 
 	// Draw panel header + scroll bar

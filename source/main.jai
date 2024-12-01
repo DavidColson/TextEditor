@@ -220,7 +220,7 @@ move_one_char_left :: (using panel: *Panel, extend: bool) {
 
 move_one_char_right :: (using panel: *Panel, extend: bool) {
 	lineLen:= document_get_line_length(document, cursor.line);
-	cursor.column = min(cursor.column+1, lineLen+1);
+	cursor.column = min(cursor.column+1, lineLen);
 	cursor.virtualColumn = cursor.column;
 
 	if !extend {

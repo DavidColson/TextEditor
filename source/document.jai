@@ -475,6 +475,7 @@ document_get_num_lines :: (doc: *Document) -> s64 {
 
 document_get_char_at_location :: (doc: *Document, line: s64, col: s64) -> u8 {
 	lineContent := document_get_line_content(doc, line,, temp);
+	if col >= lineContent.count then return 0;
 	return lineContent[col];
 }
 
@@ -582,8 +583,10 @@ nodeTrimLeft :: (node: *PieceChainNode, buffer: *Buffer, pos: BufferCursor) {
 	// @todo crlf support, prevent splitting in the middle of a crlf
 	splitPos := pos;
 	if bufferOffsetSplit < buffer.text.count && buffer.text[bufferOffsetSplit] == #char "\n" {
-		splitPos.offset -= 1;
-		lenRight =+ 1;
+		// we want to move right over the newline, rolling us over onto a new line
+		splitPos.offset = 0;
+		splitPos.line += 1;
+		lenRight -= 1;
 	}
 
 	node.start = splitPos;
@@ -600,6 +603,7 @@ nodeTrimRight :: (node: *PieceChainNode, buffer: *Buffer, pos: BufferCursor) {
 	// @todo crlf support, prevent splitting in the middle of a crlf
 	splitPos := pos;
 	if bufferOffsetSplit < buffer.text.count && buffer.text[bufferOffsetSplit] == #char "\n" {
+		// moves left of the newline, leaving it behind on the right side
 		splitPos.offset -= 1;
 		lenLeft -= 1;
 	}
