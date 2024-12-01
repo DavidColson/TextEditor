@@ -152,6 +152,7 @@ draw_panel :: (panel: *Panel) {
 	textY := headerHeight;
 	if lineNumbers {
 		nDigits := tprint("%", documentLines).count;
+		// @monospace
 		textX = my_font.mono_x_advance * (nDigits + 2); // extra 2 for padding
 	}
 
@@ -167,6 +168,7 @@ draw_panel :: (panel: *Panel) {
 	lineY := textY + my_font.character_height;
 	for startVisibleLines..endVisibleLines {
 		width := Simp.prepare_text(my_font, tprint("%", it+1));
+		// @monospace doesn't work for non-monospace numbers
 		Simp.draw_prepared_text(my_font, (textX - width - my_font.mono_x_advance), lineY, Vector4.{0.5, 0.5, 0.5, 1.0});
 		lineY += my_font.character_height;
 	}
@@ -188,6 +190,7 @@ draw_panel :: (panel: *Panel) {
 		line.count = panel.cursorColumn;
 		cursorX := 0;
 		for line {
+			// @monospace would need to calculate line width properly for non-monospace
 			if it == #char "\t" {
 				cursorX = cursorX + my_font.mono_x_advance * tabSize;
 			}
@@ -195,6 +198,7 @@ draw_panel :: (panel: *Panel) {
 				cursorX = cursorX + my_font.mono_x_advance;
 			}
 		}
+		// @monospace need actual letter width here 
 		cursorRect: Rect;
 		cursorRect.x = cast(float)(textX + cursorX);
 		cursorRect.y = cast(float)(textY - my_font.typical_descender + my_font.character_height * (panel.cursorLine-startVisibleLines));
