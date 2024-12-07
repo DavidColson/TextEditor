@@ -296,6 +296,8 @@ document_delete_text_internal :: (doc: *Document, startNode: *PieceChainNode, st
 		// delete all nodes that are no longer needed
 		remove_node_range(doc, firstToDelete, lastToDelete);
 	}
+
+	doc.size -= endOffset - startOffset;
 }
 
 document_replace_text :: (doc: *Document, location: Position, text: string) {

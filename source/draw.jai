@@ -286,9 +286,6 @@ calculate_string_length_pixels :: (font: *Simp.Dynamic_Font, s: string) -> s64 {
 			chars_to_tabstop := tabSize - it_index % tabSize;
 			len = len + my_font.mono_x_advance * chars_to_tabstop;
 		}
-		else if it == #char "\r" || it == #char "\n" {
-			continue;
-		}
 		else {
 			len = len + my_font.mono_x_advance;
 		}
