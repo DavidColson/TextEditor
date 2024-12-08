@@ -6,10 +6,8 @@ BuildType :: enum u8
 }
 
 Cursor :: struct {
-	line: s64; 
-	column: s64; 
-	anchorLine: s64;
-	anchorColumn: s64;
+	head: DocumentCursor;
+	anchor: DocumentCursor;
 
 	// when users move up and down lines, this stores the 
 	// column that we should try stick to as we move up and down
@@ -87,8 +85,10 @@ main :: () {
 	focusedPanel.rect.w = xx windowWidth;
 	focusedPanel.rect.h = xx windowHeight;
 	focusedPanel.document = *mainDocument;
-	focusedPanel.cursor.line = 0;
-	focusedPanel.cursor.column = 0;
+	focusedPanel.cursor.head.doc = focusedPanel.document;
+	focusedPanel.cursor.head.node = mainDocument.pieceChainHead;
+	focusedPanel.cursor.anchor.doc = focusedPanel.document;
+	focusedPanel.cursor.anchor.node = mainDocument.pieceChainHead;
 
     want_screenshot := false;
     while !pendingQuit {
@@ -209,48 +209,33 @@ enter_insert_mode :: (panel: *Panel, extend: bool) {
 }
 
 move_one_char_left :: (using panel: *Panel, extend: bool) {
-	cursor.column = max(cursor.column-1, 0);
-	cursor.virtualColumn = cursor.column;
-
+	document_cursor_step_one_backward(*cursor.head);
 	if !extend {
-		cursor.anchorLine = cursor.line;
-		cursor.anchorColumn = cursor.column;
+		cursor.anchor = cursor.head;
 	}
 }
 
 move_one_char_right :: (using panel: *Panel, extend: bool) {
-	lineLen:= document_get_line_length(document, cursor.line);
-	cursor.column = min(cursor.column+1, lineLen);
-	cursor.virtualColumn = cursor.column;
-
+	document_cursor_step_one_forward(*cursor.head);
 	if !extend {
-		cursor.anchorLine = cursor.line;
-		cursor.anchorColumn = cursor.column;
+		cursor.anchor = cursor.head;
 	}
 }
 
 move_one_line_down :: (using panel: *Panel, extend: bool) {
 	numLines := document_get_num_lines(document);
-	cursor.line = min(cursor.line+1, numLines - 1);
-
-	newLineLen:= document_get_line_length(document, cursor.line);
-	cursor.column = min(cursor.virtualColumn, newLineLen);
+	newLine := min(cursor.head.documentPos.line+1, numLines - 1);
+	document_cursor_jump_to_position(*cursor.head, .{newLine, cursor.head.documentPos.col});
 
 	if !extend {
-		cursor.anchorLine = cursor.line;
-		cursor.anchorColumn = cursor.column;
+		cursor.anchor = cursor.head;
 	}
 }
 
 move_one_line_up :: (using panel: *Panel, extend: bool) {
-	cursor.line = max(cursor.line-1, 0);
-
-	newLineLen:= document_get_line_length(document, cursor.line);
-	cursor.column = min(cursor.virtualColumn, newLineLen);
-
+	document_cursor_jump_to_position(*cursor.head, .{max(cursor.head.documentPos.line - 1, 0), cursor.head.documentPos.col});
 	if !extend {
-		cursor.anchorLine = cursor.line;
-		cursor.anchorColumn = cursor.column;
+		cursor.anchor = cursor.head;
 	}
 }
 
@@ -258,94 +243,115 @@ delete_selection :: (using panel: *Panel, extend: bool) {
 	rangeStart, rangeEnd := convert_cursor_to_range(panel.cursor);
 
 	// @todo don't end the deletion in the middle of a crlf
+	// is this needed now with the nodetrim functions handling this?
 	// cursorChar := document_get_char_at_location(document, rangeEnd.line, rangeEnd.col);
 	// if cursorChar == #char "\n" then rangeEnd.col += 1;
 
-	document_delete_text(document, rangeStart, rangeEnd);
+	document_delete_text(document, cursor.head, cursor.anchor);
 
-	cursor.line = rangeStart.line;
-	cursor.column = rangeStart.col;
-	cursor.anchorLine = rangeStart.line;
-	cursor.anchorColumn = rangeStart.col;
+	// @todo the cursors should be regenerated here from scratch because the node pointers are likely to have
+	// become outdated
+
+	// cursor.line = rangeStart.line;
+	// cursor.column = rangeStart.col;
+	// cursor.anchorLine = rangeStart.line;
+	// cursor.anchorColumn = rangeStart.col;
 }
 
 // insert mode text handler
 insert_mode_handle_text_input :: (char: Utf8_Char) {
 	textToInsert := to_string(*char);
-	document_insert_text(focusedPanel.document, Position.{focusedPanel.cursor.line, focusedPanel.cursor.column}, textToInsert);
+	document_insert_text(focusedPanel.document, focusedPanel.cursor.head, textToInsert);
 	move_one_char_right(*focusedPanel, false);
+
+	// @todo the cursors should be regenerated here from scratch because the node pointers are likely to have
+	// become outdated, something you could do on a background thread though
 }
 
 insert_mode_delete_left_char :: (using panel: *Panel, extend: bool) {
-	if cursor.line == 0 && cursor.column == 0 {
+	if cursor.head.documentPos.line == 0 && cursor.head.documentPos.col == 0 {
 		return;
 	}
 
-	// @todo What happens if you delete and cursor.column is 0?
-	deletePos := Position.{cursor.line, cursor.column-1};
-	if cursor.column == 0 {
-		deletePos.line -= 1;
-		// get back to the end of the previous line (before line endings)
-		deletePos.col = document_get_line_length(document, deletePos.line, true);
+	// @todo the cursors should be regenerated here from scratch because the node pointers are likely to have
+	// become outdated
 
-		// @todo deleting two chars because of crlf line endings, change when doing another line ending type
-		document_delete_text(document, deletePos, 2);
+	// @todo: refactor with document cursor, essentially just copy the cursor
+	// step back one and then delete that, then save the new version
+	// This should do everything, it'll even wrap back a line for you (theoretically)
 
-		// move the cursor back up to the deletion point
-		cursor.line = deletePos.line;
-		cursor.column = deletePos.col;
-		cursor.anchorLine = cursor.line;
-		cursor.anchorColumn = cursor.column;
-	}
-	else {
-		document_delete_text(document, deletePos, 1);
-		move_one_char_left(panel, false);
-	}
+	// // @todo What happens if you delete and cursor.column is 0?
+	// deletePos := Coordinate.{cursor.line, cursor.column-1};
+	// if cursor.column == 0 {
+	// 	deletePos.line -= 1;
+	// 	// get back to the end of the previous line (before line endings)
+	// 	deletePos.col = document_get_line_length(document, deletePos.line, true);
+	//
+	// 	// @todo deleting two chars because of crlf line endings, change when doing another line ending type
+	// 	document_delete_text(document, deletePos, 2);
+	//
+	// 	// move the cursor back up to the deletion point
+	// 	cursor.line = deletePos.line;
+	// 	cursor.column = deletePos.col;
+	// 	cursor.anchorLine = cursor.line;
+	// 	cursor.anchorColumn = cursor.column;
+	// }
+	// else {
+	// 	document_delete_text(document, deletePos, 1);
+	// 	move_one_char_left(panel, false);
+	// }
 }
 
 insert_mode_line_break :: (using panel: *Panel, extend: bool) {
 	textToInsert := "\r\n"; // @todo this should be changed depenending on document type
-	document_insert_text(document, Position.{cursor.line, cursor.column}, textToInsert);
+	document_insert_text(document, cursor.head, textToInsert);
+
+	// @todo the cursors should be regenerated here from scratch because the node pointers are likely to have
+	// become outdated
 
 	move_one_line_down(panel, false);
-	cursor.column = 0;
-	cursor.virtualColumn = cursor.column;
-	cursor.anchorLine = cursor.line;
-	cursor.anchorColumn = cursor.column;
+	// cursor.column = 0;
+	// cursor.virtualColumn = cursor.column;
+	// cursor.anchorLine = cursor.line;
+	// cursor.anchorColumn = cursor.column;
 }
 
 // utilities 
-convert_cursor_to_range :: (cursor: Cursor, includeCursor: bool = true) -> start: Position, end: Position {
-	rangeStart: Position;
-	rangeEnd: Position;
+convert_cursor_to_range :: (cursor: Cursor, includeCursor: bool = true) -> start: Coordinate, end: Coordinate {
+	rangeStart: Coordinate;
+	rangeEnd: Coordinate;
 	cursorBonus := ifx includeCursor then 1 else 0;
-	if cursor.line < cursor.anchorLine {
+
+	cursorHead := cursor.head.documentPos;
+	cursorAnchor := cursor.anchor.documentPos;
+
+	if cursorHead.line < cursorAnchor.line {
 		// cursor is clearly earlier than the anchor
-		rangeStart.line = cursor.line;
-		rangeStart.col = cursor.column;
-		rangeEnd.line = cursor.anchorLine;
-		rangeEnd.col = cursor.anchorColumn;
+		rangeStart.line = cursorHead.line;
+		rangeStart.col = cursorHead.col;
+		rangeEnd.line = cursorAnchor.line;
+		rangeEnd.col = cursorAnchor.col;
 	}
-	else if cursor.line > cursor.anchorLine { 
+	else if cursorHead.line > cursorAnchor.line { 
 		// anchor is clearly earlier than the cursor
-		rangeStart.line = cursor.anchorLine;
-		rangeStart.col = cursor.anchorColumn;
-		rangeEnd.line = cursor.line;
-		rangeEnd.col = cursor.column+cursorBonus; // cursor itself is considered part of the selection
+		rangeStart.line = cursorAnchor.line;
+		rangeStart.col = cursorAnchor.col;
+		rangeEnd.line = cursorHead.line;
+		rangeEnd.col = cursorHead.col+cursorBonus; // cursor itself is considered part of the selection
 	}
 	else {
 		// they are on the same line, pick based on column
-		if cursor.column <= cursor.anchorColumn {
-			rangeStart.line = cursor.line;
-			rangeStart.col = cursor.column;
-			rangeEnd.line = cursor.anchorLine;
-			rangeEnd.col = cursor.anchorColumn;
+		if cursorHead.col <= cursorAnchor.col {
+			rangeStart.line = cursorHead.line;
+			rangeStart.col = cursorHead.col;
+			rangeEnd.line = cursorAnchor.line;
+			rangeEnd.col = cursorAnchor.col;
 		}
 		else {
-			rangeStart.line = cursor.anchorLine;
-			rangeStart.col = cursor.anchorColumn;
-			rangeEnd.line = cursor.line;
-			rangeEnd.col = cursor.column+cursorBonus;
+			rangeStart.line = cursorAnchor.line;
+			rangeStart.col = cursorAnchor.col;
+			rangeEnd.line = cursorHead.line;
+			rangeEnd.col = cursorHead.col+cursorBonus;
 		}
 	}
 	return rangeStart, rangeEnd;

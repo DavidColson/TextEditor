@@ -181,9 +181,9 @@ draw_panel :: (panel: *Panel) {
 	}
 
 	// draw the cursor selection
-	if panel.cursor.line >= startVisibleLines && panel.cursor.line <= endVisibleLines {
+	if panel.cursor.head.documentPos.line >= startVisibleLines && panel.cursor.head.documentPos.line <= endVisibleLines {
 		Simp.set_shader_for_color();
-		if panel.cursor.anchorLine != panel.cursor.line || panel.cursor.anchorColumn != panel.cursor.column {
+		if panel.cursor.anchor.documentPos.line != panel.cursor.head.documentPos.line || panel.cursor.anchor.documentPos.col != panel.cursor.head.documentPos.col {
 			rangeStart, rangeEnd := convert_cursor_to_range(panel.cursor, false);
 			lineWidths: [..] s32;
 			lineWidths.allocator = temp;
@@ -225,17 +225,17 @@ draw_panel :: (panel: *Panel) {
 	Simp.draw_code_end();
 
 	// Draw cursor
-	if panel.cursor.line >= startVisibleLines && panel.cursor.line <= endVisibleLines {
+	if panel.cursor.head.documentPos.line >= startVisibleLines && panel.cursor.head.documentPos.line <= endVisibleLines {
 		Simp.set_shader_for_color();
 
-		line := linesOnScreen[panel.cursor.line - startVisibleLines];
-		line.count = panel.cursor.column;
+		line := linesOnScreen[panel.cursor.head.documentPos.line - startVisibleLines];
+		line.count = panel.cursor.head.documentPos.col;
 		cursorX := calculate_string_length_pixels(my_font, line);
 
 		// @monospace need actual letter width here 
 		cursorRect: Rect;
 		cursorRect.x = cast(float)(textRegionX + cursorX);
-		cursorRect.y = cast(float)(textRegionY - my_font.typical_descender + my_font.character_height * (panel.cursor.line-startVisibleLines));
+		cursorRect.y = cast(float)(textRegionY - my_font.typical_descender + my_font.character_height * (panel.cursor.head.documentPos.line-startVisibleLines));
 		cursorRect.w = cast(float)my_font.mono_x_advance;
 		cursorRect.h = cast(float)my_font.character_height;
 
@@ -245,7 +245,7 @@ draw_panel :: (panel: *Panel) {
 		}
 		draw_rect(cursorRect, color);
 
-		overlayChar := document_get_char_at_location(panel.document, panel.cursor.line, panel.cursor.column);
+		overlayChar := document_cursor_get_char(*panel.cursor.head);
 		if overlayChar != 0 {
 			Simp.prepare_text(my_font, tprint("%", cast(string) u8.[overlayChar]));
 			Simp.draw_prepared_text(my_font, xx cursorRect.x, xx cursorRect.y + my_font.typical_descender + my_font.character_height, Vector4.{0.1, 0.1, 0.1, 1.0});
@@ -283,7 +283,7 @@ calculate_string_length_pixels :: (font: *Simp.Dynamic_Font, s: string) -> s64 {
 	len := 0;
 	for s {
 		if it == #char "\t" {
-			chars_to_tabstop := tabSize - it_index % tabSize;
+			chars_to_tabstop := tabSize - len % tabSize;
 			len = len + my_font.mono_x_advance * chars_to_tabstop;
 		}
 		else {

@@ -20,10 +20,18 @@ Document :: struct {
 	size: s64;
 
 	path: string;
-	lastInsert: BufferCursor;
+	lastInsert: Coordinate;
 }
 
-Position :: struct {
+DocumentCursor :: struct {
+	doc: *Document;
+	node: *PieceChainNode;
+	bufferPos: Coordinate;
+	documentPos: Coordinate;
+	documentOffset: s64;
+}
+
+Coordinate :: struct {
 	line: s64;
 	col: s64;
 }
@@ -33,29 +41,71 @@ Buffer :: struct {
 	lineStarts: [..]s64;
 }
 
-// This looks like a document position, but it's not
-// and the distinction is really important, this is linebased location
-// within one of the text buffers, rather than the real document
-// the line numbers do not match real lines
-BufferCursor :: struct {
-	line: s64; // this indexes the lineStarts in a particular buffer
-	offset: s64;
-}
-
 PieceChainNode :: struct {
 	next: *PieceChainNode;
 	prev: *PieceChainNode;
 
 	added: bool;
-	start: BufferCursor;
-	end: BufferCursor;
+	start: Coordinate;
+	end: Coordinate;
 	length: s64;
 	lineFeedCount: s64;
 }
 
-operator == :: (a: BufferCursor, b: BufferCursor) -> bool {
-	return a.line == b.line && a.offset == b.offset;
+operator == :: (a: Coordinate, b: Coordinate) -> bool {
+	return a.line == b.line && a.col == b.col;
 }
+
+operator < :: (a: Coordinate, b: Coordinate) -> bool {
+	if a.line == b.line {
+		if a.col < b.col {
+			return true; // a is before b
+		}
+		else {
+			return false; // b is before a
+		}
+	}
+	else if a.line < b.line {
+		return true; // a is before b
+	}
+	else {
+		return false; // b is before a
+	}
+}
+operator <= :: (a: Coordinate, b: Coordinate) -> bool {
+	if a == b {
+		return true;
+	} 
+	else {
+		return a < b;
+	}
+}
+
+operator > :: (a: Coordinate, b: Coordinate) -> bool {
+	if a.line == b.line {
+		if a.col > b.col {
+			return true; // a is after b
+		}
+		else {
+			return false; // b is after a
+		}
+	}
+	else if a.line > b.line {
+		return true; // a is after b
+	}
+	else {
+		return false; // b is after a
+	}
+}
+operator >= :: (a: Coordinate, b: Coordinate) -> bool {
+	if a == b {
+		return true;
+	} 
+	else {
+		return a > b;
+	}
+}
+
 
 document_free :: (doc: *Document) {
 	fini(*doc.documentMemory);
@@ -91,12 +141,12 @@ document_open :: (path: string) {
 	doc.addedData.text.data = file.data + file.count;
 	doc.addedData.lineStarts.allocator = doc.pieceChainAlloc;
 	array_add(*doc.addedData.lineStarts, 0);
-	doc.lastInsert = BufferCursor.{0,0};
+	doc.lastInsert = Coordinate.{0,0};
 
 	// create the starting node of the piece chain
 	doc.pieceChainHead = New(PieceChainNode,, doc.pieceChainAlloc);
-	doc.pieceChainHead.start = BufferCursor.{0,0}; 
-	doc.pieceChainHead.end = BufferCursor.{
+	doc.pieceChainHead.start = Coordinate.{0,0}; 
+	doc.pieceChainHead.end = Coordinate.{
 		doc.originalData.lineStarts.count - 1,
 		doc.originalData.text.count - doc.originalData.lineStarts[doc.originalData.lineStarts.count - 1]}; 
 	doc.pieceChainHead.length = doc.originalData.text.count; 
@@ -105,7 +155,7 @@ document_open :: (path: string) {
 	doc.pieceChainTail = doc.pieceChainHead;
 }
 
-document_insert_text :: (doc: *Document, location: Position, t: string) {
+document_insert_text :: (doc: *Document, at: DocumentCursor, t: string) {
 
 	// actually add the new text to a buffer, updating linestarts and what not
 	text := copy_string(t,, doc.documentAlloc);
@@ -118,26 +168,20 @@ document_insert_text :: (doc: *Document, location: Position, t: string) {
 	}
 	doc.size += text.count;
 
-	// figure out where to put the insertion
-	nodeToEdit, insertPos := document_query_at_position(doc, location);
-
-	// now we know the node where we want to insert, and the cursor inside that node
-	// deal with our two cases:
-
-	if insertPos == nodeToEdit.end || insertPos == nodeToEdit.start {
+	if at.bufferPos == at.node.end || at.bufferPos == at.node.start {
 		// case 1: insert at boundary
 
 		// bonus case, this node is the last insert node
 		// you can just add more to the mod buffer and increase the node length
-		if nodeToEdit.added == true && nodeToEdit.end == doc.lastInsert {
+		if at.node.added == true && at.node.end == doc.lastInsert {
 			endOffset := doc.addedData.text.count;
 			endLine := doc.addedData.lineStarts.count - 1;
 			endColumn := endOffset - doc.addedData.lineStarts[endLine];
-			nodeToEdit.length = nodeToEdit.length + text.count;
-			nodeToEdit.end = BufferCursor.{endLine, endColumn};
-			nodeToEdit.lineFeedCount = buffer_line_start_count(nodeToEdit.start, nodeToEdit.end);
+			at.node.length = at.node.length + text.count;
+			at.node.end = Coordinate.{endLine, endColumn};
+			at.node.lineFeedCount = buffer_line_start_count(at.node.start, at.node.end);
 
-			doc.lastInsert = nodeToEdit.end;
+			doc.lastInsert = at.node.end;
 			return;
 		}
 
@@ -148,15 +192,15 @@ document_insert_text :: (doc: *Document, location: Position, t: string) {
 		newPiece := New(PieceChainNode,, doc.pieceChainAlloc);
 		newPiece.added = true;
 		newPiece.start = doc.lastInsert;
-		newPiece.end = BufferCursor.{endLine, endColumn};
+		newPiece.end = Coordinate.{endLine, endColumn};
 		newPiece.length = text.count;
 		newPiece.lineFeedCount = buffer_line_start_count(newPiece.start, newPiece.end);
 
 		// insert into linked list
-		if insertPos == nodeToEdit.end {
-			newPiece.next = nodeToEdit.next;
-			newPiece.prev = nodeToEdit;
-			nodeToEdit.next = newPiece;
+		if at.bufferPos == at.node.end {
+			newPiece.next = at.node.next;
+			newPiece.prev = at.node;
+			at.node.next = newPiece;
 			if newPiece.next != null {
 				newPiece.next.prev = newPiece;
 			}
@@ -165,9 +209,9 @@ document_insert_text :: (doc: *Document, location: Position, t: string) {
 			}
 		}
 		else {
-			newPiece.prev = nodeToEdit.prev;
-			newPiece.next = nodeToEdit;
-			nodeToEdit.prev = newPiece;
+			newPiece.prev = at.node.prev;
+			newPiece.next = at.node;
+			at.node.prev = newPiece;
 			if newPiece.prev != null {
 				newPiece.prev.next = newPiece;
 			}
@@ -182,13 +226,13 @@ document_insert_text :: (doc: *Document, location: Position, t: string) {
 		// case 2: splitting a node
 
 		nodeBuffer : *Buffer;
-		ifx nodeToEdit.added then nodeBuffer = *doc.addedData else nodeBuffer = *doc.originalData;
+		ifx at.node.added then nodeBuffer = *doc.addedData else nodeBuffer = *doc.originalData;
 
 		// copy the old node and then trim left and right to get the new nodes
 		newPieceRight := New(PieceChainNode,, doc.pieceChainAlloc);
-		<<newPieceRight = <<nodeToEdit;
-		nodeTrimLeft(newPieceRight, nodeBuffer, insertPos);
-		nodeTrimRight(nodeToEdit, nodeBuffer, insertPos);
+		<<newPieceRight = <<at.node;
+		nodeTrimLeft(newPieceRight, nodeBuffer, at.bufferPos);
+		nodeTrimRight(at.node, nodeBuffer, at.bufferPos);
 
 		// create a new piece with the appended text data
 		endOffset := doc.addedData.text.count;
@@ -197,7 +241,7 @@ document_insert_text :: (doc: *Document, location: Position, t: string) {
 		newPiece := New(PieceChainNode,, doc.pieceChainAlloc);
 		newPiece.added = true;
 		newPiece.start = doc.lastInsert;
-		newPiece.end = BufferCursor.{endLine, endColumn};
+		newPiece.end = Coordinate.{endLine, endColumn};
 		newPiece.length = text.count;
 		newPiece.lineFeedCount = buffer_line_start_count(newPiece.start, newPiece.end);
 
@@ -205,8 +249,8 @@ document_insert_text :: (doc: *Document, location: Position, t: string) {
 		doc.lastInsert = newPiece.end;
 
 		// update the chain pointers 
-		nodeToEdit.next = newPiece;
-		newPiece.prev = nodeToEdit;
+		at.node.next = newPiece;
+		newPiece.prev = at.node;
 		newPiece.next = newPieceRight;
 		newPieceRight.prev = newPiece;
 		if newPieceRight.next != null {
@@ -218,21 +262,19 @@ document_insert_text :: (doc: *Document, location: Position, t: string) {
 	}
 }
 
-document_delete_text :: (doc: *Document, startPos: Position, endPos: Position) {
-	startNode, start, startOffset := document_query_at_position(doc, startPos);
-	endNode, end, endOffset := document_query_at_position(doc, endPos);
-
-	document_delete_text_internal(doc, startNode, start, startOffset, endNode, end, endOffset);
+document_delete_text :: (doc: *Document, startAt: DocumentCursor, endAt: DocumentCursor) {
+	document_delete_text_internal(doc, 	startAt.node, startAt.bufferPos, startAt.documentOffset,
+										endAt.node, startAt.bufferPos, endAt.documentOffset);
 }
-document_delete_text :: (doc: *Document, startPos: Position, count: s64) {
-	startNode, start, startOffset := document_query_at_position(doc, startPos);
-	endNode, end := document_query_at_offset(doc, startOffset + count);
-
-	document_delete_text_internal(doc, startNode, start, startOffset, endNode, end, startOffset + count);
+document_delete_text :: (doc: *Document, startAt: DocumentCursor, count: s64) {
+	endAt := startAt;
+	document_cursor_jump_to_offset(*endAt, startAt.documentOffset + count);
+	document_delete_text_internal(doc, 	startAt.node, startAt.bufferPos, startAt.documentOffset,
+										endAt.node, startAt.bufferPos, endAt.documentOffset);
 }
 
-document_delete_text_internal :: (doc: *Document, startNode: *PieceChainNode, start: BufferCursor, startOffset: s64,
-												  endNode: *PieceChainNode, end: BufferCursor, endOffset: s64) {
+document_delete_text_internal :: (doc: *Document, startNode: *PieceChainNode, start: Coordinate, startOffset: s64,
+												  endNode: *PieceChainNode, end: Coordinate, endOffset: s64) {
 	if startNode == endNode {
 		buffer : *Buffer;
 		ifx startNode.added then buffer = *doc.addedData else buffer = *doc.originalData;
@@ -300,108 +342,6 @@ document_delete_text_internal :: (doc: *Document, startNode: *PieceChainNode, st
 	doc.size -= endOffset - startOffset;
 }
 
-document_replace_text :: (doc: *Document, location: Position, text: string) {
-	document_delete_text(focusedPanel.document, location, text.count);
-	document_insert_text(focusedPanel.document, location, text);
-}
-
-// given a coordinate position in the document (line, column), find the absolute offset in the document (inverse of below)
-document_query_at_position :: (doc: *Document, pos: Position) -> *PieceChainNode, BufferCursor, s64 {
-	// this is a fairly hair algorithm, but basically we'll iterate through the chain
-	// until we find the line start we are interested in, then we swap to iterating
-	// until we find enough columns for the given position, this gives us the node and cursor
-	// the whole time we are summing offsets in each node
-
-	offset := 0;
-	linesRemaining := pos.line;
-	columnsRemaining := pos.col;
-	node: *PieceChainNode = doc.pieceChainHead;
-	while node != null {
-		buffer : *Buffer;
-		ifx node.added then buffer = *doc.addedData else buffer = *doc.originalData;
-
-		if linesRemaining == 0 {
-			if node.length >= columnsRemaining {
-				// this is the node
-				offset += columnsRemaining;
-				return node, .{node.start.line, node.start.offset + columnsRemaining}, offset;
-			}
-			else {
-				// this is not the node
-				offset += node.length;
-				columnsRemaining -= node.length;
-				node = node.next;
-			}
-		}
-		else if linesRemaining < node.lineFeedCount {
-			// the line must start and end in this node, so this node is what we want
-			nodeStartOffset := buffer_cursor_to_offset(buffer, node.start); 
-			lineStartOffset := buffer_cursor_to_offset(buffer, .{node.start.line + linesRemaining, 0});
-			offset += (lineStartOffset - nodeStartOffset) + pos.col;
-			return node, .{node.start.line + linesRemaining, pos.col}, offset;
-		}
-		else if linesRemaining == node.lineFeedCount {
-			// the line starts in this node, but does not end here (potentially the document ends too)
-			nodeStartOffset := buffer_cursor_to_offset(buffer, node.start); 
-			lineStartOffset := buffer_cursor_to_offset(buffer, .{node.start.line + linesRemaining, 0});
-			nodeEndOffset := buffer_cursor_to_offset(buffer, node.end);
-			offset += (lineStartOffset - nodeStartOffset);
-			
-			columnsInThisNode := nodeEndOffset - lineStartOffset;
-			if columnsInThisNode >= pos.col {
-				// yep this is definitely the node
-				offset += pos.col;
-				return node, .{node.start.line + linesRemaining, pos.col}, offset;
-			}
-			else {
-				// our desired column is past the line
-				offset += columnsInThisNode;
-				linesRemaining -= node.lineFeedCount;
-				columnsRemaining -= columnsInThisNode;
-				node = node.next;
-			}
-		}
-		else {
-			// the line is past this node so skip it
-			linesRemaining -= node.lineFeedCount;
-			offset += node.length;
-			node = node.next;
-		}	
-	}
-	// @todo, unsure if this is even possible to reach, if so, give back a nill node, rather than a null
-	return null, BufferCursor.{}, 0;
-}
-
-// given an offset in the document, get the piece chain node, and coordinates, in buffer space and document space
-document_query_at_offset :: (doc: *Document, offset: s64) -> *PieceChainNode, BufferCursor, Position {
-	// this is relatively simple, just iterate the nodes subtracting their lengths
-	// until you find a node that is longer than the remaining, this is the node you want
-	// we calculate the coordinates with a binary search of lines in the node
-
-	lineCounter := 0;
-	remainingOffset := offset;
-	node: *PieceChainNode = doc.pieceChainHead;
-	while node != null {
-		buffer : *Buffer;
-		ifx node.added then buffer = *doc.addedData else buffer = *doc.originalData;
-
-		if remainingOffset <= node.length {
-			// here is the target node
-			foundNode := node;
-			cursor := buffer_offset_to_cursor(buffer, node, remainingOffset);
-			pos := Position.{lineCounter + (cursor.line - node.start.line), cursor.offset};
-			return foundNode, cursor, pos;
-		}
-		else {
-			remainingOffset -= node.length;
-			lineCounter += node.lineFeedCount;
-			node = node.next;
-		}
-	}
-	// @todo, unsure if this is even possible to reach, if so, give back a nill node, rather than a null
-	return null, BufferCursor.{}, Position.{};
-}
-
 document_get_line_content :: (doc: *Document, lineNum: s64) -> string {
 	builder: String_Builder;
 	builder.allocator = temp;
@@ -411,6 +351,18 @@ document_get_line_content :: (doc: *Document, lineNum: s64) -> string {
 
 	// additionally you can cache the last queried line, under the assumption that there
 	// will be repeated queries for the line the cursor is currently sat on
+
+
+	// lets optimize using document cursors
+	// You don't need to do any initial searching since the cursor is where you want to be
+	// Use the iterator to iterate single chars from the cursor until you hit a newline sequence
+	// copy each one and that's basically all you need to do
+
+	// another alternative is using a similar strategy to the jump to functions
+	// calculate the document coordinates at the end of the cursor node
+	// if the line end is less than that, then copy the whole line
+	// if it's past that, then copy up to end of buffer, and go to next node
+	// then repeat, if end is in this node, copy up to that, otherwise go to end of node
 
 	// since lineNum is 0 indexed, if you give line 0, there is "1" line remaining to find
 	linesRemaining := lineNum;
@@ -465,6 +417,212 @@ document_get_line_content :: (doc: *Document, lineNum: s64) -> string {
 	return builder_to_string(*builder,,temp);
 }
 
+document_cursor_jump_to_offset :: (cursor: *DocumentCursor, offset: s64) {
+	node: = cursor.node;
+
+	docPosAtNodeStart: Coordinate;
+	docPosAtNodeStart.line = cursor.documentPos.line - buffer_line_start_count(node.start, cursor.bufferPos);
+	docPosAtNodeStart.col = node.start.col;
+
+	buffer : *Buffer;
+	ifx node.added then buffer = *cursor.doc.addedData else buffer = *cursor.doc.originalData;
+	docOffsetAtNodeStart:s64 = cursor.documentOffset - (buffer_cursor_to_offset(buffer, cursor.bufferPos) - buffer_cursor_to_offset(buffer, node.start));
+
+	direction := ifx offset < cursor.documentOffset then -1 else 1;
+
+	// now we loop through nodes in the desired direction
+	while node != null {
+		ifx node.added then buffer = *cursor.doc.addedData else buffer = *cursor.doc.originalData;
+
+		// we now calculate the document end coordinates
+		docPosAtNodeEnd: Coordinate;
+		docPosAtNodeEnd.line = docPosAtNodeStart.line + node.lineFeedCount;
+		docPosAtNodeEnd.col = node.end.col;
+		docOffsetAtNodeEnd := docOffsetAtNodeStart + node.length;
+
+		if (offset > docOffsetAtNodeStart && offset <= docOffsetAtNodeEnd) || (offset == 0 && node.prev == null) {
+			// the target offset is inside this node
+			cursor.node = node;
+			cursor.documentOffset = offset;
+			cursor.bufferPos = buffer_offset_to_cursor(buffer, node, offset - docOffsetAtNodeStart);
+			cursor.documentPos = Coordinate.{
+				line = docPosAtNodeStart.line + cursor.bufferPos.line,
+				col = cursor.bufferPos.col
+			};
+			return;
+		}
+
+		// if this is not the desired node, update the start position and move on to next node
+		if direction > 0 {
+			docPosAtNodeStart.line = docPosAtNodeEnd.line;
+			docPosAtNodeStart.col = docPosAtNodeEnd.col;
+			docOffsetAtNodeStart = docOffsetAtNodeEnd;
+			node = node.next;
+		}
+		else {
+			node = node.prev;
+			docPosAtNodeStart.line = docPosAtNodeStart.line - node.lineFeedCount;
+			docPosAtNodeStart.col = node.start.col;
+			docOffsetAtNodeStart = docOffsetAtNodeStart - node.length;
+		}
+	}
+}
+
+document_cursor_jump_to_position :: (cursor: *DocumentCursor, pos: Coordinate) {
+	// first calculate the document coordinates at the base of the node
+	node: = cursor.node;
+
+	docPosAtNodeStart: Coordinate;
+	docPosAtNodeStart.line = cursor.documentPos.line - buffer_line_start_count(node.start, cursor.bufferPos);
+	docPosAtNodeStart.col = node.start.col;
+
+	buffer : *Buffer;
+	ifx node.added then buffer = *cursor.doc.addedData else buffer = *cursor.doc.originalData;
+	docOffsetAtNodeStart:s64 = cursor.documentOffset - (buffer_cursor_to_offset(buffer, cursor.bufferPos) - buffer_cursor_to_offset(buffer, node.start));
+
+	direction := ifx pos < cursor.documentPos then -1 else 1;
+
+	// now we loop through nodes in the desired direction
+	while node != null {
+		ifx node.added then buffer = *cursor.doc.addedData else buffer = *cursor.doc.originalData;
+
+		// we now calculate the document end coordinates
+		docPosAtNodeEnd: Coordinate;
+		docPosAtNodeEnd.line = docPosAtNodeStart.line + node.lineFeedCount;
+		docPosAtNodeEnd.col = node.end.col;
+		docOffsetAtNodeEnd := docOffsetAtNodeStart + node.length;
+
+		if (pos > docPosAtNodeStart && pos <= docPosAtNodeEnd) || (pos == .{0,0} && node.prev == null) {
+			// the target pos is inside this node
+			cursor.node = node;
+			cursor.bufferPos.line = node.start.line + (pos.line - docPosAtNodeStart.line);
+
+			// need to work out the line length to cap the column here
+			lineStartOffset := buffer_cursor_to_offset(buffer, .{cursor.bufferPos.line, 0});
+			nextLineStartOffset := 0;
+			if cursor.bufferPos.line+1 >= buffer.lineStarts.count {
+				nextLineStartOffset = buffer.text.count;
+			}
+			else {
+				nextLineStartOffset = buffer_cursor_to_offset(buffer, .{cursor.bufferPos.line+1, 0});
+			}
+
+			// @todo: assumes crlf
+			lineLength := (nextLineStartOffset - lineStartOffset) - 2;
+			cursor.bufferPos.col = min(pos.col, lineLength);
+			cursor.documentPos = .{pos.line, cursor.bufferPos.col};
+			cursor.documentOffset = docOffsetAtNodeStart + buffer_cursor_to_offset(buffer, cursor.bufferPos);
+			return;
+		}
+
+		// if this is not the desired node, update the start position and move on to next node
+		if direction > 0 {
+			docPosAtNodeStart.line = docPosAtNodeEnd.line;
+			docPosAtNodeStart.col = docPosAtNodeEnd.col;
+			docOffsetAtNodeStart = docOffsetAtNodeEnd;
+			node = node.next;
+		}
+		else {
+			node = node.prev;
+			docPosAtNodeStart.line = docPosAtNodeStart.line - node.lineFeedCount;
+			docPosAtNodeStart.col = node.start.col;
+			docOffsetAtNodeStart = docOffsetAtNodeStart - node.length;
+		}
+	}
+}
+
+document_cursor_step_one_forward :: (cursor: *DocumentCursor) -> u8 {
+	buffer : *Buffer;
+	ifx cursor.node.added then buffer = *cursor.doc.addedData else buffer = *cursor.doc.originalData;
+
+	// cannot increment as we're at the end of the document
+	if cursor.documentOffset+1 >= cursor.doc.size {
+		return buffer.text[buffer_cursor_to_offset(buffer, cursor.node.end)-1];
+	}
+
+	// documentoffset will just increment as long as < documentsize
+	cursor.documentOffset = cursor.documentOffset + 1;
+
+	bufferOffset := buffer_cursor_to_offset(buffer, cursor.bufferPos);
+	character := buffer.text[bufferOffset];
+
+	// in this case we overflow into a new node
+	if cursor.bufferPos == cursor.node.end {
+		// if incrementing would push offset above node.length, then go to node.next
+		// bufferPos is just node.start
+		cursor.node = cursor.node.next;
+		cursor.bufferPos = cursor.node.start;
+	}
+	// in this case we stay within this node
+	else {
+		// @todo: assumes crlf endings
+		if character == #char "\r" {
+			cursor.bufferPos.line += 1;
+			cursor.bufferPos.col = 0;
+		}
+		else {
+			cursor.bufferPos.col += 1;
+		}
+	}
+
+	// update the document position
+	if character == #char "\r" {
+		cursor.documentPos.line += 1;
+		cursor.documentPos.col = 0;
+	}
+	else {
+		cursor.documentPos.col += 1;
+	}
+
+	return character;
+}
+
+document_cursor_step_one_backward :: (cursor: *DocumentCursor) -> u8 {
+	buffer : *Buffer;
+	ifx cursor.node.added then buffer = *cursor.doc.addedData else buffer = *cursor.doc.originalData;
+
+	// cannot decrement as we're at the end of the document
+	if cursor.documentOffset == 0 {
+		return buffer.text[buffer_cursor_to_offset(buffer, cursor.node.start)];
+	}
+
+	// documentoffset will just decrement as long as > 0
+	cursor.documentOffset = cursor.documentOffset - 1;
+
+	bufferOffset := buffer_cursor_to_offset(buffer, cursor.bufferPos);
+	character := buffer.text[bufferOffset-1];
+
+	// in this case we underflow into a new node
+	if cursor.bufferPos == cursor.node.start {
+		cursor.node = cursor.node.prev;
+		cursor.bufferPos = cursor.node.end;
+	}
+	// in this case we stay within this node
+	else {
+		// @todo: assumes crlf endings
+		if character == #char "\n" {
+			cursor.bufferPos.line -= 1;
+			newLineStartOffset := buffer_cursor_to_offset(buffer, .{cursor.bufferPos.line, 0});
+			oldLineStartOffset := buffer_cursor_to_offset(buffer, .{cursor.bufferPos.line+1, 0});
+			cursor.bufferPos.col = (oldLineStartOffset - newLineStartOffset) - 2;
+		}
+		else {
+			cursor.bufferPos.col -= 1;
+		}
+	}
+
+	// update the document position
+	if character == #char "\n" {
+		cursor.documentPos.line -= 1;
+		cursor.documentPos.col = cursor.bufferPos.col;
+	}
+	else {
+		cursor.documentPos.col -= 1;
+	}
+
+	return character;
+}
+
 document_get_num_lines :: (doc: *Document) -> s64 {
 	lines := 1;
 	node: *PieceChainNode = doc.pieceChainHead;
@@ -479,6 +637,12 @@ document_get_char_at_location :: (doc: *Document, line: s64, col: s64) -> u8 {
 	lineContent := document_get_line_content(doc, line,, temp);
 	if col >= lineContent.count then return 0;
 	return lineContent[col];
+}
+
+document_cursor_get_char :: (cursor: *DocumentCursor) -> u8 {
+	buffer : *Buffer;
+	ifx cursor.node.added then buffer = *cursor.doc.addedData else buffer = *cursor.doc.originalData;
+	return buffer.text[buffer_cursor_to_offset(buffer, cursor.bufferPos)];
 }
 
 document_get_line_length :: (doc: *Document, lineNum: s64, excludeEnding: bool = true) -> s64 {
@@ -504,7 +668,7 @@ document_debug_print_piece_chain :: (doc: *Document) {
 		ifx node.added then buffer = *doc.addedData else buffer = *doc.originalData;
 
 		print_to_builder(*builder, "[a=%,l=%,lfc=%,s=(%,%),e=(%,%),\"",
-			node.added, node.length, node.lineFeedCount, node.start.line, node.start.offset, node.end.line, node.end.offset);
+			node.added, node.length, node.lineFeedCount, node.start.line, node.start.col, node.end.line, node.end.col);
 
 		startOffset:= buffer_cursor_to_offset(buffer, node.start);
 		endOffset := buffer_cursor_to_offset(buffer, node.end);
@@ -531,7 +695,7 @@ document_debug_print_piece_chain :: (doc: *Document) {
 
 // Calculate a buffer cursor for a given offset _within_ the given node,
 // that is offset >= 0 && offset < node.length
-buffer_offset_to_cursor :: (buffer: *Buffer, node: *PieceChainNode, offsetInNode: s64) -> BufferCursor {
+buffer_offset_to_cursor :: (buffer: *Buffer, node: *PieceChainNode, offsetInNode: s64) -> Coordinate {
 	// binary search for a line inside the given node
 	offset := buffer_cursor_to_offset(buffer, node.start) + offsetInNode;
 	low := node.start.line;
@@ -563,20 +727,21 @@ buffer_offset_to_cursor :: (buffer: *Buffer, node: *PieceChainNode, offsetInNode
 		}
 	}
 
-	return BufferCursor.{mid, offset - midStartOffset};
+	return Coordinate.{mid, offset - midStartOffset};
 }
 
 // Find the actual offset into the given buffer from a cursor for that buffer
-buffer_cursor_to_offset :: (buffer: *Buffer, cursor: BufferCursor) -> s64 {
-	return buffer.lineStarts[cursor.line] + cursor.offset;
+// @todo: rename cursor to coord or something
+buffer_cursor_to_offset :: (buffer: *Buffer, cursor: Coordinate) -> s64 {
+	return buffer.lineStarts[cursor.line] + cursor.col;
 }
 
 // figure out how many linestarts are between start and length in the given buffer
-buffer_line_start_count :: (start: BufferCursor, end: BufferCursor) -> s64 {
+buffer_line_start_count :: (start: Coordinate, end: Coordinate) -> s64 {
 	return (end.line - start.line);
 }
 
-nodeTrimLeft :: (node: *PieceChainNode, buffer: *Buffer, pos: BufferCursor) {
+nodeTrimLeft :: (node: *PieceChainNode, buffer: *Buffer, pos: Coordinate) {
 	// remove the left side of node up to pos
 	bufferOffsetStart := buffer_cursor_to_offset(buffer, node.start);
 	bufferOffsetSplit := buffer_cursor_to_offset(buffer, pos);
@@ -586,7 +751,7 @@ nodeTrimLeft :: (node: *PieceChainNode, buffer: *Buffer, pos: BufferCursor) {
 	splitPos := pos;
 	if bufferOffsetSplit < buffer.text.count && buffer.text[bufferOffsetSplit] == #char "\n" {
 		// we want to move right over the newline, rolling us over onto a new line
-		splitPos.offset = 0;
+		splitPos.col = 0;
 		splitPos.line += 1;
 		lenRight -= 1;
 	}
@@ -596,7 +761,7 @@ nodeTrimLeft :: (node: *PieceChainNode, buffer: *Buffer, pos: BufferCursor) {
 	node.lineFeedCount = buffer_line_start_count(node.start, node.end);
 }
 
-nodeTrimRight :: (node: *PieceChainNode, buffer: *Buffer, pos: BufferCursor) {
+nodeTrimRight :: (node: *PieceChainNode, buffer: *Buffer, pos: Coordinate) {
 	// remove the right side of node from pos
 	bufferOffsetStart := buffer_cursor_to_offset(buffer, node.start);
 	bufferOffsetSplit := buffer_cursor_to_offset(buffer, pos);
@@ -606,7 +771,7 @@ nodeTrimRight :: (node: *PieceChainNode, buffer: *Buffer, pos: BufferCursor) {
 	splitPos := pos;
 	if bufferOffsetSplit < buffer.text.count && buffer.text[bufferOffsetSplit] == #char "\n" {
 		// moves left of the newline, leaving it behind on the right side
-		splitPos.offset -= 1;
+		splitPos.col -= 1;
 		lenLeft -= 1;
 	}
 
