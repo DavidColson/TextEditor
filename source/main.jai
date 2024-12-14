@@ -263,9 +263,6 @@ insert_mode_handle_text_input :: (char: Utf8_Char) {
 	textToInsert := to_string(*char);
 	focusedPanel.cursor.head = document_insert_text(focusedPanel.document, focusedPanel.cursor.head, textToInsert);
 	move_one_char_right(*focusedPanel, false);
-
-	// @todo the cursors should be regenerated here from scratch because the node pointers are likely to have
-	// become outdated, something you could do on a background thread though
 }
 
 insert_mode_delete_left_char :: (using panel: *Panel, extend: bool) {
@@ -304,16 +301,10 @@ insert_mode_delete_left_char :: (using panel: *Panel, extend: bool) {
 
 insert_mode_line_break :: (using panel: *Panel, extend: bool) {
 	textToInsert := "\r\n"; // @todo this should be changed depenending on document type
-	document_insert_text(document, cursor.head, textToInsert);
+	cursor.head = document_insert_text(document, cursor.head, textToInsert);
 
-	// @todo the cursors should be regenerated here from scratch because the node pointers are likely to have
-	// become outdated
-
-	move_one_line_down(panel, false);
-	// cursor.column = 0;
-	// cursor.virtualColumn = cursor.column;
-	// cursor.anchorLine = cursor.line;
-	// cursor.anchorColumn = cursor.column;
+	document_cursor_jump_to_position(*cursor.head, .{cursor.head.documentPos.line+1, 0});
+	cursor.anchor = cursor.head;
 }
 
 // utilities 

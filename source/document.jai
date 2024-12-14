@@ -528,7 +528,7 @@ document_cursor_jump_to_position :: (cursor: *DocumentCursor, pos: Coordinate) {
 			}
 
 			// @todo: assumes crlf
-			lineLength := (nextLineStartOffset - lineStartOffset) - 2;
+			lineLength := max(0, (nextLineStartOffset - lineStartOffset) - 2); 
 			cursor.bufferPos.col = min(pos.col, lineLength);
 			cursor.documentPos = .{pos.line, cursor.bufferPos.col};
 			cursor.documentOffset = docOffsetAtNodeStart + buffer_cursor_to_offset(buffer, cursor.bufferPos);
