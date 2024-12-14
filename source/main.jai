@@ -261,7 +261,7 @@ delete_selection :: (using panel: *Panel, extend: bool) {
 // insert mode text handler
 insert_mode_handle_text_input :: (char: Utf8_Char) {
 	textToInsert := to_string(*char);
-	document_insert_text(focusedPanel.document, focusedPanel.cursor.head, textToInsert);
+	focusedPanel.cursor.head = document_insert_text(focusedPanel.document, focusedPanel.cursor.head, textToInsert);
 	move_one_char_right(*focusedPanel, false);
 
 	// @todo the cursors should be regenerated here from scratch because the node pointers are likely to have

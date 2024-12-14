@@ -155,7 +155,7 @@ document_open :: (path: string) {
 	doc.pieceChainTail = doc.pieceChainHead;
 }
 
-document_insert_text :: (doc: *Document, at: DocumentCursor, t: string) {
+document_insert_text :: (doc: *Document, at: DocumentCursor, t: string) -> DocumentCursor {
 
 	// actually add the new text to a buffer, updating linestarts and what not
 	text := copy_string(t,, doc.documentAlloc);
@@ -182,7 +182,7 @@ document_insert_text :: (doc: *Document, at: DocumentCursor, t: string) {
 			at.node.lineFeedCount = buffer_line_start_count(at.node.start, at.node.end);
 
 			doc.lastInsert = at.node.end;
-			return;
+			return at;
 		}
 
 		// make new piece, and just put in between existing nodes
@@ -221,6 +221,16 @@ document_insert_text :: (doc: *Document, at: DocumentCursor, t: string) {
 		}
 
 		doc.lastInsert = newPiece.end;
+
+		// we return a new cursor that is in the same document location
+		// but now points to the new node
+		newCursor: DocumentCursor;
+		newCursor.doc = at.doc;
+		newCursor.node = newPiece;
+		newCursor.bufferPos = newPiece.start;
+		newCursor.documentPos = at.documentPos;
+		newCursor.documentOffset = at.documentOffset;
+		return newCursor;
 	}
 	else {
 		// case 2: splitting a node
@@ -259,6 +269,16 @@ document_insert_text :: (doc: *Document, at: DocumentCursor, t: string) {
 		else {
 			doc.pieceChainTail = newPieceRight;
 		}
+
+		// we return a new cursor that is in the same document location
+		// but now points to the new node
+		newCursor: DocumentCursor;
+		newCursor.doc = at.doc;
+		newCursor.node = newPiece;
+		newCursor.bufferPos = newPiece.start;
+		newCursor.documentPos = at.documentPos;
+		newCursor.documentOffset = at.documentOffset;
+		return newCursor;
 	}
 }
 
@@ -543,15 +563,14 @@ document_cursor_step_one_forward :: (cursor: *DocumentCursor) -> u8 {
 	// documentoffset will just increment as long as < documentsize
 	cursor.documentOffset = cursor.documentOffset + 1;
 
-	bufferOffset := buffer_cursor_to_offset(buffer, cursor.bufferPos);
-	character := buffer.text[bufferOffset];
+	character := document_cursor_get_char(cursor);
 
 	// in this case we overflow into a new node
 	if cursor.bufferPos == cursor.node.end {
 		// if incrementing would push offset above node.length, then go to node.next
-		// bufferPos is just node.start
+
 		cursor.node = cursor.node.next;
-		cursor.bufferPos = cursor.node.start;
+		cursor.bufferPos = .{cursor.node.start.line, cursor.node.start.col+1};
 	}
 	// in this case we stay within this node
 	else {
@@ -589,13 +608,22 @@ document_cursor_step_one_backward :: (cursor: *DocumentCursor) -> u8 {
 	// documentoffset will just decrement as long as > 0
 	cursor.documentOffset = cursor.documentOffset - 1;
 
-	bufferOffset := buffer_cursor_to_offset(buffer, cursor.bufferPos);
-	character := buffer.text[bufferOffset-1];
+	character : u8;
+	if cursor.bufferPos == cursor.node.start {
+		// the character for the end of this node is actually in the previous node's buffer (due to zero indexing)
+		prevNode := cursor.node.prev;
+		ifx prevNode.added then buffer = *cursor.doc.addedData else buffer = *cursor.doc.originalData;
+		character = buffer.text[buffer_cursor_to_offset(buffer, .{prevNode.end.line, prevNode.end.col-1})];
+	}
+	else {
+		ifx cursor.node.added then buffer = *cursor.doc.addedData else buffer = *cursor.doc.originalData;
+		character = buffer.text[buffer_cursor_to_offset(buffer, .{cursor.bufferPos.line, cursor.bufferPos.col-1})];
+	}
 
 	// in this case we underflow into a new node
 	if cursor.bufferPos == cursor.node.start {
 		cursor.node = cursor.node.prev;
-		cursor.bufferPos = cursor.node.end;
+		cursor.bufferPos = .{cursor.node.end.line, cursor.node.end.col-1};
 	}
 	// in this case we stay within this node
 	else {
@@ -641,6 +669,14 @@ document_get_char_at_location :: (doc: *Document, line: s64, col: s64) -> u8 {
 
 document_cursor_get_char :: (cursor: *DocumentCursor) -> u8 {
 	buffer : *Buffer;
+
+	if cursor.bufferPos == cursor.node.end {
+		// the character for the end of this node is actually in the next node's buffer (due to zero indexing)
+		nextNode := cursor.node.next;
+		ifx nextNode.added then buffer = *cursor.doc.addedData else buffer = *cursor.doc.originalData;
+		return buffer.text[buffer_cursor_to_offset(buffer, nextNode.start)];
+	}
+	
 	ifx cursor.node.added then buffer = *cursor.doc.addedData else buffer = *cursor.doc.originalData;
 	return buffer.text[buffer_cursor_to_offset(buffer, cursor.bufferPos)];
 }
