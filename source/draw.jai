@@ -181,40 +181,40 @@ draw_panel :: (panel: *Panel) {
 	}
 
 	// draw the cursor selection
-	if panel.cursor.head.documentPos.line >= startVisibleLines && panel.cursor.head.documentPos.line <= endVisibleLines {
-		Simp.set_shader_for_color();
-		if panel.cursor.anchor.documentPos.line != panel.cursor.head.documentPos.line || panel.cursor.anchor.documentPos.col != panel.cursor.head.documentPos.col {
-			rangeStart, rangeEnd := convert_cursor_to_range(panel.cursor, false);
-			lineWidths: [..] s32;
-			lineWidths.allocator = temp;
-			for rangeStart.line..rangeEnd.line {
-				line := linesOnScreen[it - startVisibleLines];
-				lineWidth := calculate_string_length_pixels(my_font, line);
-
-				isFirstLine:= it == rangeStart.line;
-				isLastLine:= it == rangeEnd.line;
-
-				selectionX := 0;
-				selectionW := lineWidth;
-				if isFirstLine {
-					selectionX = calculate_string_length_pixels(my_font, string.{rangeStart.col,line.data});
-					selectionW = lineWidth - selectionX;
-				}
-				if isLastLine {
-					selectionW = calculate_string_length_pixels(my_font, string.{rangeEnd.col,line.data}) - selectionX;
-				}
-				
-
-				selection: Rect;
-				selection.x = cast(float)(textRegionX + selectionX);
-				selection.y = cast(float)(textRegionY - my_font.typical_descender + my_font.character_height * (it-startVisibleLines));
-				selection.w = cast(float)selectionW;
-				selection.h = cast(float)my_font.character_height;
-
-				draw_rect(selection, .{0.4, 0.4, 0.4, 1.0});
-			}
-		}
-	}
+	// if panel.cursor.head.documentPos.line >= startVisibleLines && panel.cursor.head.documentPos.line <= endVisibleLines {
+	// 	Simp.set_shader_for_color();
+	// 	if panel.cursor.anchor.documentPos.line != panel.cursor.head.documentPos.line || panel.cursor.anchor.documentPos.col != panel.cursor.head.documentPos.col {
+	// 		rangeStart, rangeEnd := convert_cursor_to_range(panel.cursor, false);
+	// 		lineWidths: [..] s32;
+	// 		lineWidths.allocator = temp;
+	// 		for rangeStart.line..rangeEnd.line {
+	// 			line := linesOnScreen[it - startVisibleLines];
+	// 			lineWidth := calculate_string_length_pixels(my_font, line);
+	//
+	// 			isFirstLine:= it == rangeStart.line;
+	// 			isLastLine:= it == rangeEnd.line;
+	//
+	// 			selectionX := 0;
+	// 			selectionW := lineWidth;
+	// 			if isFirstLine {
+	// 				selectionX = calculate_string_length_pixels(my_font, string.{rangeStart.col,line.data});
+	// 				selectionW = lineWidth - selectionX;
+	// 			}
+	// 			if isLastLine {
+	// 				selectionW = calculate_string_length_pixels(my_font, string.{rangeEnd.col,line.data}) - selectionX;
+	// 			}
+	// 			
+	//
+	// 			selection: Rect;
+	// 			selection.x = cast(float)(textRegionX + selectionX);
+	// 			selection.y = cast(float)(textRegionY - my_font.typical_descender + my_font.character_height * (it-startVisibleLines));
+	// 			selection.w = cast(float)selectionW;
+	// 			selection.h = cast(float)my_font.character_height;
+	//
+	// 			draw_rect(selection, .{0.4, 0.4, 0.4, 1.0});
+	// 		}
+	// 	}
+	// }
 
 	// Draw the actual code glyphs, with custom rendering
 	Simp.draw_code_prepare(my_font,xx textRegionX,xx textRegionY, xx my_font.character_height);
@@ -225,17 +225,19 @@ draw_panel :: (panel: *Panel) {
 	Simp.draw_code_end();
 
 	// Draw cursor
-	if panel.cursor.head.documentPos.line >= startVisibleLines && panel.cursor.head.documentPos.line <= endVisibleLines {
+	cursorLine := document_cursor_get_line(*panel.cursor.head);
+	if cursorLine >= startVisibleLines && cursorLine <= endVisibleLines {
 		Simp.set_shader_for_color();
 
-		line := linesOnScreen[panel.cursor.head.documentPos.line - startVisibleLines];
-		line.count = panel.cursor.head.documentPos.col;
+		cursorColumn := panel.cursor.head.documentOffset - document_get_line_start(panel.document, cursorLine);
+		line := linesOnScreen[cursorLine - startVisibleLines];
+		line.count = cursorColumn;
 		cursorX := calculate_string_length_pixels(my_font, line);
 
 		// @monospace need actual letter width here 
 		cursorRect: Rect;
 		cursorRect.x = cast(float)(textRegionX + cursorX);
-		cursorRect.y = cast(float)(textRegionY - my_font.typical_descender + my_font.character_height * (panel.cursor.head.documentPos.line-startVisibleLines));
+		cursorRect.y = cast(float)(textRegionY - my_font.typical_descender + my_font.character_height * (cursorLine-startVisibleLines));
 		cursorRect.w = cast(float)my_font.mono_x_advance;
 		cursorRect.h = cast(float)my_font.character_height;
 
@@ -245,11 +247,11 @@ draw_panel :: (panel: *Panel) {
 		}
 		draw_rect(cursorRect, color);
 
-		overlayChar := document_cursor_get_char(*panel.cursor.head);
-		if overlayChar != 0 {
-			Simp.prepare_text(my_font, tprint("%", cast(string) u8.[overlayChar]));
-			Simp.draw_prepared_text(my_font, xx cursorRect.x, xx cursorRect.y + my_font.typical_descender + my_font.character_height, Vector4.{0.1, 0.1, 0.1, 1.0});
-		}
+		// overlayChar := document_cursor_get_char(*panel.cursor.head);
+		// if overlayChar != 0 {
+		// 	Simp.prepare_text(my_font, tprint("%", cast(string) u8.[overlayChar]));
+		// 	Simp.draw_prepared_text(my_font, xx cursorRect.x, xx cursorRect.y + my_font.typical_descender + my_font.character_height, Vector4.{0.1, 0.1, 0.1, 1.0});
+		// }
 	}
 
 	// Draw panel header + scroll bar

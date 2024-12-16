@@ -223,9 +223,25 @@ move_one_char_right :: (using panel: *Panel, extend: bool) {
 }
 
 move_one_line_down :: (using panel: *Panel, extend: bool) {
+	// how could this be optimized?
+
+	// you need three expensive things here, the linestart of the current line we're on
+	// plus the line range of the next or previous line
+	// You could just copy the cursor and iterate forward or backward
+	// copy and iterate back to find the start of the line
+	// copy and iterate forward to find the start of the next line, and the end of said line
+	// this will make this algorithm scale on length of line, rather than number of edits to the document?
+
+	curLine := document_cursor_get_line(*cursor.head);
+	curLineStart := document_get_line_start(document, curLine);
+	curColumn := cursor.head.documentOffset - curLineStart;
+
 	numLines := document_get_num_lines(document);
-	newLine := min(cursor.head.documentPos.line+1, numLines - 1);
-	document_cursor_jump_to_position(*cursor.head, .{newLine, cursor.head.documentPos.col});
+	newLine := min(curLine+1, numLines - 1);
+
+	lineStart, lineEnd := document_get_line_range(document, newLine);
+	newColumn := min(lineEnd-lineStart, curColumn);
+	document_cursor_jump_to_offset(*cursor.head, lineStart + newColumn);
 
 	if !extend {
 		cursor.anchor = cursor.head;
@@ -233,7 +249,17 @@ move_one_line_down :: (using panel: *Panel, extend: bool) {
 }
 
 move_one_line_up :: (using panel: *Panel, extend: bool) {
-	document_cursor_jump_to_position(*cursor.head, .{max(cursor.head.documentPos.line - 1, 0), cursor.head.documentPos.col});
+	curLine := document_cursor_get_line(*cursor.head);
+	curLineStart := document_get_line_start(document, curLine);
+	curColumn := cursor.head.documentOffset - curLineStart;
+
+	numLines := document_get_num_lines(document);
+	newLine := min(curLine-1, numLines - 1);
+
+	lineStart, lineEnd := document_get_line_range(document, newLine);
+	newColumn := min(lineEnd-lineStart, curColumn);
+	document_cursor_jump_to_offset(*cursor.head, lineStart + newColumn);
+
 	if !extend {
 		cursor.anchor = cursor.head;
 	}
@@ -266,9 +292,6 @@ insert_mode_handle_text_input :: (char: Utf8_Char) {
 }
 
 insert_mode_delete_left_char :: (using panel: *Panel, extend: bool) {
-	if cursor.head.documentPos.line == 0 && cursor.head.documentPos.col == 0 {
-		return;
-	}
 
 	// @todo the cursors should be regenerated here from scratch because the node pointers are likely to have
 	// become outdated
@@ -300,51 +323,51 @@ insert_mode_delete_left_char :: (using panel: *Panel, extend: bool) {
 }
 
 insert_mode_line_break :: (using panel: *Panel, extend: bool) {
-	textToInsert := "\r\n"; // @todo this should be changed depenending on document type
-	cursor.head = document_insert_text(document, cursor.head, textToInsert);
-
-	document_cursor_jump_to_position(*cursor.head, .{cursor.head.documentPos.line+1, 0});
-	cursor.anchor = cursor.head;
+	// textToInsert := "\r\n"; // @todo this should be changed depenending on document type
+	// cursor.head = document_insert_text(document, cursor.head, textToInsert);
+	//
+	// document_cursor_jump_to_position(*cursor.head, .{cursor.head.documentPos.line+1, 0});
+	// cursor.anchor = cursor.head;
 }
 
 // utilities 
 convert_cursor_to_range :: (cursor: Cursor, includeCursor: bool = true) -> start: Coordinate, end: Coordinate {
 	rangeStart: Coordinate;
 	rangeEnd: Coordinate;
-	cursorBonus := ifx includeCursor then 1 else 0;
-
-	cursorHead := cursor.head.documentPos;
-	cursorAnchor := cursor.anchor.documentPos;
-
-	if cursorHead.line < cursorAnchor.line {
-		// cursor is clearly earlier than the anchor
-		rangeStart.line = cursorHead.line;
-		rangeStart.col = cursorHead.col;
-		rangeEnd.line = cursorAnchor.line;
-		rangeEnd.col = cursorAnchor.col;
-	}
-	else if cursorHead.line > cursorAnchor.line { 
-		// anchor is clearly earlier than the cursor
-		rangeStart.line = cursorAnchor.line;
-		rangeStart.col = cursorAnchor.col;
-		rangeEnd.line = cursorHead.line;
-		rangeEnd.col = cursorHead.col+cursorBonus; // cursor itself is considered part of the selection
-	}
-	else {
-		// they are on the same line, pick based on column
-		if cursorHead.col <= cursorAnchor.col {
-			rangeStart.line = cursorHead.line;
-			rangeStart.col = cursorHead.col;
-			rangeEnd.line = cursorAnchor.line;
-			rangeEnd.col = cursorAnchor.col;
-		}
-		else {
-			rangeStart.line = cursorAnchor.line;
-			rangeStart.col = cursorAnchor.col;
-			rangeEnd.line = cursorHead.line;
-			rangeEnd.col = cursorHead.col+cursorBonus;
-		}
-	}
+	// cursorBonus := ifx includeCursor then 1 else 0;
+	//
+	// cursorHead := cursor.head.documentPos;
+	// cursorAnchor := cursor.anchor.documentPos;
+	//
+	// if cursorHead.line < cursorAnchor.line {
+	// 	// cursor is clearly earlier than the anchor
+	// 	rangeStart.line = cursorHead.line;
+	// 	rangeStart.col = cursorHead.col;
+	// 	rangeEnd.line = cursorAnchor.line;
+	// 	rangeEnd.col = cursorAnchor.col;
+	// }
+	// else if cursorHead.line > cursorAnchor.line { 
+	// 	// anchor is clearly earlier than the cursor
+	// 	rangeStart.line = cursorAnchor.line;
+	// 	rangeStart.col = cursorAnchor.col;
+	// 	rangeEnd.line = cursorHead.line;
+	// 	rangeEnd.col = cursorHead.col+cursorBonus; // cursor itself is considered part of the selection
+	// }
+	// else {
+	// 	// they are on the same line, pick based on column
+	// 	if cursorHead.col <= cursorAnchor.col {
+	// 		rangeStart.line = cursorHead.line;
+	// 		rangeStart.col = cursorHead.col;
+	// 		rangeEnd.line = cursorAnchor.line;
+	// 		rangeEnd.col = cursorAnchor.col;
+	// 	}
+	// 	else {
+	// 		rangeStart.line = cursorAnchor.line;
+	// 		rangeStart.col = cursorAnchor.col;
+	// 		rangeEnd.line = cursorHead.line;
+	// 		rangeEnd.col = cursorHead.col+cursorBonus;
+	// 	}
+	// }
 	return rangeStart, rangeEnd;
 }
 

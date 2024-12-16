@@ -26,8 +26,8 @@ Document :: struct {
 DocumentCursor :: struct {
 	doc: *Document;
 	node: *PieceChainNode;
-	bufferPos: Coordinate;
-	documentPos: Coordinate;
+	nodeStartOffset: s64;
+	nodeStartLine: s64;
 	documentOffset: s64;
 }
 
@@ -41,6 +41,8 @@ Buffer :: struct {
 	lineStarts: [..]s64;
 }
 
+// proposal, use s32's instead to make this struct
+// smaller so we can iterate over it faster
 PieceChainNode :: struct {
 	next: *PieceChainNode;
 	prev: *PieceChainNode;
@@ -168,7 +170,10 @@ document_insert_text :: (doc: *Document, at: DocumentCursor, t: string) -> Docum
 	}
 	doc.size += text.count;
 
-	if at.bufferPos == at.node.end || at.bufferPos == at.node.start {
+	insertBuffer: = ifx at.node.added then *doc.addedData else *doc.originalData;
+	insertPos := buffer_offset_to_cursor(insertBuffer, at.node, at.documentOffset - at.nodeStartOffset);
+
+	if insertPos == at.node.end || insertPos == at.node.start {
 		// case 1: insert at boundary
 
 		// bonus case, this node is the last insert node
@@ -196,8 +201,13 @@ document_insert_text :: (doc: *Document, at: DocumentCursor, t: string) -> Docum
 		newPiece.length = text.count;
 		newPiece.lineFeedCount = buffer_line_start_count(newPiece.start, newPiece.end);
 
+		newCursor: DocumentCursor;
+
 		// insert into linked list
-		if at.bufferPos == at.node.end {
+		if insertPos == at.node.end {
+			// put at the end of at.node (the existing node)
+			newCursor.nodeStartOffset = at.nodeStartOffset + at.node.length;
+			newCursor.nodeStartLine = at.nodeStartLine + at.node.lineFeedCount;
 			newPiece.next = at.node.next;
 			newPiece.prev = at.node;
 			at.node.next = newPiece;
@@ -209,6 +219,9 @@ document_insert_text :: (doc: *Document, at: DocumentCursor, t: string) -> Docum
 			}
 		}
 		else {
+			// put at the start of at.node
+			newCursor.nodeStartOffset = at.nodeStartOffset - newPiece.length;
+			newCursor.nodeStartLine = at.nodeStartLine - newPiece.lineFeedCount;
 			newPiece.prev = at.node.prev;
 			newPiece.next = at.node;
 			at.node.prev = newPiece;
@@ -224,25 +237,19 @@ document_insert_text :: (doc: *Document, at: DocumentCursor, t: string) -> Docum
 
 		// we return a new cursor that is in the same document location
 		// but now points to the new node
-		newCursor: DocumentCursor;
 		newCursor.doc = at.doc;
 		newCursor.node = newPiece;
-		newCursor.bufferPos = newPiece.start;
-		newCursor.documentPos = at.documentPos;
 		newCursor.documentOffset = at.documentOffset;
 		return newCursor;
 	}
 	else {
 		// case 2: splitting a node
 
-		nodeBuffer : *Buffer;
-		ifx at.node.added then nodeBuffer = *doc.addedData else nodeBuffer = *doc.originalData;
-
 		// copy the old node and then trim left and right to get the new nodes
 		newPieceRight := New(PieceChainNode,, doc.pieceChainAlloc);
 		<<newPieceRight = <<at.node;
-		nodeTrimLeft(newPieceRight, nodeBuffer, at.bufferPos);
-		nodeTrimRight(at.node, nodeBuffer, at.bufferPos);
+		nodeTrimLeft(newPieceRight, insertBuffer, insertPos);
+		nodeTrimRight(at.node, insertBuffer, insertPos);
 
 		// create a new piece with the appended text data
 		endOffset := doc.addedData.text.count;
@@ -275,44 +282,39 @@ document_insert_text :: (doc: *Document, at: DocumentCursor, t: string) -> Docum
 		newCursor: DocumentCursor;
 		newCursor.doc = at.doc;
 		newCursor.node = newPiece;
-		newCursor.bufferPos = newPiece.start;
-		newCursor.documentPos = at.documentPos;
+		newCursor.nodeStartOffset = at.nodeStartOffset + at.node.length;
+		newCursor.nodeStartLine = at.nodeStartLine + at.node.lineFeedCount; 
 		newCursor.documentOffset = at.documentOffset;
 		return newCursor;
 	}
 }
 
 document_delete_text :: (doc: *Document, startAt: DocumentCursor, endAt: DocumentCursor) {
-	document_delete_text_internal(doc, 	startAt.node, startAt.bufferPos, startAt.documentOffset,
-										endAt.node, startAt.bufferPos, endAt.documentOffset);
-}
-document_delete_text :: (doc: *Document, startAt: DocumentCursor, count: s64) {
-	endAt := startAt;
-	document_cursor_jump_to_offset(*endAt, startAt.documentOffset + count);
-	document_delete_text_internal(doc, 	startAt.node, startAt.bufferPos, startAt.documentOffset,
-										endAt.node, startAt.bufferPos, endAt.documentOffset);
-}
 
-document_delete_text_internal :: (doc: *Document, startNode: *PieceChainNode, start: Coordinate, startOffset: s64,
-												  endNode: *PieceChainNode, end: Coordinate, endOffset: s64) {
-	if startNode == endNode {
+	startBuffer: = ifx startAt.node.added then *doc.addedData else *doc.originalData;
+	endBuffer: = ifx endAt.node.added then *doc.addedData else *doc.originalData;
+
+	start := buffer_offset_to_cursor(startBuffer, startAt.node, startAt.documentOffset - startAt.nodeStartOffset);
+	end := buffer_offset_to_cursor(endBuffer, endAt.node, endAt.documentOffset - endAt.nodeStartOffset);
+
+	if startAt.node == endAt.node {
 		buffer : *Buffer;
-		ifx startNode.added then buffer = *doc.addedData else buffer = *doc.originalData;
+		ifx startAt.node.added then buffer = *doc.addedData else buffer = *doc.originalData;
 
-		if start == startNode.start {
-			nodeTrimLeft(startNode, buffer, end);
+		if start == startAt.node.start {
+			nodeTrimLeft(startAt.node, buffer, end);
 		}
-		else if end == startNode.end {
-			nodeTrimRight(startNode, buffer, start);
+		else if end == startAt.node.end {
+			nodeTrimRight(startAt.node, buffer, start);
 		}
 		else {
 			newPieceRight := New(PieceChainNode,, doc.pieceChainAlloc);
-			<<newPieceRight = <<startNode;
+			<<newPieceRight = <<startAt.node;
 			nodeTrimLeft(newPieceRight, buffer, end);
-			nodeTrimRight(startNode, buffer, start);
+			nodeTrimRight(startAt.node, buffer, start);
 
-			startNode.next = newPieceRight;
-			newPieceRight.prev = startNode;
+			startAt.node.next = newPieceRight;
+			newPieceRight.prev = startAt.node;
 		}
 	}
 	else {
@@ -332,34 +334,34 @@ document_delete_text_internal :: (doc: *Document, startNode: *PieceChainNode, st
 			}
 		}
 
-		firstToDelete := startNode.next;
-		if startNode.start == start {
+		firstToDelete := startAt.node.next;
+		if startAt.node.start == start {
 			// delete whole start node
-			firstToDelete = startNode;
+			firstToDelete = startAt.node;
 		}
 		else {
 			// take some of start node
 			buffer : *Buffer;
-			ifx startNode.added then buffer = *doc.addedData else buffer = *doc.originalData;
-			nodeTrimRight(startNode, buffer, start);
+			ifx startAt.node.added then buffer = *doc.addedData else buffer = *doc.originalData;
+			nodeTrimRight(startAt.node, buffer, start);
 		}
-		lastToDelete := endNode.prev;
-		if endNode.end == end {
+		lastToDelete := endAt.node.prev;
+		if endAt.node.end == end {
 			// delete whole end node
-			lastToDelete = endNode;
+			lastToDelete = endAt.node;
 		}
 		else {
 			// take some of end node
 			buffer : *Buffer;
-			ifx endNode.added then buffer = *doc.addedData else buffer = *doc.originalData;
-			nodeTrimLeft(endNode, buffer, end);
+			ifx endAt.node.added then buffer = *doc.addedData else buffer = *doc.originalData;
+			nodeTrimLeft(endAt.node, buffer, end);
 		}
 		
 		// delete all nodes that are no longer needed
 		remove_node_range(doc, firstToDelete, lastToDelete);
 	}
 
-	doc.size -= endOffset - startOffset;
+	doc.size -= endAt.documentOffset - startAt.documentOffset;
 }
 
 document_get_line_content :: (doc: *Document, lineNum: s64) -> string {
@@ -438,217 +440,91 @@ document_get_line_content :: (doc: *Document, lineNum: s64) -> string {
 }
 
 document_cursor_jump_to_offset :: (cursor: *DocumentCursor, offset: s64) {
-	node: = cursor.node;
-
-	docPosAtNodeStart: Coordinate;
-	docPosAtNodeStart.line = cursor.documentPos.line - buffer_line_start_count(node.start, cursor.bufferPos);
-	docPosAtNodeStart.col = node.start.col;
-
-	buffer : *Buffer;
-	ifx node.added then buffer = *cursor.doc.addedData else buffer = *cursor.doc.originalData;
-	docOffsetAtNodeStart:s64 = cursor.documentOffset - (buffer_cursor_to_offset(buffer, cursor.bufferPos) - buffer_cursor_to_offset(buffer, node.start));
+	nodeStartOffset: s64 = cursor.nodeStartOffset;
+	nodeStartLine: s64 = cursor.nodeStartLine;
 
 	direction := ifx offset < cursor.documentOffset then -1 else 1;
 
 	// now we loop through nodes in the desired direction
+	node := cursor.node;
 	while node != null {
-		ifx node.added then buffer = *cursor.doc.addedData else buffer = *cursor.doc.originalData;
-
 		// we now calculate the document end coordinates
-		docPosAtNodeEnd: Coordinate;
-		docPosAtNodeEnd.line = docPosAtNodeStart.line + node.lineFeedCount;
-		docPosAtNodeEnd.col = node.end.col;
-		docOffsetAtNodeEnd := docOffsetAtNodeStart + node.length;
+		nodeEndOffset: s64 = nodeStartOffset + node.length;
+		nodeEndLine: s64 = nodeStartLine + node.lineFeedCount;
 
-		if (offset > docOffsetAtNodeStart && offset <= docOffsetAtNodeEnd) || (offset == 0 && node.prev == null) {
+		if (offset > nodeStartOffset && offset <= nodeEndOffset) || (offset == 0 && node.prev == null) {
 			// the target offset is inside this node
 			cursor.node = node;
 			cursor.documentOffset = offset;
-			cursor.bufferPos = buffer_offset_to_cursor(buffer, node, offset - docOffsetAtNodeStart);
-			cursor.documentPos = Coordinate.{
-				line = docPosAtNodeStart.line + cursor.bufferPos.line,
-				col = cursor.bufferPos.col
-			};
+			cursor.nodeStartOffset = nodeStartOffset;
+			cursor.nodeStartLine = nodeStartLine;
 			return;
 		}
 
 		// if this is not the desired node, update the start position and move on to next node
 		if direction > 0 {
-			docPosAtNodeStart.line = docPosAtNodeEnd.line;
-			docPosAtNodeStart.col = docPosAtNodeEnd.col;
-			docOffsetAtNodeStart = docOffsetAtNodeEnd;
+			nodeStartOffset = nodeEndOffset;
+			nodeStartLine = nodeEndLine;
 			node = node.next;
 		}
 		else {
 			node = node.prev;
-			docPosAtNodeStart.line = docPosAtNodeStart.line - node.lineFeedCount;
-			docPosAtNodeStart.col = node.start.col;
-			docOffsetAtNodeStart = docOffsetAtNodeStart - node.length;
+			nodeStartOffset = nodeStartOffset - cursor.node.length;
+			nodeStartLine = nodeStartLine - cursor.node.lineFeedCount;
 		}
 	}
 }
 
-document_cursor_jump_to_position :: (cursor: *DocumentCursor, pos: Coordinate) {
-	// first calculate the document coordinates at the base of the node
-	node: = cursor.node;
-
-	docPosAtNodeStart: Coordinate;
-	docPosAtNodeStart.line = cursor.documentPos.line - buffer_line_start_count(node.start, cursor.bufferPos);
-	docPosAtNodeStart.col = node.start.col;
-
-	buffer : *Buffer;
-	ifx node.added then buffer = *cursor.doc.addedData else buffer = *cursor.doc.originalData;
-	docOffsetAtNodeStart:s64 = cursor.documentOffset - (buffer_cursor_to_offset(buffer, cursor.bufferPos) - buffer_cursor_to_offset(buffer, node.start));
-
-	direction := ifx pos < cursor.documentPos then -1 else 1;
-
-	// now we loop through nodes in the desired direction
-	while node != null {
-		ifx node.added then buffer = *cursor.doc.addedData else buffer = *cursor.doc.originalData;
-
-		// we now calculate the document end coordinates
-		docPosAtNodeEnd: Coordinate;
-		docPosAtNodeEnd.line = docPosAtNodeStart.line + node.lineFeedCount;
-		docPosAtNodeEnd.col = node.end.col;
-		docOffsetAtNodeEnd := docOffsetAtNodeStart + node.length;
-
-		if (pos > docPosAtNodeStart && pos <= docPosAtNodeEnd) || (pos == .{0,0} && node.prev == null) {
-			// the target pos is inside this node
-			cursor.node = node;
-			cursor.bufferPos.line = node.start.line + (pos.line - docPosAtNodeStart.line);
-
-			// need to work out the line length to cap the column here
-			lineStartOffset := buffer_cursor_to_offset(buffer, .{cursor.bufferPos.line, 0});
-			nextLineStartOffset := 0;
-			if cursor.bufferPos.line+1 >= buffer.lineStarts.count {
-				nextLineStartOffset = buffer.text.count;
-			}
-			else {
-				nextLineStartOffset = buffer_cursor_to_offset(buffer, .{cursor.bufferPos.line+1, 0});
-			}
-
-			// @todo: assumes crlf
-			lineLength := max(0, (nextLineStartOffset - lineStartOffset) - 2); 
-			cursor.bufferPos.col = min(pos.col, lineLength);
-			cursor.documentPos = .{pos.line, cursor.bufferPos.col};
-			cursor.documentOffset = docOffsetAtNodeStart + buffer_cursor_to_offset(buffer, cursor.bufferPos);
-			return;
-		}
-
-		// if this is not the desired node, update the start position and move on to next node
-		if direction > 0 {
-			docPosAtNodeStart.line = docPosAtNodeEnd.line;
-			docPosAtNodeStart.col = docPosAtNodeEnd.col;
-			docOffsetAtNodeStart = docOffsetAtNodeEnd;
-			node = node.next;
-		}
-		else {
-			node = node.prev;
-			docPosAtNodeStart.line = docPosAtNodeStart.line - node.lineFeedCount;
-			docPosAtNodeStart.col = node.start.col;
-			docOffsetAtNodeStart = docOffsetAtNodeStart - node.length;
-		}
-	}
-}
 
 document_cursor_step_one_forward :: (cursor: *DocumentCursor) -> u8 {
-	buffer : *Buffer;
-	ifx cursor.node.added then buffer = *cursor.doc.addedData else buffer = *cursor.doc.originalData;
-
-	// cannot increment as we're at the end of the document
-	if cursor.documentOffset+1 >= cursor.doc.size {
-		return buffer.text[buffer_cursor_to_offset(buffer, cursor.node.end)-1];
-	}
-
-	// documentoffset will just increment as long as < documentsize
-	cursor.documentOffset = cursor.documentOffset + 1;
-
-	character := document_cursor_get_char(cursor);
-
-	// in this case we overflow into a new node
-	if cursor.bufferPos == cursor.node.end {
-		// if incrementing would push offset above node.length, then go to node.next
-
-		cursor.node = cursor.node.next;
-		cursor.bufferPos = .{cursor.node.start.line, cursor.node.start.col+1};
-	}
-	// in this case we stay within this node
-	else {
-		// @todo: assumes crlf endings
-		if character == #char "\r" {
-			cursor.bufferPos.line += 1;
-			cursor.bufferPos.col = 0;
-		}
-		else {
-			cursor.bufferPos.col += 1;
-		}
-	}
-
-	// update the document position
-	if character == #char "\r" {
-		cursor.documentPos.line += 1;
-		cursor.documentPos.col = 0;
-	}
-	else {
-		cursor.documentPos.col += 1;
-	}
-
-	return character;
+	// @todo 
+	// iterate skipping \r characters
+	// iterate until you are above nodeStartOffset + node.length
+	// then setup the next node
+	cursor.documentOffset += 1;
+	return 0;
 }
 
 document_cursor_step_one_backward :: (cursor: *DocumentCursor) -> u8 {
-	buffer : *Buffer;
-	ifx cursor.node.added then buffer = *cursor.doc.addedData else buffer = *cursor.doc.originalData;
+	cursor.documentOffset -= 1;
+	return 0;
+}
 
-	// cannot decrement as we're at the end of the document
-	if cursor.documentOffset == 0 {
-		return buffer.text[buffer_cursor_to_offset(buffer, cursor.node.start)];
-	}
+document_cursor_get_line :: (cursor: *DocumentCursor) -> s64 {
+	// convert the offset to a buffer coordinate, add that to the start line
+	buffer: = ifx cursor.node.added then *cursor.doc.addedData else *cursor.doc.originalData;
+	bufferCursor := buffer_offset_to_cursor(buffer, cursor.node, cursor.documentOffset - cursor.nodeStartOffset);
+	return cursor.nodeStartLine + bufferCursor.line;
+}
 
-	// documentoffset will just decrement as long as > 0
-	cursor.documentOffset = cursor.documentOffset - 1;
+document_get_line_start :: (doc: *Document, line: s64) -> s64 {
+	// this function is used a lot for navigating lines
+	// if there was ever a function that made me want to use trees, this is the one
+	// however I will resist the temptation to overcomplicate things and allow this to exist
+	// until I have an actual performance issue on my hands
 
-	character : u8;
-	if cursor.bufferPos == cursor.node.start {
-		// the character for the end of this node is actually in the previous node's buffer (due to zero indexing)
-		prevNode := cursor.node.prev;
-		ifx prevNode.added then buffer = *cursor.doc.addedData else buffer = *cursor.doc.originalData;
-		character = buffer.text[buffer_cursor_to_offset(buffer, .{prevNode.end.line, prevNode.end.col-1})];
-	}
-	else {
-		ifx cursor.node.added then buffer = *cursor.doc.addedData else buffer = *cursor.doc.originalData;
-		character = buffer.text[buffer_cursor_to_offset(buffer, .{cursor.bufferPos.line, cursor.bufferPos.col-1})];
-	}
+	// my prediction is that this algorithm will stay fast for a very high number of nodes
+	nodeStartOffset := 0;
+	nodeStartLine := 0;
+	node := doc.pieceChainHead;
+	while node != null {
+		nodeEndOffset: s64 = nodeStartOffset + node.length;
+		nodeEndLine: s64 = nodeStartLine + node.lineFeedCount;
 
-	// in this case we underflow into a new node
-	if cursor.bufferPos == cursor.node.start {
-		cursor.node = cursor.node.prev;
-		cursor.bufferPos = .{cursor.node.end.line, cursor.node.end.col-1};
-	}
-	// in this case we stay within this node
-	else {
-		// @todo: assumes crlf endings
-		if character == #char "\n" {
-			cursor.bufferPos.line -= 1;
-			newLineStartOffset := buffer_cursor_to_offset(buffer, .{cursor.bufferPos.line, 0});
-			oldLineStartOffset := buffer_cursor_to_offset(buffer, .{cursor.bufferPos.line+1, 0});
-			cursor.bufferPos.col = (oldLineStartOffset - newLineStartOffset) - 2;
+		if nodeStartLine <= line && line < nodeEndLine {
+			// this node contains the line
+			lineInThisNode := node.start.line + (line - nodeStartLine);
+			buffer: = ifx node.added then *doc.addedData else *doc.originalData;
+			offsetInThisNode := buffer.lineStarts[lineInThisNode] - buffer_cursor_to_offset(buffer, node.start);
+			return nodeStartOffset + offsetInThisNode;
 		}
-		else {
-			cursor.bufferPos.col -= 1;
-		}
+		node = node.next;
 	}
+	return nodeStartLine + node.lineFeedCount;
+}
 
-	// update the document position
-	if character == #char "\n" {
-		cursor.documentPos.line -= 1;
-		cursor.documentPos.col = cursor.bufferPos.col;
-	}
-	else {
-		cursor.documentPos.col -= 1;
-	}
-
-	return character;
+document_get_line_range :: (doc: *Document, line: s64) -> s64, s64 {
+	return document_get_line_start(doc, line), document_get_line_start(doc, line+1)-2;
 }
 
 document_get_num_lines :: (doc: *Document) -> s64 {
@@ -668,17 +544,7 @@ document_get_char_at_location :: (doc: *Document, line: s64, col: s64) -> u8 {
 }
 
 document_cursor_get_char :: (cursor: *DocumentCursor) -> u8 {
-	buffer : *Buffer;
-
-	if cursor.bufferPos == cursor.node.end {
-		// the character for the end of this node is actually in the next node's buffer (due to zero indexing)
-		nextNode := cursor.node.next;
-		ifx nextNode.added then buffer = *cursor.doc.addedData else buffer = *cursor.doc.originalData;
-		return buffer.text[buffer_cursor_to_offset(buffer, nextNode.start)];
-	}
-	
-	ifx cursor.node.added then buffer = *cursor.doc.addedData else buffer = *cursor.doc.originalData;
-	return buffer.text[buffer_cursor_to_offset(buffer, cursor.bufferPos)];
+	return 0;
 }
 
 document_get_line_length :: (doc: *Document, lineNum: s64, excludeEnding: bool = true) -> s64 {
