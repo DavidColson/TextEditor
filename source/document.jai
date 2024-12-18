@@ -567,7 +567,7 @@ document_cursor_step_one_backward :: (cursor: *DocumentCursor) -> u8 {
 	if character == #char "\n" {
 		newChar := document_cursor_step_one_backward(cursor);
 		if newChar == #char "\r" {
-			return newChar;
+			return character;
 		}
 		else {
 			// if no CRLF ending, just undo what we did
@@ -576,6 +576,17 @@ document_cursor_step_one_backward :: (cursor: *DocumentCursor) -> u8 {
 	}
 
 	return character;
+}
+
+for_expansion :: (cursor: *DocumentCursor, body: Code, flags: For_Flags) #expand {
+	counter := 0;
+	while cursor.documentOffset <= cursor.doc.size {
+		// this tells you how far you've iterated since the start
+		`it_index := counter;
+		`it := ifx flags & .REVERSE then document_cursor_step_one_backward(cursor) else document_cursor_step_one_forward(cursor);
+		#insert body;
+		counter += 1;
+	}
 }
 
 document_cursor_get_line :: (cursor: *DocumentCursor) -> s64 {

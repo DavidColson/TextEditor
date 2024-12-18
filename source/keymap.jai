@@ -79,6 +79,12 @@ commandList :: Command.[
 	.{ "Goto document end", 0, goto_document_end, .[
 		.{ mode=.NORMAL, keys="ge"},
 	]},
+	.{ "Goto line start", 0, goto_line_start, .[
+		.{ mode=.NORMAL, keys="gh"},
+	]},
+	.{ "Goto line end", 0, goto_line_end, .[
+		.{ mode=.NORMAL, keys="gl"},
+	]},
 
 	// changes
 	.{ "Delete selection", 0, delete_selection, .[

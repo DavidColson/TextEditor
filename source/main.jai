@@ -277,6 +277,32 @@ goto_document_end :: (using panel: *Panel, extend: bool) {
 	}
 }
 
+goto_line_end :: (using panel: *Panel, extend: bool) { 
+	for cursor.head {
+		if it == #char "\n" {
+			document_cursor_step_one_backward(*cursor.head);
+			break;
+		}
+	}
+
+	if !extend {
+		cursor.anchor = cursor.head;
+	}
+}
+
+goto_line_start :: (using panel: *Panel, extend: bool) { 
+	for < cursor.head {
+		if it == #char "\n" {
+			document_cursor_step_one_forward(*cursor.head);
+			break;
+		}
+	}
+
+	if !extend {
+		cursor.anchor = cursor.head;
+	}
+}
+
 delete_selection :: (using panel: *Panel, extend: bool) {
 	if cursor.head.documentOffset < cursor.anchor.documentOffset {
 		cursor.head = document_delete_text(document, cursor.head, cursor.anchor);
