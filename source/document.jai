@@ -546,7 +546,8 @@ document_cursor_step_one_backward :: (cursor: *DocumentCursor) -> u8 {
 	buffer: = ifx cursor.node.added then *cursor.doc.addedData else *cursor.doc.originalData;
 	offsetInNode := cursor.documentOffset - cursor.nodeStartOffset;
 	
-	if offsetInNode == 0 && cursor.node.prev == null {
+	if offsetInNode <= 0 && cursor.node.prev == null {
+		cursor.documentOffset = 0;
 		return 0; // start of document
 	}
 
@@ -591,6 +592,8 @@ document_get_line_start :: (doc: *Document, line: s64) -> s64 {
 	// until I have an actual performance issue on my hands
 
 	// my prediction is that this algorithm will stay fast for a very high number of nodes
+	if line == 0 return 0;
+
 	nodeStartOffset := 0;
 	nodeStartLine := 0;
 	node := doc.pieceChainHead;
@@ -609,7 +612,7 @@ document_get_line_start :: (doc: *Document, line: s64) -> s64 {
 		nodeStartLine += node.lineFeedCount;
 		node = node.next;
 	}
-	return nodeStartLine + node.lineFeedCount;
+	return nodeStartOffset;
 }
 
 document_get_line_range :: (doc: *Document, line: s64) -> s64, s64 {
@@ -632,6 +635,7 @@ document_cursor_get_char :: (cursor: *DocumentCursor) -> u8 {
 	// we allow cursors to sit at the end of a node (for inserting), 
 	// but in that case, if we're at the end of a node, the char is actually in the next buffer
 	if offsetInNode == cursor.node.length {
+		if cursor.node.next == null return 0; 
 		buffer: = ifx cursor.node.next.added then *cursor.doc.addedData else *cursor.doc.originalData;
 		bufferOffset := buffer_cursor_to_offset(buffer, cursor.node.next.start);
 		return buffer.text[bufferOffset];
