@@ -73,6 +73,12 @@ commandList :: Command.[
 	.{ "Extend one line up", .EXTEND, move_one_line_up, .[
 		.{ mode=.NORMAL, keys="K"},
 	]},
+	.{ "Goto document start", 0, goto_document_start, .[
+		.{ mode=.NORMAL, keys="gg"},
+	]},
+	.{ "Goto document end", 0, goto_document_end, .[
+		.{ mode=.NORMAL, keys="ge"},
+	]},
 
 	// changes
 	.{ "Delete selection", 0, delete_selection, .[

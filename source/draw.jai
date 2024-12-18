@@ -164,6 +164,24 @@ draw_panel :: (panel: *Panel) {
 	startVisibleLines = clamp(-scrollPos / my_font.character_height, 0, documentLines - 1);
 	endVisibleLines = clamp(startVisibleLines + cast(s64)heightForCode / my_font.character_height, 0, documentLines - 1);
 
+	// scroll the panel to keep the primary cursor on screen
+	cursorLine := document_cursor_get_line(*panel.cursor.head);
+	if cursorLine < startVisibleLines {
+		difference := cursorLine - startVisibleLines;
+		scrollPos -= my_font.character_height * difference;
+		startVisibleLines = clamp(-scrollPos / my_font.character_height, 0, documentLines - 1);
+		endVisibleLines = clamp(startVisibleLines + cast(s64)heightForCode / my_font.character_height, 0, documentLines - 1);
+	}
+
+	// Since we may scroll off the end of the document, this is how many lines _could_ be shown if they existed
+	endVisibleLinesUnclamped := startVisibleLines + cast(s64)heightForCode / my_font.character_height;
+	if cursorLine > (endVisibleLinesUnclamped-1) {
+		difference := (endVisibleLinesUnclamped-1) - cursorLine;
+		scrollPos += my_font.character_height * difference;
+		startVisibleLines = clamp(-scrollPos / my_font.character_height, 0, documentLines - 1);
+		endVisibleLines = clamp(startVisibleLines + cast(s64)heightForCode / my_font.character_height, 0, documentLines - 1);
+	}
+
 	// Draw line numbers
 	lineY := textRegionY + my_font.character_height;
 	for startVisibleLines..endVisibleLines {
@@ -181,7 +199,6 @@ draw_panel :: (panel: *Panel) {
 	}
 
 	// draw the cursor selection
-	cursorLine := document_cursor_get_line(*panel.cursor.head);
 	anchorLine := document_cursor_get_line(*panel.cursor.anchor);
 	if cursorLine >= startVisibleLines && cursorLine <= endVisibleLines {
 		Simp.set_shader_for_color();

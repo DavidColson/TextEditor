@@ -261,6 +261,22 @@ move_one_line_up :: (using panel: *Panel, extend: bool) {
 	}
 }
 
+goto_document_start :: (using panel: *Panel, extend: bool) {
+	document_cursor_jump_to_offset(*cursor.head, 0);
+
+	if !extend {
+		cursor.anchor = cursor.head;
+	}
+}
+
+goto_document_end :: (using panel: *Panel, extend: bool) {
+	document_cursor_jump_to_offset(*cursor.head, document.size);
+
+	if !extend {
+		cursor.anchor = cursor.head;
+	}
+}
+
 delete_selection :: (using panel: *Panel, extend: bool) {
 	if cursor.head.documentOffset < cursor.anchor.documentOffset {
 		cursor.head = document_delete_text(document, cursor.head, cursor.anchor);
