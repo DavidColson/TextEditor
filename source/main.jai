@@ -78,17 +78,13 @@ main :: () {
 
 	rebuild_key_map();
 
-	document_open("C:/Dev/TextEditor/build.jai");
-
 	focusedPanel.rect.x = 0;
 	focusedPanel.rect.y = 0;
 	focusedPanel.rect.w = xx windowWidth;
 	focusedPanel.rect.h = xx windowHeight;
 	focusedPanel.document = *mainDocument;
-	focusedPanel.cursor.head.doc = focusedPanel.document;
-	focusedPanel.cursor.head.node = mainDocument.pieceChainHead;
-	focusedPanel.cursor.anchor.doc = focusedPanel.document;
-	focusedPanel.cursor.anchor.node = mainDocument.pieceChainHead;
+
+	document_open("C:/Dev/TextEditor/build.jai");
 
     want_screenshot := false;
     while !pendingQuit {
