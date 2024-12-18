@@ -335,7 +335,7 @@ insert_mode_delete_left_char :: (using panel: *Panel, extend: bool) {
 insert_mode_line_break :: (using panel: *Panel, extend: bool) {
 	textToInsert := "\r\n"; // @todo this should be changed depenending on document type
 	cursor.head = document_insert_text(document, cursor.head, textToInsert);
-	move_one_char_right(*focusedPanel, false);
+	move_one_char_right(panel, false);
 }
 
 // utilities 

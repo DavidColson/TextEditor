@@ -155,6 +155,14 @@ document_open :: (path: string) {
 	doc.pieceChainHead.lineFeedCount = doc.originalData.lineStarts.count-1; 
 	doc.pieceChainHead.added = false;
 	doc.pieceChainTail = doc.pieceChainHead;
+
+	// tell panel cursors to reset
+	// @todo: should be a bit more clever than this, especially when we have a few panels
+	focusedPanel.cursor = .{};
+	focusedPanel.cursor.head.doc = focusedPanel.document;
+	focusedPanel.cursor.head.node = mainDocument.pieceChainHead;
+	focusedPanel.cursor.anchor.doc = focusedPanel.document;
+	focusedPanel.cursor.anchor.node = mainDocument.pieceChainHead;
 }
 
 document_insert_text :: (doc: *Document, at: DocumentCursor, t: string) -> DocumentCursor {
@@ -309,14 +317,25 @@ document_delete_text :: (doc: *Document, startAt: DocumentCursor, endAt: Documen
 			first.prev.next = last.next;
 		}
 		else {
-			doc.pieceChainHead = first.prev;
+			if first.prev == null {
+				// this was the first node
+				doc.pieceChainHead = last.next;
+			}
+			else {
+				doc.pieceChainHead = first.prev;
+			}
 		}
 
 		if last.next != null {
 			last.next.prev = first.prev;
 		}
 		else {
-			doc.pieceChainTail = last.next;
+			if last.next == null {
+				doc.pieceChainTail = first.prev;
+			}
+			else {
+				doc.pieceChainTail = last.next;
+			}
 		}
 	}
 
