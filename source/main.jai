@@ -232,15 +232,15 @@ move_one_line_down :: (using panel: *Panel, extend: bool) {
 	// copy and iterate forward to find the start of the next line, and the end of said line
 	// this will make this algorithm scale on length of line, rather than number of edits to the document?
 
-	curLine := document_cursor_get_line(*cursor.head);
-	curLineStart := document_get_line_start(document, curLine);
-	curColumn := cursor.head.documentOffset - curLineStart;
+	// @todo: this does not account for tab widths, and so will end up in the wrong place visually
+	// when navigating over lines with different tabs
+	cursorCoordinate := document_cursor_get_coordinate(*cursor.head);
 
 	numLines := document_get_num_lines(document);
-	newLine := min(curLine+1, numLines - 1);
+	newLine := min(cursorCoordinate.line+1, numLines - 1);
 
 	lineStart, lineEnd := document_get_line_range(document, newLine);
-	newColumn := min(lineEnd-lineStart, curColumn);
+	newColumn := min(lineEnd-lineStart, cursorCoordinate.col);
 	document_cursor_jump_to_offset(*cursor.head, lineStart + newColumn);
 
 	if !extend {
@@ -249,14 +249,11 @@ move_one_line_down :: (using panel: *Panel, extend: bool) {
 }
 
 move_one_line_up :: (using panel: *Panel, extend: bool) {
-	curLine := document_cursor_get_line(*cursor.head);
-	curLineStart := document_get_line_start(document, curLine);
-	curColumn := cursor.head.documentOffset - curLineStart;
-
-	newLine := min(curLine-1, 0);
+	cursorCoordinate := document_cursor_get_coordinate(*cursor.head);
+	newLine :=max(cursorCoordinate.line-1, 0);
 
 	lineStart, lineEnd := document_get_line_range(document, newLine);
-	newColumn := min(lineEnd-lineStart, curColumn);
+	newColumn := min(lineEnd-lineStart, cursorCoordinate.col);
 	document_cursor_jump_to_offset(*cursor.head, lineStart + newColumn);
 
 	if !extend {
@@ -265,22 +262,13 @@ move_one_line_up :: (using panel: *Panel, extend: bool) {
 }
 
 delete_selection :: (using panel: *Panel, extend: bool) {
-	rangeStart, rangeEnd := convert_cursor_to_range(panel.cursor);
-
-	// @todo don't end the deletion in the middle of a crlf
-	// is this needed now with the nodetrim functions handling this?
-	// cursorChar := document_get_char_at_location(document, rangeEnd.line, rangeEnd.col);
-	// if cursorChar == #char "\n" then rangeEnd.col += 1;
-
-	document_delete_text(document, cursor.head, cursor.anchor);
-
-	// @todo the cursors should be regenerated here from scratch because the node pointers are likely to have
-	// become outdated
-
-	// cursor.line = rangeStart.line;
-	// cursor.column = rangeStart.col;
-	// cursor.anchorLine = rangeStart.line;
-	// cursor.anchorColumn = rangeStart.col;
+	if cursor.head.documentOffset < cursor.anchor.documentOffset {
+		cursor.head = document_delete_text(document, cursor.head, cursor.anchor);
+	}
+	else {
+		cursor.head = document_delete_text(document, cursor.anchor, cursor.head);
+	}
+	cursor.anchor = cursor.head;
 }
 
 // insert mode text handler
@@ -291,82 +279,57 @@ insert_mode_handle_text_input :: (char: Utf8_Char) {
 }
 
 insert_mode_delete_left_char :: (using panel: *Panel, extend: bool) {
+	stepCursor := cursor.head;
+	document_cursor_step_one_backward(*stepCursor);
 
-	// @todo the cursors should be regenerated here from scratch because the node pointers are likely to have
-	// become outdated
-
-	// @todo: refactor with document cursor, essentially just copy the cursor
-	// step back one and then delete that, then save the new version
-	// This should do everything, it'll even wrap back a line for you (theoretically)
-
-	// // @todo What happens if you delete and cursor.column is 0?
-	// deletePos := Coordinate.{cursor.line, cursor.column-1};
-	// if cursor.column == 0 {
-	// 	deletePos.line -= 1;
-	// 	// get back to the end of the previous line (before line endings)
-	// 	deletePos.col = document_get_line_length(document, deletePos.line, true);
-	//
-	// 	// @todo deleting two chars because of crlf line endings, change when doing another line ending type
-	// 	document_delete_text(document, deletePos, 2);
-	//
-	// 	// move the cursor back up to the deletion point
-	// 	cursor.line = deletePos.line;
-	// 	cursor.column = deletePos.col;
-	// 	cursor.anchorLine = cursor.line;
-	// 	cursor.anchorColumn = cursor.column;
-	// }
-	// else {
-	// 	document_delete_text(document, deletePos, 1);
-	// 	move_one_char_left(panel, false);
-	// }
+	cursor.head = document_delete_text(document, stepCursor, cursor.head);
+	cursor.anchor = cursor.head;
 }
 
 insert_mode_line_break :: (using panel: *Panel, extend: bool) {
-	// textToInsert := "\r\n"; // @todo this should be changed depenending on document type
-	// cursor.head = document_insert_text(document, cursor.head, textToInsert);
-	//
-	// document_cursor_jump_to_position(*cursor.head, .{cursor.head.documentPos.line+1, 0});
-	// cursor.anchor = cursor.head;
+	textToInsert := "\r\n"; // @todo this should be changed depenending on document type
+	cursor.head = document_insert_text(document, cursor.head, textToInsert);
+	move_one_char_right(*focusedPanel, false);
 }
 
 // utilities 
-convert_cursor_to_range :: (cursor: Cursor, includeCursor: bool = true) -> start: Coordinate, end: Coordinate {
+convert_cursor_to_coordinate_range :: (cursor: Cursor, includeCursor: bool = true) -> start: Coordinate, end: Coordinate {
 	rangeStart: Coordinate;
 	rangeEnd: Coordinate;
-	// cursorBonus := ifx includeCursor then 1 else 0;
-	//
-	// cursorHead := cursor.head.documentPos;
-	// cursorAnchor := cursor.anchor.documentPos;
-	//
-	// if cursorHead.line < cursorAnchor.line {
-	// 	// cursor is clearly earlier than the anchor
-	// 	rangeStart.line = cursorHead.line;
-	// 	rangeStart.col = cursorHead.col;
-	// 	rangeEnd.line = cursorAnchor.line;
-	// 	rangeEnd.col = cursorAnchor.col;
-	// }
-	// else if cursorHead.line > cursorAnchor.line { 
-	// 	// anchor is clearly earlier than the cursor
-	// 	rangeStart.line = cursorAnchor.line;
-	// 	rangeStart.col = cursorAnchor.col;
-	// 	rangeEnd.line = cursorHead.line;
-	// 	rangeEnd.col = cursorHead.col+cursorBonus; // cursor itself is considered part of the selection
-	// }
-	// else {
-	// 	// they are on the same line, pick based on column
-	// 	if cursorHead.col <= cursorAnchor.col {
-	// 		rangeStart.line = cursorHead.line;
-	// 		rangeStart.col = cursorHead.col;
-	// 		rangeEnd.line = cursorAnchor.line;
-	// 		rangeEnd.col = cursorAnchor.col;
-	// 	}
-	// 	else {
-	// 		rangeStart.line = cursorAnchor.line;
-	// 		rangeStart.col = cursorAnchor.col;
-	// 		rangeEnd.line = cursorHead.line;
-	// 		rangeEnd.col = cursorHead.col+cursorBonus;
-	// 	}
-	// }
+	cursorBonus := ifx includeCursor then 1 else 0;
+
+	cursorHead := document_cursor_get_coordinate(*cursor.head);
+	cursorAnchor := document_cursor_get_coordinate(*cursor.anchor);
+
+	if cursorHead.line < cursorAnchor.line {
+		// cursor is clearly earlier than the anchor
+		rangeStart.line = cursorHead.line;
+		rangeStart.col = cursorHead.col;
+		rangeEnd.line = cursorAnchor.line;
+		rangeEnd.col = cursorAnchor.col;
+	}
+	else if cursorHead.line > cursorAnchor.line { 
+		// anchor is clearly earlier than the cursor
+		rangeStart.line = cursorAnchor.line;
+		rangeStart.col = cursorAnchor.col;
+		rangeEnd.line = cursorHead.line;
+		rangeEnd.col = cursorHead.col+cursorBonus; // cursor itself is considered part of the selection
+	}
+	else {
+		// they are on the same line, pick based on column
+		if cursorHead.col <= cursorAnchor.col {
+			rangeStart.line = cursorHead.line;
+			rangeStart.col = cursorHead.col;
+			rangeEnd.line = cursorAnchor.line;
+			rangeEnd.col = cursorAnchor.col;
+		}
+		else {
+			rangeStart.line = cursorAnchor.line;
+			rangeStart.col = cursorAnchor.col;
+			rangeEnd.line = cursorHead.line;
+			rangeEnd.col = cursorHead.col+cursorBonus;
+		}
+	}
 	return rangeStart, rangeEnd;
 }
 

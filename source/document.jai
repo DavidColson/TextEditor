@@ -220,8 +220,8 @@ document_insert_text :: (doc: *Document, at: DocumentCursor, t: string) -> Docum
 		}
 		else {
 			// put at the start of at.node
-			newCursor.nodeStartOffset = at.nodeStartOffset - newPiece.length;
-			newCursor.nodeStartLine = at.nodeStartLine - newPiece.lineFeedCount;
+			newCursor.nodeStartOffset = at.nodeStartOffset;
+			newCursor.nodeStartLine = at.nodeStartLine;
 			newPiece.prev = at.node.prev;
 			newPiece.next = at.node;
 			at.node.prev = newPiece;
@@ -289,7 +289,7 @@ document_insert_text :: (doc: *Document, at: DocumentCursor, t: string) -> Docum
 	}
 }
 
-document_delete_text :: (doc: *Document, startAt: DocumentCursor, endAt: DocumentCursor) {
+document_delete_text :: (doc: *Document, startAt: DocumentCursor, endAt: DocumentCursor) -> DocumentCursor {
 
 	startBuffer: = ifx startAt.node.added then *doc.addedData else *doc.originalData;
 	endBuffer: = ifx endAt.node.added then *doc.addedData else *doc.originalData;
@@ -297,15 +297,29 @@ document_delete_text :: (doc: *Document, startAt: DocumentCursor, endAt: Documen
 	start := buffer_offset_to_cursor(startBuffer, startAt.node, startAt.documentOffset - startAt.nodeStartOffset);
 	end := buffer_offset_to_cursor(endBuffer, endAt.node, endAt.documentOffset - endAt.nodeStartOffset);
 
+	newCursor: DocumentCursor;
+	newCursor.doc = doc;
+	newCursor.documentOffset = startAt.documentOffset;
+
 	if startAt.node == endAt.node {
 		buffer : *Buffer;
 		ifx startAt.node.added then buffer = *doc.addedData else buffer = *doc.originalData;
 
 		if start == startAt.node.start {
 			nodeTrimLeft(startAt.node, buffer, end);
+
+			newCursor.node = startAt.node;
+			deletedInThisNode := buffer_cursor_to_offset(buffer, end) - buffer_cursor_to_offset(buffer, startAt.node.start);
+			linesDeletedInThisNode := buffer_line_start_count(startAt.node.start, end);
+			newCursor.nodeStartOffset = startAt.nodeStartOffset + deletedInThisNode;
+			newCursor.nodeStartLine = startAt.nodeStartLine + linesDeletedInThisNode;
 		}
 		else if end == startAt.node.end {
 			nodeTrimRight(startAt.node, buffer, start);
+
+			newCursor.node = startAt.node;
+			newCursor.nodeStartOffset = startAt.nodeStartOffset;
+			newCursor.nodeStartLine = startAt.nodeStartLine;
 		}
 		else {
 			newPieceRight := New(PieceChainNode,, doc.pieceChainAlloc);
@@ -315,6 +329,10 @@ document_delete_text :: (doc: *Document, startAt: DocumentCursor, endAt: Documen
 
 			startAt.node.next = newPieceRight;
 			newPieceRight.prev = startAt.node;
+
+			newCursor.node = newPieceRight;
+			newCursor.nodeStartOffset = startAt.nodeStartOffset + startAt.node.length;
+			newCursor.nodeStartLine = startAt.nodeStartLine + startAt.node.lineFeedCount;
 		}
 	}
 	else {
@@ -338,23 +356,39 @@ document_delete_text :: (doc: *Document, startAt: DocumentCursor, endAt: Documen
 		if startAt.node.start == start {
 			// delete whole start node
 			firstToDelete = startAt.node;
+
+			newCursor.nodeStartOffset = startAt.nodeStartOffset;
+			newCursor.nodeStartLine = startAt.nodeStartLine;
 		}
 		else {
 			// take some of start node
 			buffer : *Buffer;
 			ifx startAt.node.added then buffer = *doc.addedData else buffer = *doc.originalData;
 			nodeTrimRight(startAt.node, buffer, start);
+
+			newCursor.node = startAt.node;
+			newCursor.nodeStartOffset = startAt.nodeStartOffset;
+			newCursor.nodeStartLine = startAt.nodeStartLine;
 		}
 		lastToDelete := endAt.node.prev;
 		if endAt.node.end == end {
 			// delete whole end node
 			lastToDelete = endAt.node;
+
+			// In the event that we deleted the whole start node, the new cursor can just be the node after the end
+			if newCursor.node == null {
+				newCursor.node = endAt.node.next;
+			}
 		}
 		else {
 			// take some of end node
 			buffer : *Buffer;
 			ifx endAt.node.added then buffer = *doc.addedData else buffer = *doc.originalData;
 			nodeTrimLeft(endAt.node, buffer, end);
+
+			if newCursor.node == null {
+				newCursor.node = endAt.node;
+			}
 		}
 		
 		// delete all nodes that are no longer needed
@@ -362,6 +396,7 @@ document_delete_text :: (doc: *Document, startAt: DocumentCursor, endAt: Documen
 	}
 
 	doc.size -= endAt.documentOffset - startAt.documentOffset;
+	return newCursor;
 }
 
 document_get_line_content :: (doc: *Document, lineNum: s64) -> string {
@@ -515,7 +550,7 @@ document_cursor_step_one_backward :: (cursor: *DocumentCursor) -> u8 {
 		return 0; // start of document
 	}
 
-	if offsetInNode <= 0 {
+	if offsetInNode < 0 {
 		// we're about to underflow to the previous node
 		cursor.nodeStartOffset -= cursor.node.prev.length;
 		cursor.nodeStartLine -= cursor.node.prev.lineFeedCount;
@@ -591,12 +626,6 @@ document_get_num_lines :: (doc: *Document) -> s64 {
 	return lines;
 }
 
-document_get_char_at_location :: (doc: *Document, line: s64, col: s64) -> u8 {
-	lineContent := document_get_line_content(doc, line,, temp);
-	if col >= lineContent.count then return 0;
-	return lineContent[col];
-}
-
 document_cursor_get_char :: (cursor: *DocumentCursor) -> u8 {
 	offsetInNode := cursor.documentOffset - cursor.nodeStartOffset;
 
@@ -611,6 +640,14 @@ document_cursor_get_char :: (cursor: *DocumentCursor) -> u8 {
 	buffer: = ifx cursor.node.added then *cursor.doc.addedData else *cursor.doc.originalData;
 	bufferOffset := buffer_cursor_to_offset(buffer, cursor.node.start) + offsetInNode;
 	return buffer.text[bufferOffset];
+}
+
+document_cursor_get_coordinate :: (cursor: *DocumentCursor) -> Coordinate {
+	curLine := document_cursor_get_line(cursor);
+	curLineStart := document_get_line_start(cursor.doc, curLine);
+	curColumn := cursor.documentOffset - curLineStart;
+
+	return .{curLine, curColumn};
 }
 
 document_get_line_length :: (doc: *Document, lineNum: s64, excludeEnding: bool = true) -> s64 {
