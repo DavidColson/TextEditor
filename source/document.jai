@@ -296,16 +296,50 @@ document_delete_text :: (doc: *Document, startAt: DocumentCursor, endAt: Documen
 
 	start := buffer_offset_to_cursor(startBuffer, startAt.node, startAt.documentOffset - startAt.nodeStartOffset);
 	end := buffer_offset_to_cursor(endBuffer, endAt.node, endAt.documentOffset - endAt.nodeStartOffset);
+	count := endAt.documentOffset - startAt.documentOffset;
+
+	doc.size -= endAt.documentOffset - startAt.documentOffset;
 
 	newCursor: DocumentCursor;
 	newCursor.doc = doc;
 	newCursor.documentOffset = startAt.documentOffset;
+
+	remove_node_range :: (doc: *Document, first: *PieceChainNode, last: *PieceChainNode) {
+		if first.prev != null {
+			first.prev.next = last.next;
+		}
+		else {
+			doc.pieceChainHead = first.prev;
+		}
+
+		if last.next != null {
+			last.next.prev = first.prev;
+		}
+		else {
+			doc.pieceChainTail = last.next;
+		}
+	}
 
 	if startAt.node == endAt.node {
 		buffer : *Buffer;
 		ifx startAt.node.added then buffer = *doc.addedData else buffer = *doc.originalData;
 
 		if start == startAt.node.start {
+			if count == startAt.node.length {
+				// special case where we just remove the entire node
+				remove_node_range(doc, startAt.node, startAt.node);
+				if startAt.node.prev != null {
+					newCursor.node = startAt.node.prev;
+					newCursor.nodeStartOffset = startAt.nodeStartOffset - startAt.node.prev.length;
+					newCursor.nodeStartLine = startAt.nodeStartLine - startAt.node.prev.lineFeedCount;
+				}
+				else {
+					newCursor.node = doc.pieceChainHead;
+					newCursor.nodeStartOffset = 0;
+					newCursor.nodeStartLine = 0;
+				}
+				return newCursor;
+			}
 			nodeTrimLeft(startAt.node, buffer, end);
 
 			newCursor.node = startAt.node;
@@ -336,22 +370,6 @@ document_delete_text :: (doc: *Document, startAt: DocumentCursor, endAt: Documen
 		}
 	}
 	else {
-		remove_node_range :: (doc: *Document, first: *PieceChainNode, last: *PieceChainNode) {
-			if first.prev != null {
-				first.prev.next = last.next;
-			}
-			else {
-				doc.pieceChainHead = first.prev;
-			}
-
-			if last.next != null {
-				last.next.prev = first.prev;
-			}
-			else {
-				doc.pieceChainTail = last.next;
-			}
-		}
-
 		firstToDelete := startAt.node.next;
 		if startAt.node.start == start {
 			// delete whole start node
@@ -395,7 +413,6 @@ document_delete_text :: (doc: *Document, startAt: DocumentCursor, endAt: Documen
 		remove_node_range(doc, firstToDelete, lastToDelete);
 	}
 
-	doc.size -= endAt.documentOffset - startAt.documentOffset;
 	return newCursor;
 }
 

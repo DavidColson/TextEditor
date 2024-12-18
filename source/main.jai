@@ -305,10 +305,14 @@ goto_line_start :: (using panel: *Panel, extend: bool) {
 
 delete_selection :: (using panel: *Panel, extend: bool) {
 	if cursor.head.documentOffset < cursor.anchor.documentOffset {
-		cursor.head = document_delete_text(document, cursor.head, cursor.anchor);
+		end := cursor.anchor;
+		document_cursor_step_one_forward(*end);
+		cursor.head = document_delete_text(document, cursor.head, end);
 	}
 	else {
-		cursor.head = document_delete_text(document, cursor.anchor, cursor.head);
+		end := cursor.head;
+		document_cursor_step_one_forward(*end);
+		cursor.head = document_delete_text(document, cursor.anchor, end);
 	}
 	cursor.anchor = cursor.head;
 }
