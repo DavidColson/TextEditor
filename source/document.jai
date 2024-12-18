@@ -469,32 +469,84 @@ document_cursor_jump_to_offset :: (cursor: *DocumentCursor, offset: s64) {
 		}
 		else {
 			node = node.prev;
-			nodeStartOffset = nodeStartOffset - cursor.node.length;
-			nodeStartLine = nodeStartLine - cursor.node.lineFeedCount;
+			nodeStartOffset = nodeStartOffset - node.length;
+			nodeStartLine = nodeStartLine - node.lineFeedCount;
 		}
 	}
 }
 
 
 document_cursor_step_one_forward :: (cursor: *DocumentCursor) -> u8 {
-	// @todo 
-	// iterate skipping \r characters
-	// iterate until you are above nodeStartOffset + node.length
-	// then setup the next node
+	buffer: = ifx cursor.node.added then *cursor.doc.addedData else *cursor.doc.originalData;
+	offsetInNode := cursor.documentOffset - cursor.nodeStartOffset;
+
+	if offsetInNode >= cursor.node.length && cursor.node.next == null {
+		return 0; // end of document
+	}
+
+	if offsetInNode >= cursor.node.length {
+		// we're about to overflow into the next node
+		cursor.nodeStartOffset += cursor.node.length;
+		cursor.nodeStartLine += cursor.node.lineFeedCount;
+		cursor.node = cursor.node.next;
+		offsetInNode = 0;
+		buffer = ifx cursor.node.added then *cursor.doc.addedData else *cursor.doc.originalData;
+	}
+
+	// read the character in the current location before we step to the next location
+	bufferOffset := buffer_cursor_to_offset(buffer, cursor.node.start) + offsetInNode;
+	character := buffer.text[bufferOffset];
+
 	cursor.documentOffset += 1;
-	return 0;
+
+	// CRLF handling, skip over the return, pretending it's not there
+	if character == #char "\r" {
+		return document_cursor_step_one_forward(cursor);
+	}
+	return character;
 }
 
 document_cursor_step_one_backward :: (cursor: *DocumentCursor) -> u8 {
 	cursor.documentOffset -= 1;
-	return 0;
+	buffer: = ifx cursor.node.added then *cursor.doc.addedData else *cursor.doc.originalData;
+	offsetInNode := cursor.documentOffset - cursor.nodeStartOffset;
+	
+	if offsetInNode == 0 && cursor.node.prev == null {
+		return 0; // start of document
+	}
+
+	if offsetInNode <= 0 {
+		// we're about to underflow to the previous node
+		cursor.nodeStartOffset -= cursor.node.prev.length;
+		cursor.nodeStartLine -= cursor.node.prev.lineFeedCount;
+		cursor.node = cursor.node.prev;
+		offsetInNode = cursor.node.length-1;
+		buffer = ifx cursor.node.added then *cursor.doc.addedData else *cursor.doc.originalData;
+	}
+
+	bufferOffset := buffer_cursor_to_offset(buffer, cursor.node.start) + offsetInNode;
+	character := buffer.text[bufferOffset];
+
+	// CRLF handling, skip over the return, pretending it's not there
+	if character == #char "\n" {
+		newChar := document_cursor_step_one_backward(cursor);
+		if newChar == #char "\r" {
+			return newChar;
+		}
+		else {
+			// if no CRLF ending, just undo what we did
+			return document_cursor_step_one_forward(cursor);
+		}
+	}
+
+	return character;
 }
 
 document_cursor_get_line :: (cursor: *DocumentCursor) -> s64 {
 	// convert the offset to a buffer coordinate, add that to the start line
 	buffer: = ifx cursor.node.added then *cursor.doc.addedData else *cursor.doc.originalData;
 	bufferCursor := buffer_offset_to_cursor(buffer, cursor.node, cursor.documentOffset - cursor.nodeStartOffset);
-	return cursor.nodeStartLine + bufferCursor.line;
+	return cursor.nodeStartLine + (bufferCursor.line - cursor.node.start.line);
 }
 
 document_get_line_start :: (doc: *Document, line: s64) -> s64 {
@@ -511,13 +563,15 @@ document_get_line_start :: (doc: *Document, line: s64) -> s64 {
 		nodeEndOffset: s64 = nodeStartOffset + node.length;
 		nodeEndLine: s64 = nodeStartLine + node.lineFeedCount;
 
-		if nodeStartLine <= line && line < nodeEndLine {
+		if nodeStartLine <= line && line <= nodeEndLine {
 			// this node contains the line
 			lineInThisNode := node.start.line + (line - nodeStartLine);
 			buffer: = ifx node.added then *doc.addedData else *doc.originalData;
 			offsetInThisNode := buffer.lineStarts[lineInThisNode] - buffer_cursor_to_offset(buffer, node.start);
 			return nodeStartOffset + offsetInThisNode;
 		}
+		nodeStartOffset += node.length;
+		nodeStartLine += node.lineFeedCount;
 		node = node.next;
 	}
 	return nodeStartLine + node.lineFeedCount;
@@ -544,7 +598,19 @@ document_get_char_at_location :: (doc: *Document, line: s64, col: s64) -> u8 {
 }
 
 document_cursor_get_char :: (cursor: *DocumentCursor) -> u8 {
-	return 0;
+	offsetInNode := cursor.documentOffset - cursor.nodeStartOffset;
+
+	// we allow cursors to sit at the end of a node (for inserting), 
+	// but in that case, if we're at the end of a node, the char is actually in the next buffer
+	if offsetInNode == cursor.node.length {
+		buffer: = ifx cursor.node.next.added then *cursor.doc.addedData else *cursor.doc.originalData;
+		bufferOffset := buffer_cursor_to_offset(buffer, cursor.node.next.start);
+		return buffer.text[bufferOffset];
+	}
+
+	buffer: = ifx cursor.node.added then *cursor.doc.addedData else *cursor.doc.originalData;
+	bufferOffset := buffer_cursor_to_offset(buffer, cursor.node.start) + offsetInNode;
+	return buffer.text[bufferOffset];
 }
 
 document_get_line_length :: (doc: *Document, lineNum: s64, excludeEnding: bool = true) -> s64 {
@@ -650,6 +716,7 @@ nodeTrimLeft :: (node: *PieceChainNode, buffer: *Buffer, pos: Coordinate) {
 	lenRight := (bufferOffsetStart + node.length) - bufferOffsetSplit;
 
 	// @todo crlf support, prevent splitting in the middle of a crlf
+	// we may not need this now that the cursors skip over carraige returns
 	splitPos := pos;
 	if bufferOffsetSplit < buffer.text.count && buffer.text[bufferOffsetSplit] == #char "\n" {
 		// we want to move right over the newline, rolling us over onto a new line
@@ -670,6 +737,7 @@ nodeTrimRight :: (node: *PieceChainNode, buffer: *Buffer, pos: Coordinate) {
 	lenLeft := bufferOffsetSplit - bufferOffsetStart;
 
 	// @todo crlf support, prevent splitting in the middle of a crlf
+	// we may not need this now that the cursors skip over carraige returns
 	splitPos := pos;
 	if bufferOffsetSplit < buffer.text.count && buffer.text[bufferOffsetSplit] == #char "\n" {
 		// moves left of the newline, leaving it behind on the right side

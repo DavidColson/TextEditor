@@ -253,8 +253,7 @@ move_one_line_up :: (using panel: *Panel, extend: bool) {
 	curLineStart := document_get_line_start(document, curLine);
 	curColumn := cursor.head.documentOffset - curLineStart;
 
-	numLines := document_get_num_lines(document);
-	newLine := min(curLine-1, numLines - 1);
+	newLine := min(curLine-1, 0);
 
 	lineStart, lineEnd := document_get_line_range(document, newLine);
 	newColumn := min(lineEnd-lineStart, curColumn);
