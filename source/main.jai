@@ -38,6 +38,7 @@ EDITOR_MODE_NUM :: #run enum_highest_value(EditorMode) + 1;
 
 // globals
 editorMode := EditorMode.NORMAL;
+extendSelections := false;
 focusedPanel : Panel;
 mainDocument : Document;
 scrollPos := 0;
@@ -166,25 +167,25 @@ hex_to_color_vec4 :: (src_hex: string) -> Vector4, success: bool {
 // basic commands
 // @todo move these into files
 // for example file for "motions", file for "changes"
-quit :: (panel: *Panel, extend: bool) {
+quit :: (panel: *Panel) {
 	pendingQuit = true;
 }
 
-open_file :: (panel: *Panel, extend: bool) {
+open_file :: (panel: *Panel) {
 	editorMode = .FILESYSTEM_NAVIGATOR;
 	filesystem_nav_refresh_directory_list(*panel.filesystemNav);
 }
 
-print_piece_chain_debug :: (panel: *Panel, extend: bool) {
+print_piece_chain_debug :: (panel: *Panel) {
 	document_debug_print_piece_chain(panel.document);
 }
 
-toggle_render_line_endings :: (panel: *Panel, extend: bool) {
+toggle_render_line_endings :: (panel: *Panel) {
 	my_font.render_new_lines = !my_font.render_new_lines;
 	Simp.force_regenerate_glyph_table(my_font);
 }
 
-enter_normal_mode :: (panel: *Panel, extend: bool) {
+enter_normal_mode :: (panel: *Panel) {
 	if editorMode == .FILESYSTEM_NAVIGATOR {
 		filesystem_nav_reset(*panel.filesystemNav);
 	}
@@ -194,7 +195,7 @@ enter_normal_mode :: (panel: *Panel, extend: bool) {
 	editorMode = .NORMAL;
 }
 
-enter_insert_mode :: (panel: *Panel, extend: bool) {
+enter_insert_mode :: (panel: *Panel) {
 	if editorMode == .FILESYSTEM_NAVIGATOR {
 		filesystem_nav_reset(*panel.filesystemNav);
 	}
@@ -204,21 +205,21 @@ enter_insert_mode :: (panel: *Panel, extend: bool) {
 	editorMode = .INSERT;
 }
 
-move_one_char_left :: (using panel: *Panel, extend: bool) {
+move_one_char_left :: (using panel: *Panel) {
 	document_cursor_step_one_backward(*cursor.head);
-	if !extend {
+	if !extendSelections {
 		cursor.anchor = cursor.head;
 	}
 }
 
-move_one_char_right :: (using panel: *Panel, extend: bool) {
+move_one_char_right :: (using panel: *Panel) {
 	document_cursor_step_one_forward(*cursor.head);
-	if !extend {
+	if !extendSelections {
 		cursor.anchor = cursor.head;
 	}
 }
 
-move_one_line_down :: (using panel: *Panel, extend: bool) {
+move_one_line_down :: (using panel: *Panel) {
 	// how could this be optimized?
 
 	// you need three expensive things here, the linestart of the current line we're on
@@ -239,12 +240,12 @@ move_one_line_down :: (using panel: *Panel, extend: bool) {
 	newColumn := min(lineEnd-lineStart, cursorCoordinate.col);
 	document_cursor_jump_to_offset(*cursor.head, lineStart + newColumn);
 
-	if !extend {
+	if !extendSelections {
 		cursor.anchor = cursor.head;
 	}
 }
 
-move_one_line_up :: (using panel: *Panel, extend: bool) {
+move_one_line_up :: (using panel: *Panel) {
 	cursorCoordinate := document_cursor_get_coordinate(*cursor.head);
 	newLine :=max(cursorCoordinate.line-1, 0);
 
@@ -252,28 +253,28 @@ move_one_line_up :: (using panel: *Panel, extend: bool) {
 	newColumn := min(lineEnd-lineStart, cursorCoordinate.col);
 	document_cursor_jump_to_offset(*cursor.head, lineStart + newColumn);
 
-	if !extend {
+	if !extendSelections {
 		cursor.anchor = cursor.head;
 	}
 }
 
-goto_document_start :: (using panel: *Panel, extend: bool) {
+goto_document_start :: (using panel: *Panel) {
 	document_cursor_jump_to_offset(*cursor.head, 0);
 
-	if !extend {
+	if !extendSelections {
 		cursor.anchor = cursor.head;
 	}
 }
 
-goto_document_end :: (using panel: *Panel, extend: bool) {
+goto_document_end :: (using panel: *Panel) {
 	document_cursor_jump_to_offset(*cursor.head, document.size);
 
-	if !extend {
+	if !extendSelections {
 		cursor.anchor = cursor.head;
 	}
 }
 
-goto_line_end :: (using panel: *Panel, extend: bool) { 
+goto_line_end :: (using panel: *Panel) { 
 	for cursor.head {
 		if it == #char "\n" {
 			document_cursor_step_one_backward(*cursor.head);
@@ -281,12 +282,12 @@ goto_line_end :: (using panel: *Panel, extend: bool) {
 		}
 	}
 
-	if !extend {
+	if !extendSelections {
 		cursor.anchor = cursor.head;
 	}
 }
 
-goto_line_start :: (using panel: *Panel, extend: bool) { 
+goto_line_start :: (using panel: *Panel) { 
 	for < cursor.head {
 		if it == #char "\n" {
 			document_cursor_step_one_forward(*cursor.head);
@@ -294,12 +295,115 @@ goto_line_start :: (using panel: *Panel, extend: bool) {
 		}
 	}
 
-	if !extend {
+	if !extendSelections {
 		cursor.anchor = cursor.head;
 	}
 }
 
-delete_selection :: (using panel: *Panel, extend: bool) {
+CharCategory :: enum {
+	LINE_ENDING;
+	WHITESPACE;
+	WORD;
+	PUNCTUATION;
+	UNKNOWN;
+}
+
+categorize_char :: (ch: u8) -> CharCategory {
+	// @todo note that there are more punctuation marks in full unicode
+	// something to support later. Generally unicode may break the assumptions in here
+	punctuation :: "\"!#$%&'()*+,-./:;<=>?@[\\]^_`{|}~";
+	isPunctuation := false;
+	for punctuation {
+		if ch == it then isPunctuation = true;
+	}
+
+	if ch == #char "\n" {
+		return .LINE_ENDING;
+	}
+	else if ch == #char " " || ch == #char "\t" || ch == #char "\r" {
+		return .WHITESPACE;
+	}
+	else if is_alnum(ch) {
+		return .WORD;
+	}
+	else if isPunctuation {
+		return .PUNCTUATION;
+	}
+	else {
+		return .UNKNOWN;
+	}
+}
+
+move_word_start :: (using panel: *Panel) { 
+	for cursor.head {
+		next := document_cursor_get_char(*cursor.head);
+		prevCharCategory := categorize_char(it);
+		nextCharCategory := categorize_char(next);
+
+		isWordBoundary := nextCharCategory != prevCharCategory;
+		nextIsLineEnding := nextCharCategory == .LINE_ENDING;
+		nextIsWhitespace := nextCharCategory == .WHITESPACE;
+		if isWordBoundary && (nextIsLineEnding || !nextIsWhitespace) {
+			if it_index == 0 {
+				cursor.anchor = cursor.head;
+			}
+			else {
+				document_cursor_step_one_backward(*cursor.head);
+				break;
+			}
+		}
+	}
+}
+
+move_prev_word_start :: (using panel: *Panel) { 
+	prev := document_cursor_get_char(*cursor.head);
+	for < cursor.head {
+		nextCharCategory := categorize_char(it);
+		prevCharCategory := categorize_char(prev);
+
+		isWordBoundary := nextCharCategory != prevCharCategory;
+		nextIsLineEnding := nextCharCategory == .LINE_ENDING;
+		prevIsWhitespace := prevCharCategory == .WHITESPACE;
+		if isWordBoundary && (!prevIsWhitespace || nextIsLineEnding) {
+			if it_index == 0 {
+				cursor.anchor = cursor.head;
+				document_cursor_step_one_forward(*cursor.anchor);
+			}
+			else {
+				document_cursor_step_one_forward(*cursor.head);
+				break;
+			}
+		}
+		prev = it;
+	}
+}
+
+move_word_end :: (using panel: *Panel) { 
+	for cursor.head {
+		next := document_cursor_get_char(*cursor.head);
+		prevCharCategory := categorize_char(it);
+		nextCharCategory := categorize_char(next);
+
+		isWordBoundary := nextCharCategory != prevCharCategory;
+		nextIsLineEnding := nextCharCategory == .LINE_ENDING;
+		prevIsWhitespace := prevCharCategory == .WHITESPACE;
+		if isWordBoundary && (!prevIsWhitespace || nextIsLineEnding) {
+			if it_index == 0 {
+				cursor.anchor = cursor.head;
+			}
+			else {
+				document_cursor_step_one_backward(*cursor.head);
+				break;
+			}
+		}
+	}
+}
+
+toggle_extend_selections :: (using panel: *Panel) { 
+	extendSelections = !extendSelections;
+}
+
+delete_selection :: (using panel: *Panel) {
 	if cursor.head.documentOffset < cursor.anchor.documentOffset {
 		end := cursor.anchor;
 		document_cursor_step_one_forward(*end);
@@ -317,10 +421,10 @@ delete_selection :: (using panel: *Panel, extend: bool) {
 insert_mode_handle_text_input :: (char: Utf8_Char) {
 	textToInsert := to_string(*char);
 	focusedPanel.cursor.head = document_insert_text(focusedPanel.document, focusedPanel.cursor.head, textToInsert);
-	move_one_char_right(*focusedPanel, false);
+	move_one_char_right(*focusedPanel);
 }
 
-insert_mode_delete_left_char :: (using panel: *Panel, extend: bool) {
+insert_mode_delete_left_char :: (using panel: *Panel) {
 	stepCursor := cursor.head;
 	document_cursor_step_one_backward(*stepCursor);
 
@@ -328,10 +432,10 @@ insert_mode_delete_left_char :: (using panel: *Panel, extend: bool) {
 	cursor.anchor = cursor.head;
 }
 
-insert_mode_line_break :: (using panel: *Panel, extend: bool) {
+insert_mode_line_break :: (using panel: *Panel) {
 	textToInsert := "\r\n"; // @todo this should be changed depenending on document type
 	cursor.head = document_insert_text(document, cursor.head, textToInsert);
-	move_one_char_right(panel, false);
+	move_one_char_right(panel);
 }
 
 // utilities 

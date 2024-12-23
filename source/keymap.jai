@@ -5,7 +5,6 @@ KeyMappingDesc :: struct {
 }
 
 CommandFlags :: enum_flags u8 {
-	EXTEND;
 	HIDDEN;
 	COMMAND_PICKER_ONLY;
 	FILESYSTEM_NAVIGATOR_ONLY;
@@ -14,7 +13,7 @@ CommandFlags :: enum_flags u8 {
 Command :: struct {
 	name: string;
 	flags: CommandFlags;
-	execute: (*Panel, bool);
+	execute: (*Panel);
 	mappings: []KeyMappingDesc;
 }
 
@@ -61,18 +60,6 @@ commandList :: Command.[
 		.{ mode=.NORMAL, keys="k"},
 		.{ mode=.INSERT, keys="<up>"}
 	]},
-	.{ "Extend one char left", .EXTEND, move_one_char_left, .[
-		.{ mode=.NORMAL, keys="H"},
-	]},
-	.{ "Extend one char right", .EXTEND, move_one_char_right, .[
-		.{ mode=.NORMAL, keys="L"},
-	]},
-	.{ "Extend one line down", .EXTEND, move_one_line_down, .[
-		.{ mode=.NORMAL, keys="J"},
-	]},
-	.{ "Extend one line up", .EXTEND, move_one_line_up, .[
-		.{ mode=.NORMAL, keys="K"},
-	]},
 	.{ "Goto document start", 0, goto_document_start, .[
 		.{ mode=.NORMAL, keys="gg"},
 	]},
@@ -84,6 +71,20 @@ commandList :: Command.[
 	]},
 	.{ "Goto line end", 0, goto_line_end, .[
 		.{ mode=.NORMAL, keys="gl"},
+	]},
+	.{ "Move to next word start", 0, move_word_start, .[
+		.{ mode=.NORMAL, keys="w"},
+	]},
+	.{ "Move to next word end", 0, move_word_end, .[
+		.{ mode=.NORMAL, keys="e"},
+	]},
+	.{ "Move to prev word start", 0, move_prev_word_start, .[
+		.{ mode=.NORMAL, keys="b"},
+	]},
+
+	// misc normal mode
+	.{ "Toggle Extend Selections", 0, toggle_extend_selections, .[
+		.{ mode=.NORMAL, keys="v"}
 	]},
 
 	// changes
@@ -333,8 +334,7 @@ input_handler :: (event: Input.Event) {
 			if editorMode != .COMMAND_PICKER && node.cmd.flags & .COMMAND_PICKER_ONLY block = true;
 			if editorMode != .FILESYSTEM_NAVIGATOR && node.cmd.flags & .FILESYSTEM_NAVIGATOR_ONLY block = true;
 
-			extendCommand := ifx node.cmd.flags & .EXTEND then true else false;
-			if !block node.cmd.execute(*focusedPanel, extendCommand);
+			if !block node.cmd.execute(*focusedPanel);
 
 			keyMap.pendingKeySequence = *keyMap.root[editorMode];
 		}
