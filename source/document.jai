@@ -622,6 +622,7 @@ for_expansion :: (cursor: *DocumentCursor, body: Code, flags: For_Flags) #expand
 		`it := ifx flags & .REVERSE then document_cursor_step_one_backward(cursor) else document_cursor_step_one_forward(cursor);
 		#insert body;
 		counter += 1;
+		if cursor.documentOffset == 0 then break;
 	}
 }
 
