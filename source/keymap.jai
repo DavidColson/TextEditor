@@ -81,6 +81,12 @@ commandList :: Command.[
 	.{ "Move to prev word start", 0, move_prev_word_start, .[
 		.{ mode=.NORMAL, keys="b"},
 	]},
+	.{ "Move to next long word start", 0, move_long_word_start, .[
+		.{ mode=.NORMAL, keys="W"},
+	]},
+	.{ "Move to next long word end", 0, move_long_word_end, .[
+		.{ mode=.NORMAL, keys="E"},
+	]},
 
 	// misc normal mode
 	.{ "Toggle Extend Selections", 0, toggle_extend_selections, .[
