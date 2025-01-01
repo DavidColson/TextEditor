@@ -334,12 +334,20 @@ categorize_char :: (ch: u8) -> CharCategory {
 	}
 }
 
-move_word_forward :: (using panel: *Panel, checkPosition: (CharCategory, CharCategory) -> bool) {
+is_lower :: inline (char: u8) -> bool {
+    return char >= #char "a" && char <= #char "z";
+}
+
+is_upper :: inline (char: u8) -> bool {
+    return char >= #char "A" && char <= #char "Z";
+}
+
+move_word_forward :: (using panel: *Panel, checkPosition: (u8, u8, CharCategory, CharCategory) -> bool) {
 	for cursor.head {
 		next := document_cursor_get_char(*cursor.head);
 		prevCharCategory := categorize_char(it);
 		nextCharCategory := categorize_char(next);
-		if checkPosition(prevCharCategory, nextCharCategory) {
+		if checkPosition(it, next, prevCharCategory, nextCharCategory) {
 			if it_index == 0 {
 				cursor.anchor = cursor.head;
 			}
@@ -351,12 +359,12 @@ move_word_forward :: (using panel: *Panel, checkPosition: (CharCategory, CharCat
 	}
 }
 
-move_word_reverse :: (using panel: *Panel, checkPosition: (CharCategory, CharCategory) -> bool) {
+move_word_reverse :: (using panel: *Panel, checkPosition: (u8, u8, CharCategory, CharCategory) -> bool) {
 	prev := document_cursor_get_char(*cursor.head);
 	for < cursor.head {
 		nextCharCategory := categorize_char(it);
 		prevCharCategory := categorize_char(prev);
-		if checkPosition(prevCharCategory, nextCharCategory) {
+		if checkPosition(prev, it, prevCharCategory, nextCharCategory) {
 			if it_index == 0 {
 				cursor.anchor = cursor.head;
 				document_cursor_step_one_forward(*cursor.anchor);
@@ -371,7 +379,7 @@ move_word_reverse :: (using panel: *Panel, checkPosition: (CharCategory, CharCat
 }
 
 move_word_start :: (using panel: *Panel) { 
-	move_word_forward(panel, (prevCharCategory: CharCategory, nextCharCategory: CharCategory) -> bool {
+	move_word_forward(panel, (prev: u8, next: u8, prevCharCategory: CharCategory, nextCharCategory: CharCategory) -> bool {
 		isWordBoundary := nextCharCategory != prevCharCategory;
 		nextIsLineEnding := nextCharCategory == .LINE_ENDING;
 		nextIsWhitespace := nextCharCategory == .WHITESPACE;
@@ -380,8 +388,8 @@ move_word_start :: (using panel: *Panel) {
 }
 
 move_long_word_start :: (using panel: *Panel) { 
-	move_word_forward(panel, (prevCharCategory: CharCategory, nextCharCategory: CharCategory) -> bool {
-		isLongWordBoundary := nextCharCategory != prevCharCategory;
+	move_word_forward(panel, (prev: u8, next: u8, prevCharCategory: CharCategory, nextCharCategory: CharCategory) -> bool {
+		isLongWordBoundary := ifx prev != next then true else false;
 		if (nextCharCategory == .WORD && prevCharCategory == .PUNCTUATION) 
 		|| (nextCharCategory == .PUNCTUATION && prevCharCategory == .WORD) {
 			isLongWordBoundary = false;
@@ -393,8 +401,26 @@ move_long_word_start :: (using panel: *Panel) {
 	});
 }
 
+move_sub_word_start :: (using panel: *Panel) { 
+	move_word_forward(panel, (prev: u8, next: u8, prevCharCategory: CharCategory, nextCharCategory: CharCategory) -> bool {
+		isSubWordBoundary := ifx prev != next then true else false;
+		if nextCharCategory == .WORD && prevCharCategory == .WORD {
+			if (prev == #char "_") != (next == #char "_") {
+				isSubWordBoundary = true;
+			}
+			else {
+				isSubWordBoundary = is_lower(prev) && is_upper(next);
+			}
+		}
+
+		nextIsLineEnding := nextCharCategory == .LINE_ENDING;
+		nextIsWhitespace := nextCharCategory == .WHITESPACE;
+		return isSubWordBoundary && (nextIsLineEnding || !(nextIsWhitespace || next == #char "_"));
+	});
+}
+
 move_prev_word_start :: (using panel: *Panel) { 
-	move_word_reverse(panel, (prevCharCategory: CharCategory, nextCharCategory: CharCategory) -> bool {
+	move_word_reverse(panel, (prev: u8, next: u8, prevCharCategory: CharCategory, nextCharCategory: CharCategory) -> bool {
 		isWordBoundary := nextCharCategory != prevCharCategory;
 		nextIsLineEnding := nextCharCategory == .LINE_ENDING;
 		prevIsWhitespace := prevCharCategory == .WHITESPACE;
@@ -403,8 +429,17 @@ move_prev_word_start :: (using panel: *Panel) {
 }
 
 move_word_end :: (using panel: *Panel) { 
-	move_word_forward(panel, (prevCharCategory: CharCategory, nextCharCategory: CharCategory) -> bool {
-		isLongWordBoundary := nextCharCategory != prevCharCategory;
+	move_word_forward(panel, (prev: u8, next: u8, prevCharCategory: CharCategory, nextCharCategory: CharCategory) -> bool {
+		isWordBoundary := nextCharCategory != prevCharCategory;
+		nextIsLineEnding := nextCharCategory == .LINE_ENDING;
+		prevIsWhitespace := prevCharCategory == .WHITESPACE;
+		return isWordBoundary && (!prevIsWhitespace || nextIsLineEnding);
+	});
+}
+
+move_long_word_end :: (using panel: *Panel) { 
+	move_word_forward(panel, (prev: u8, next: u8, prevCharCategory: CharCategory, nextCharCategory: CharCategory) -> bool {
+		isLongWordBoundary := ifx prev != next then true else false;
 		if (nextCharCategory == .WORD && prevCharCategory == .PUNCTUATION) 
 		|| (nextCharCategory == .PUNCTUATION && prevCharCategory == .WORD) {
 			isLongWordBoundary = false;
@@ -415,12 +450,21 @@ move_word_end :: (using panel: *Panel) {
 	});
 }
 
-move_long_word_end :: (using panel: *Panel) { 
-	move_word_forward(panel, (prevCharCategory: CharCategory, nextCharCategory: CharCategory) -> bool {
-		isWordBoundary := nextCharCategory != prevCharCategory;
+move_sub_word_end :: (using panel: *Panel) { 
+	move_word_forward(panel, (prev: u8, next: u8, prevCharCategory: CharCategory, nextCharCategory: CharCategory) -> bool {
+		isSubWordBoundary := ifx prev != next then true else false;
+		if nextCharCategory == .WORD && prevCharCategory == .WORD {
+			if (prev == #char "_") != (next == #char "_") {
+				isSubWordBoundary = true;
+			}
+			else {
+				isSubWordBoundary = is_lower(prev) && is_upper(next);
+			}
+		}
+
 		nextIsLineEnding := nextCharCategory == .LINE_ENDING;
 		prevIsWhitespace := prevCharCategory == .WHITESPACE;
-		return isWordBoundary && (!prevIsWhitespace || nextIsLineEnding);
+		return isSubWordBoundary && (!(prevIsWhitespace || prev == #char "_") || nextIsLineEnding);
 	});
 }
 

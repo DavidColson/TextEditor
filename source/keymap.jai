@@ -87,6 +87,12 @@ commandList :: Command.[
 	.{ "Move to next long word end", 0, move_long_word_end, .[
 		.{ mode=.NORMAL, keys="E"},
 	]},
+	.{ "Move to next sub word start", 0, move_sub_word_start, .[
+		.{ mode=.NORMAL, keys="alt+w"},
+	]},
+	.{ "Move to next sub word end", 0, move_sub_word_end, .[
+		.{ mode=.NORMAL, keys="alt+e"},
+	]},
 
 	// misc normal mode
 	.{ "Toggle Extend Selections", 0, toggle_extend_selections, .[
