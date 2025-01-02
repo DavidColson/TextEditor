@@ -686,12 +686,17 @@ document_cursor_get_char :: (cursor: *DocumentCursor) -> u8 {
 		if cursor.node.next == null return 0; 
 		buffer: = ifx cursor.node.next.added then *cursor.doc.addedData else *cursor.doc.originalData;
 		bufferOffset := buffer_cursor_to_offset(buffer, cursor.node.next.start);
-		return buffer.text[bufferOffset];
+		char := buffer.text[bufferOffset];
+		// if we iterated to a carraige return, we'd skip over it, so matching that behaviour
+		// with a small hack that assumes newline always comes next
+		// @todo: check if we can make this assumption?
+		if char == #char "\r" return #char "\n"; else return char;
 	}
 
 	buffer: = ifx cursor.node.added then *cursor.doc.addedData else *cursor.doc.originalData;
 	bufferOffset := buffer_cursor_to_offset(buffer, cursor.node.start) + offsetInNode;
-	return buffer.text[bufferOffset];
+	char := buffer.text[bufferOffset];
+	if char == #char "\r" return #char "\n"; else return char;
 }
 
 document_cursor_get_coordinate :: (cursor: *DocumentCursor) -> Coordinate {
