@@ -285,7 +285,8 @@ draw_panel :: (panel: *Panel) {
 		modeText = "INSERT";
 	}
 
-	width := Simp.prepare_text(my_font, tprint("% | % - %:% crlf", modeText, panel.document.path, 32, 16));
+	cursorCoordinate := document_cursor_get_coordinate(*panel.cursor.head);
+	width := Simp.prepare_text(my_font, tprint("% | % - %:% crlf", modeText, panel.document.path, cursorCoordinate.line+1, cursorCoordinate.col));
 	Simp.draw_prepared_text(my_font, 2, my_font.character_height + 2, Vector4.{0.8, 0.8, 0.8, 1.0});
 
 	// Draw command list
