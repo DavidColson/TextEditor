@@ -360,4 +360,9 @@ input_handler :: (event: Input.Event) {
 			}
 		}
 	}
+	// special handling for canceling a key sequence, not the neatest, but whatever
+	else if keyString == "<escape>" {
+		keyMap.pendingKeyNode = *keyMap.root[editorMode];
+		array_reset_keeping_memory(*keyMap.pendingKeyString);
+	}
 }
