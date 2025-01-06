@@ -289,6 +289,10 @@ draw_panel :: (panel: *Panel) {
 	width := Simp.prepare_text(my_font, tprint("% | % - %:% crlf", modeText, panel.document.path, cursorCoordinate.line+1, cursorCoordinate.col));
 	Simp.draw_prepared_text(my_font, 2, my_font.character_height + 2, Vector4.{0.8, 0.8, 0.8, 1.0});
 
+	pendingKeys := string.{keyMap.pendingKeyString.count, keyMap.pendingKeyString.data};
+	width = Simp.prepare_text(my_font, tprint("%", pendingKeys));
+	Simp.draw_prepared_text(my_font, cast(s64) (panel.rect.w - width - my_font.mono_x_advance), my_font.character_height + 2, Vector4.{0.8, 0.8, 0.8, 1.0});
+
 	// Draw command list
 	if editorMode == .COMMAND_PICKER {
 		draw_command_picker(panel.rect, *panel.commandPicker);

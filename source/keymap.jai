@@ -21,7 +21,8 @@ KeyMap :: struct {
 	memory : Flat_Pool;
 	allocator: Allocator;
 	root: [EDITOR_MODE_NUM]KeyMapNode;
-	pendingKeySequence: *KeyMapNode;
+	pendingKeyNode: *KeyMapNode;
+	pendingKeyString: [..]u8;
 }
 
 KeyMapNode :: struct {
@@ -61,10 +62,10 @@ commandList :: Command.[
 		.{ mode=.INSERT, keys="<up>"}
 	]},
 	.{ "Goto document start", 0, goto_document_start, .[
-		.{ mode=.NORMAL, keys="gg"},
+		.{ mode=.NORMAL, keys="gk"},
 	]},
 	.{ "Goto document end", 0, goto_document_end, .[
-		.{ mode=.NORMAL, keys="ge"},
+		.{ mode=.NORMAL, keys="gj"},
 	]},
 	.{ "Goto line start", 0, goto_line_start, .[
 		.{ mode=.NORMAL, keys="gh"},
@@ -171,6 +172,7 @@ commandList :: Command.[
 
 rebuild_key_map :: ()  {
 	keyMap.allocator = Allocator.{proc = flat_pool_allocator_proc, data = *keyMap.memory};
+	keyMap.pendingKeyString.allocator = keyMap.allocator;
 
 	for mode: 0..EDITOR_MODE_NUM-1 {
 		keyMap.root[mode].children = New(Table(string, *KeyMapNode),,keyMap.allocator);
@@ -255,7 +257,7 @@ rebuild_key_map :: ()  {
 			}
 		}
 	}
-	keyMap.pendingKeySequence = *keyMap.root[editorMode];
+	keyMap.pendingKeyNode = *keyMap.root[editorMode];
 }
 
 input_handler :: (event: Input.Event) {
@@ -265,7 +267,7 @@ input_handler :: (event: Input.Event) {
 		char: Utf8_Char = convert_utf32_to_utf8(event.utf32);
 
 		// if there are no pending key sequences allow the current mode to take the text input
-		if keyMap.pendingKeySequence == *keyMap.root[editorMode] {
+		if keyMap.pendingKeyNode == *keyMap.root[editorMode] {
 			if editorMode == .INSERT {
 				insert_mode_handle_text_input(char);
 				return;
@@ -335,7 +337,7 @@ input_handler :: (event: Input.Event) {
 
 	if keyString.count == 0 return;
 
-	nodePtr := table_find_pointer(keyMap.pendingKeySequence.children, keyString);
+	nodePtr := table_find_pointer(keyMap.pendingKeyNode.children, keyString);
 	if nodePtr {
 		node := <<nodePtr;
 		if node.cmd  {
@@ -348,10 +350,14 @@ input_handler :: (event: Input.Event) {
 
 			if !block node.cmd.execute(*focusedPanel);
 
-			keyMap.pendingKeySequence = *keyMap.root[editorMode];
+			keyMap.pendingKeyNode = *keyMap.root[editorMode];
+			array_reset_keeping_memory(*keyMap.pendingKeyString);
 		}
 		else {
-			keyMap.pendingKeySequence = node;
+			keyMap.pendingKeyNode = node;
+			for keyString {
+				array_add(*keyMap.pendingKeyString, it);
+			}
 		}
 	}
 }
