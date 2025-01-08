@@ -110,8 +110,11 @@ commandList :: Command.[
 	.{ "Delete left char", 0, insert_mode_delete_left_char, .[
 		.{ mode=.INSERT, keys="<backspace>"}
 	]},
-	.{ "Insert line break", 0, insert_mode_line_break, .[
+	.{ "Insert line break", .HIDDEN, insert_mode_line_break, .[
 		.{ mode=.INSERT, keys="<enter>"}
+	]},
+	.{ "Insert tab", .HIDDEN, insert_tab_character, .[
+		.{ mode=.INSERT, keys="<tab>"}
 	]},
 
 
@@ -220,6 +223,9 @@ rebuild_key_map :: ()  {
 				else if begins_with(keys, "<down>") {
 					advance(*keys, 6); 
 				}
+				else if begins_with(keys, "<tab>") {
+					advance(*keys, 5); 
+				}
 				else {
 					advance(*keys, 1); // take just the one letter key
 				}
@@ -321,6 +327,9 @@ input_handler :: (event: Input.Event) {
 		}
 		else if event.key_pressed && event.key_code == .ENTER {
 			append(*builder, "<enter>");
+		}
+		else if event.key_pressed && event.key_code == .TAB {
+			append(*builder, "<tab>");
 		}
 		else if event.key_pressed && event.key_code >= 33 && event.key_code <= 96 && event.modifier_flags.packed {
 			// Note we only take characters as events here if there are modifiers on, otherwise we let the text

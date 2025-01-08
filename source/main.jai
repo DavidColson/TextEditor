@@ -244,6 +244,12 @@ insert_mode_line_break :: (using panel: *Panel) {
 	move_one_char_right(panel);
 }
 
+insert_tab_character :: (using panel: *Panel) {
+	textToInsert := "\t";
+	cursor.head = document_insert_text(document, cursor.head, textToInsert);
+	move_one_char_right(panel);
+}
+
 // utilities 
 convert_cursor_to_coordinate_range :: (cursor: Cursor, includeCursor: bool = true) -> start: Coordinate, end: Coordinate {
 	rangeStart: Coordinate;
