@@ -167,25 +167,25 @@ hex_to_color_vec4 :: (src_hex: string) -> Vector4, success: bool {
 // basic commands
 // @todo move these into files
 // for example file for "motions", file for "changes"
-quit :: (panel: *Panel) {
+quit :: (panel: *Panel, args: []string) {
 	pendingQuit = true;
 }
 
-open_file :: (panel: *Panel) {
+open_file :: (panel: *Panel, args: []string) {
 	editorMode = .FILESYSTEM_NAVIGATOR;
 	filesystem_nav_refresh_directory_list(*panel.filesystemNav);
 }
 
-print_piece_chain_debug :: (panel: *Panel) {
+print_piece_chain_debug :: (panel: *Panel, args: []string) {
 	document_debug_print_piece_chain(panel.document);
 }
 
-toggle_render_line_endings :: (panel: *Panel) {
+toggle_render_line_endings :: (panel: *Panel, args: []string) {
 	my_font.render_new_lines = !my_font.render_new_lines;
 	Simp.force_regenerate_glyph_table(my_font);
 }
 
-enter_normal_mode :: (panel: *Panel) {
+enter_normal_mode :: (panel: *Panel, args: []string) {
 	if editorMode == .FILESYSTEM_NAVIGATOR {
 		filesystem_nav_reset(*panel.filesystemNav);
 	}
@@ -195,7 +195,7 @@ enter_normal_mode :: (panel: *Panel) {
 	editorMode = .NORMAL;
 }
 
-enter_insert_mode :: (panel: *Panel) {
+enter_insert_mode :: (panel: *Panel, args: []string) {
 	if editorMode == .FILESYSTEM_NAVIGATOR {
 		filesystem_nav_reset(*panel.filesystemNav);
 	}
@@ -205,11 +205,11 @@ enter_insert_mode :: (panel: *Panel) {
 	editorMode = .INSERT;
 }
 
-toggle_extend_selections :: (using panel: *Panel) { 
+toggle_extend_selections :: (using panel: *Panel, args: []string) { 
 	extendSelections = !extendSelections;
 }
 
-delete_selection :: (using panel: *Panel) {
+delete_selection :: (using panel: *Panel, args: []string) {
 	if cursor.head.documentOffset < cursor.anchor.documentOffset {
 		end := cursor.anchor;
 		document_cursor_step_one_forward(*end);
@@ -227,10 +227,10 @@ delete_selection :: (using panel: *Panel) {
 insert_mode_handle_text_input :: (char: Utf8_Char) {
 	textToInsert := to_string(*char);
 	focusedPanel.cursor.head = document_insert_text(focusedPanel.document, focusedPanel.cursor.head, textToInsert);
-	move_one_char_right(*focusedPanel);
+	move_one_char_right(*focusedPanel, string.[]);
 }
 
-insert_mode_delete_left_char :: (using panel: *Panel) {
+insert_mode_delete_left_char :: (using panel: *Panel, args: []string) {
 	stepCursor := cursor.head;
 	document_cursor_step_one_backward(*stepCursor);
 
@@ -238,16 +238,16 @@ insert_mode_delete_left_char :: (using panel: *Panel) {
 	cursor.anchor = cursor.head;
 }
 
-insert_mode_line_break :: (using panel: *Panel) {
+insert_mode_line_break :: (using panel: *Panel, args: []string) {
 	textToInsert := "\r\n"; // @todo this should be changed depenending on document type
 	cursor.head = document_insert_text(document, cursor.head, textToInsert);
-	move_one_char_right(panel);
+	move_one_char_right(panel, string.[]);
 }
 
-insert_tab_character :: (using panel: *Panel) {
+insert_tab_character :: (using panel: *Panel, args: []string) {
 	textToInsert := "\t";
 	cursor.head = document_insert_text(document, cursor.head, textToInsert);
-	move_one_char_right(panel);
+	move_one_char_right(panel, string.[]);
 }
 
 // utilities 

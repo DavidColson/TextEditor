@@ -16,7 +16,7 @@ CommandPicker :: struct {
 	selectedCommand:s32;
 }
 
-command_picker_open :: (using panel: *Panel) {
+command_picker_open :: (using panel: *Panel, args: []string) {
 	editorMode = .COMMAND_PICKER;
 
     push_allocator(flat_pool_allocator_proc, *commandPicker.memory);
@@ -42,7 +42,7 @@ command_picker_reset :: (state: *CommandPicker) {
 	}
 }
 
-command_picker_delete_char :: (using panel: *Panel) {
+command_picker_delete_char :: (using panel: *Panel, args: []string) {
 	state := *commandPicker;
 
 	state.textInput.count -= 1;
@@ -55,23 +55,23 @@ command_picker_delete_char :: (using panel: *Panel) {
 	command_picker_refresh_list(state);
 }
 
-command_picker_execute_command :: (using panel: *Panel) {
+command_picker_execute_command :: (using panel: *Panel, args: []string) {
 	state := *commandPicker;
 
 	cmd := state.filteredCommandList[state.selectedCommand].command; 
 	editorMode = .NORMAL;
-	cmd.execute(panel);
+	cmd.execute(panel, string.[]); // @todo: command picker can't give arguments yet? Needs this ability
 	command_picker_reset(state);
 }
 
-command_picker_select_next :: (using panel: *Panel) {
+command_picker_select_next :: (using panel: *Panel, args: []string) {
 	state := *commandPicker;
 
 	maxCommand := state.filteredCommandList.count - 1;
 	state.selectedCommand = clamp(state.selectedCommand+1, 0, xx maxCommand);
 }
 
-command_picker_select_previous :: (using panel: *Panel) {
+command_picker_select_previous :: (using panel: *Panel, args: []string) {
 	state := *commandPicker;
 
 	maxCommand := state.filteredCommandList.count - 1;

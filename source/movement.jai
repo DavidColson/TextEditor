@@ -1,19 +1,19 @@
 
-move_one_char_left :: (using panel: *Panel) {
+move_one_char_left :: (using panel: *Panel, args: []string) {
 	document_cursor_step_one_backward(*cursor.head);
 	if !extendSelections {
 		cursor.anchor = cursor.head;
 	}
 }
 
-move_one_char_right :: (using panel: *Panel) {
+move_one_char_right :: (using panel: *Panel, args: []string) {
 	document_cursor_step_one_forward(*cursor.head);
 	if !extendSelections {
 		cursor.anchor = cursor.head;
 	}
 }
 
-move_one_line_down :: (using panel: *Panel) {
+move_one_line_down :: (using panel: *Panel, args: []string) {
 	// how could this be optimized?
 
 	// you need three expensive things here, the linestart of the current line we're on
@@ -39,7 +39,7 @@ move_one_line_down :: (using panel: *Panel) {
 	}
 }
 
-move_one_line_up :: (using panel: *Panel) {
+move_one_line_up :: (using panel: *Panel, args: []string) {
 	cursorCoordinate := document_cursor_get_coordinate(*cursor.head);
 	newLine :=max(cursorCoordinate.line-1, 0);
 
@@ -52,7 +52,7 @@ move_one_line_up :: (using panel: *Panel) {
 	}
 }
 
-goto_document_start :: (using panel: *Panel) {
+goto_document_start :: (using panel: *Panel, args: []string) {
 	document_cursor_jump_to_offset(*cursor.head, 0);
 
 	if !extendSelections {
@@ -60,7 +60,7 @@ goto_document_start :: (using panel: *Panel) {
 	}
 }
 
-goto_document_end :: (using panel: *Panel) {
+goto_document_end :: (using panel: *Panel, args: []string) {
 	document_cursor_jump_to_offset(*cursor.head, document.size);
 
 	if !extendSelections {
@@ -68,7 +68,7 @@ goto_document_end :: (using panel: *Panel) {
 	}
 }
 
-goto_line_end :: (using panel: *Panel) { 
+goto_line_end :: (using panel: *Panel, args: []string) { 
 	for cursor.head {
 		if it == #char "\n" {
 			document_cursor_step_one_backward(*cursor.head);
@@ -81,7 +81,7 @@ goto_line_end :: (using panel: *Panel) {
 	}
 }
 
-goto_line_start :: (using panel: *Panel) { 
+goto_line_start :: (using panel: *Panel, args: []string) { 
 	for < cursor.head {
 		if it == #char "\n" {
 			document_cursor_step_one_forward(*cursor.head);
@@ -175,7 +175,7 @@ move_word_reverse :: (using panel: *Panel, checkPosition: (u8, u8, CharCategory,
 	}
 }
 
-move_word_start :: (using panel: *Panel) { 
+move_word_start :: (using panel: *Panel, args: []string) { 
 	move_word_forward(panel, (prev: u8, next: u8, prevCharCategory: CharCategory, nextCharCategory: CharCategory) -> bool {
 		isWordBoundary := nextCharCategory != prevCharCategory;
 		nextIsLineEnding := nextCharCategory == .LINE_ENDING;
@@ -184,7 +184,7 @@ move_word_start :: (using panel: *Panel) {
 	});
 }
 
-move_long_word_start :: (using panel: *Panel) { 
+move_long_word_start :: (using panel: *Panel, args: []string) { 
 	move_word_forward(panel, (prev: u8, next: u8, prevCharCategory: CharCategory, nextCharCategory: CharCategory) -> bool {
 		isLongWordBoundary := prevCharCategory != nextCharCategory;
 		if (nextCharCategory == .WORD && prevCharCategory == .PUNCTUATION) 
@@ -198,7 +198,7 @@ move_long_word_start :: (using panel: *Panel) {
 	});
 }
 
-move_sub_word_start :: (using panel: *Panel) { 
+move_sub_word_start :: (using panel: *Panel, args: []string) { 
 	move_word_forward(panel, (prev: u8, next: u8, prevCharCategory: CharCategory, nextCharCategory: CharCategory) -> bool {
 		isSubWordBoundary := prev != next;
 		if nextCharCategory == .WORD && prevCharCategory == .WORD {
@@ -216,7 +216,7 @@ move_sub_word_start :: (using panel: *Panel) {
 	});
 }
 
-move_prev_word_start :: (using panel: *Panel) { 
+move_prev_word_start :: (using panel: *Panel, args: []string) { 
 	move_word_reverse(panel, (prev: u8, next: u8, prevCharCategory: CharCategory, nextCharCategory: CharCategory) -> bool {
 		isWordBoundary := nextCharCategory != prevCharCategory;
 		if nextCharCategory == .LINE_ENDING && prevCharCategory == .LINE_ENDING {
@@ -228,7 +228,7 @@ move_prev_word_start :: (using panel: *Panel) {
 	});
 }
 
-move_word_end :: (using panel: *Panel) { 
+move_word_end :: (using panel: *Panel, args: []string) { 
 	move_word_forward(panel, (prev: u8, next: u8, prevCharCategory: CharCategory, nextCharCategory: CharCategory) -> bool {
 		isWordBoundary := nextCharCategory != prevCharCategory;
 		nextIsLineEnding := nextCharCategory == .LINE_ENDING;
@@ -237,7 +237,7 @@ move_word_end :: (using panel: *Panel) {
 	});
 }
 
-move_long_word_end :: (using panel: *Panel) { 
+move_long_word_end :: (using panel: *Panel, args: []string) { 
 	move_word_forward(panel, (prev: u8, next: u8, prevCharCategory: CharCategory, nextCharCategory: CharCategory) -> bool {
 		isLongWordBoundary := prevCharCategory != nextCharCategory;
 		if (nextCharCategory == .WORD && prevCharCategory == .PUNCTUATION) 
@@ -250,7 +250,7 @@ move_long_word_end :: (using panel: *Panel) {
 	});
 }
 
-move_sub_word_end :: (using panel: *Panel) { 
+move_sub_word_end :: (using panel: *Panel, args: []string) { 
 	move_word_forward(panel, (prev: u8, next: u8, prevCharCategory: CharCategory, nextCharCategory: CharCategory) -> bool {
 		isSubWordBoundary := ifx prev != next then true else false;
 		if nextCharCategory == .WORD && prevCharCategory == .WORD {
@@ -266,4 +266,44 @@ move_sub_word_end :: (using panel: *Panel) {
 		prevIsWhitespace := prevCharCategory == .WHITESPACE;
 		return isSubWordBoundary && (!(prevIsWhitespace || prev == #char "_") || nextIsLineEnding);
 	});
+}
+
+jump_to_char :: (using panel: *Panel, args: []string) { 
+	for cursor.head {
+		next := document_cursor_get_char(*cursor.head);
+		// @todo: assumes the args are single char, this may not always be true
+		if args[0][0] == next {
+			break;
+		}
+	}
+}
+
+jump_to_last_char :: (using panel: *Panel, args: []string) { 
+	for < cursor.head {
+		// @todo: assumes the args are single char, this may not always be true
+		if args[0][0] == it {
+			break;
+		}
+	}
+}
+
+jump_to_before_char :: (using panel: *Panel, args: []string) { 
+	for cursor.head {
+		next := document_cursor_get_char(*cursor.head);
+		// @todo: assumes the args are single char, this may not always be true
+		if args[0][0] == next {
+			document_cursor_step_one_backward(*cursor.head);
+			break;
+		}
+	}
+}
+
+jump_to_before_last_char :: (using panel: *Panel, args: []string) { 
+	for < cursor.head {
+		// @todo: assumes the args are single char, this may not always be true
+		if args[0][0] == it {
+			document_cursor_step_one_forward(*cursor.head);
+			break;
+		}
+	}
 }

@@ -13,7 +13,7 @@ CommandFlags :: enum_flags u8 {
 Command :: struct {
 	name: string;
 	flags: CommandFlags;
-	execute: (*Panel);
+	execute: (*Panel, []string);
 	mappings: []KeyMappingDesc;
 }
 
@@ -23,11 +23,13 @@ KeyMap :: struct {
 	root: [EDITOR_MODE_NUM]KeyMapNode;
 	pendingKeyNode: *KeyMapNode;
 	pendingKeyString: [..]u8;
+	pendingArgs: [..]string;
 }
 
 KeyMapNode :: struct {
 	children: *Table(string, *KeyMapNode); // null if leaf node
 	cmd: *Command;
+	nArgs: s32;
 }
 
 // global keymap
@@ -93,6 +95,18 @@ commandList :: Command.[
 	]},
 	.{ "Move to next sub word end", 0, move_sub_word_end, .[
 		.{ mode=.NORMAL, keys="alt+e"},
+	]},
+	.{ "Jump to first occurence of {char}", 0, jump_to_char, .[
+		.{ mode=.NORMAL, keys="f{char}"},
+	]},
+	.{ "Jump to last occurence of {char}", 0, jump_to_last_char, .[
+		.{ mode=.NORMAL, keys="F{char}"},
+	]},
+	.{ "Jump to just before first occurence of {char}", 0, jump_to_before_char, .[
+		.{ mode=.NORMAL, keys="t{char}"},
+	]},
+	.{ "Jump to just before last occurence of {char}", 0, jump_to_before_last_char, .[
+		.{ mode=.NORMAL, keys="T{char}"},
 	]},
 
 	// misc normal mode
@@ -230,25 +244,33 @@ rebuild_key_map :: ()  {
 					advance(*keys, 1); // take just the one letter key
 				}
 
+				nArgs := 0;
+				while begins_with(keys, "{char}") {
+					advance(*keys, 6); 
+					nArgs += 1;
+				}
+
 				// hashkey should be just what we grabbed from this loop iteration
-				hashKey.count = hashKey.count - keys.count;
+				hashKey.count = hashKey.count - (keys.count + nArgs * 6);
 
 				// a few possibilities
 				// if keys.count == 0, this is a leaf
-				// If there's already an entry in the current table, assert
-				// No existing entry, add the entry now
+					// If there's already an entry in the current table, assert
+					// No existing entry, add the entry now
 				// if keys.count > 0 this is not a leaf
-				// If there's no entry, add a new non-leaf entry set this as current table
-				// if there's already a non-leaf entry, set as current and loop
-				// if there's already a leaf entry, assert
+					// If there's no entry, add a new non-leaf entry set this as current table
+					// if there's already a non-leaf entry, set as current and loop
+					// if there's already a leaf entry, assert
 
-				if keys.count == 0 {
+				if keys.count == 0 { // leaf node
 					assert(!table_contains(curNode.children, hashKey), "Mapping already exists");
 					newNode := New(KeyMapNode,,keyMap.allocator);
 					newNode.cmd = cmd;
+					newNode.nArgs = xx nArgs;
 					table_add(curNode.children, hashKey, newNode);
 				}
-				else if keys.count > 0 {
+				else if keys.count > 0 { // non-leaf node
+					assert(nArgs == 0, "Arguments in a key mapping must be at the end of the sequence");
 					entry, exists := table_find(curNode.children, hashKey);
 					if !exists { 
 						newNode := New(KeyMapNode,,keyMap.allocator);
@@ -268,6 +290,7 @@ rebuild_key_map :: ()  {
 
 input_handler :: (event: Input.Event) {
 	keyString: string;
+	keyStringIsText := false;
 
 	if event.type == .TEXT_INPUT {
 		char: Utf8_Char = convert_utf32_to_utf8(event.utf32);
@@ -289,6 +312,7 @@ input_handler :: (event: Input.Event) {
 		}
 
 		keyString= to_string(*char);
+		keyStringIsText = true;
 	}
 	else if event.type == .KEYBOARD {
 		builder : String_Builder;
@@ -346,21 +370,33 @@ input_handler :: (event: Input.Event) {
 
 	if keyString.count == 0 return;
 
-	nodePtr := table_find_pointer(keyMap.pendingKeyNode.children, keyString);
+	nodePtr: **KeyMapNode;
+	// if we're waiting for args, then potentially add it to pending and don't change the pending keynode
+	if keyMap.pendingKeyNode.nArgs > keyMap.pendingArgs.count {
+		if keyStringIsText {
+			nodePtr = *keyMap.pendingKeyNode;
+			array_add(*keyMap.pendingArgs, keyString);
+		}
+	}
+	else {
+		nodePtr = table_find_pointer(keyMap.pendingKeyNode.children, keyString);
+	}
+
 	if nodePtr {
 		node := <<nodePtr;
-		if node.cmd  {
-			// for anyone debugging, here's where the actual magic happens,
-			// a command gets called, after we've figured out
-			// what command we're supposed to execute
+		if node.cmd && keyMap.pendingArgs.count == node.nArgs {
 			block:= false;
 			if editorMode != .COMMAND_PICKER && node.cmd.flags & .COMMAND_PICKER_ONLY block = true;
 			if editorMode != .FILESYSTEM_NAVIGATOR && node.cmd.flags & .FILESYSTEM_NAVIGATOR_ONLY block = true;
 
-			if !block node.cmd.execute(*focusedPanel);
+			// for anyone debugging, here's where the actual magic happens,
+			// a command gets called, after we've figured out
+			// what command we're supposed to execute
+			if !block node.cmd.execute(*focusedPanel, keyMap.pendingArgs);
 
 			keyMap.pendingKeyNode = *keyMap.root[editorMode];
 			array_reset_keeping_memory(*keyMap.pendingKeyString);
+			array_reset_keeping_memory(*keyMap.pendingArgs);
 		}
 		else {
 			keyMap.pendingKeyNode = node;
