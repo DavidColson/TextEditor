@@ -126,6 +126,12 @@ commandList :: Command.[
 	.{ "Replace selection with {char}", 0, replace_selection, .[
 		.{ mode=.NORMAL, keys="r{char}"},
 	]},
+	.{ "New line below selection", 0, new_line_below, .[
+		.{ mode=.NORMAL, keys="o"},
+	]},
+	.{ "New line above selection", 0, new_line_above, .[
+		.{ mode=.NORMAL, keys="O"},
+	]},
 
 	// insert mode stuff
 	// @todo, may be able to unify this with some other commands?

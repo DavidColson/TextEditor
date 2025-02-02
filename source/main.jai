@@ -304,6 +304,23 @@ replace_selection :: (using panel: *Panel, args: []string) {
 	}
 }
 
+new_line_below :: (using panel: *Panel, args: []string) {
+	goto_line_end(panel, args);
+	insert_mode_line_break(panel, args);
+	enter_insert_mode_start(panel, args);
+}
+
+new_line_above :: (using panel: *Panel, args: []string) {
+	for < cursor.head {
+		if it == #char "\n" {
+			break;
+		}
+	}
+	cursor.anchor = cursor.head;
+	insert_mode_line_break(panel, args);
+	enter_insert_mode_start(panel, args);
+}
+
 insert_mode_insert_string :: (input: string) {
 	// do the insert
 	distanceToAnchor := focusedPanel.cursor.anchor.documentOffset - focusedPanel.cursor.head.documentOffset;
