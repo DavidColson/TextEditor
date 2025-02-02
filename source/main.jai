@@ -275,6 +275,35 @@ delete_selection :: (using panel: *Panel, args: []string) {
 	cursor.anchor = cursor.head;
 }
 
+change_selection :: (using panel: *Panel, args: []string) {
+	delete_selection(panel, args);
+	enter_insert_mode_start(panel, args);
+}
+
+replace_selection :: (using panel: *Panel, args: []string) {
+	rangeLength := abs(cursor.head.documentOffset - cursor.anchor.documentOffset);
+
+	delete_selection(panel, args);
+
+	builder : String_Builder;
+	builder.allocator = temp;
+	init_string_builder(*builder);
+
+	for 0..rangeLength {
+		append(*builder, args[0]);
+	}
+
+	focusedPanel.cursor.head = document_insert_text(focusedPanel.document, focusedPanel.cursor.head, builder_to_string(*builder,,temp));
+
+	// update cursor positions
+	focusedPanel.cursor.anchor = focusedPanel.cursor.head;
+	if rangeLength > 0 {
+		for focusedPanel.cursor.head {
+			if it_index >= rangeLength-1 then break;
+		}
+	}
+}
+
 insert_mode_insert_string :: (input: string) {
 	// do the insert
 	distanceToAnchor := focusedPanel.cursor.anchor.documentOffset - focusedPanel.cursor.head.documentOffset;

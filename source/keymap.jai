@@ -120,6 +120,12 @@ commandList :: Command.[
 	.{ "Delete selection", 0, delete_selection, .[
 		.{ mode=.NORMAL, keys="d"},
 	]},
+	.{ "Change selection", 0, change_selection, .[
+		.{ mode=.NORMAL, keys="c"},
+	]},
+	.{ "Replace selection with {char}", 0, replace_selection, .[
+		.{ mode=.NORMAL, keys="r{char}"},
+	]},
 
 	// insert mode stuff
 	// @todo, may be able to unify this with some other commands?
