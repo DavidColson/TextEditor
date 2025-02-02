@@ -280,9 +280,12 @@ draw_panel :: (panel: *Panel) {
 						cast(float)panel.rect.y + headerHeight,
 						Vector4.{0.3, 0.3, 0.3, 1.0});
 
-	modeText := "NORM";
+	modeText := "NOR";
+	if extendSelections && editorMode == .NORMAL {
+		modeText = "SEL";
+	}
 	if editorMode == .INSERT {
-		modeText = "INSERT";
+		modeText = "INS";
 	}
 
 	cursorCoordinate := document_cursor_get_coordinate(*panel.cursor.head);
