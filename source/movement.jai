@@ -223,6 +223,9 @@ is_upper :: inline (char: u8) -> bool {
 }
 
 move_word_forward :: (using panel: *Panel, checkPosition: (u8, u8, CharCategory, CharCategory) -> bool) {
+	if !extendSelections {
+		cursor.anchor = cursor.head;
+	}
 	for cursor.head {
 		next := document_cursor_get_char(*cursor.head);
 		prevCharCategory := categorize_char(it);
@@ -241,16 +244,16 @@ move_word_forward :: (using panel: *Panel, checkPosition: (u8, u8, CharCategory,
 }
 
 move_word_reverse :: (using panel: *Panel, checkPosition: (u8, u8, CharCategory, CharCategory) -> bool) {
+	if !extendSelections {
+		cursor.anchor = cursor.head;
+	}
 	prev := document_cursor_get_char(*cursor.head);
 	for < cursor.head {
 		nextCharCategory := categorize_char(it);
 		prevCharCategory := categorize_char(prev);
 		if checkPosition(prev, it, prevCharCategory, nextCharCategory) {
 			if it_index == 0  && !extendSelections {
-				if !extendSelections {
-					cursor.anchor = cursor.head;
-					document_cursor_step_one_forward(*cursor.anchor);
-				}
+				if !extendSelections then cursor.anchor = cursor.head;
 			}
 			else {
 				document_cursor_step_one_forward(*cursor.head);
