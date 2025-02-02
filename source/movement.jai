@@ -1,13 +1,53 @@
 
 move_one_char_left :: (using panel: *Panel, args: []string) {
-	document_cursor_step_one_backward(*cursor.head);
+	character := document_cursor_step_one_backward(*cursor.head);
+
+	if character == #char "\t" {
+		cursor.virtualColumn -= chars_to_tabstop(cursor.virtualColumn);
+	}
+	else if character == #char "\n" {
+		// wrapping back to the previous line
+		// means we must calculate the visual column length of the previous line
+		line := document_cursor_get_line(*cursor.head);
+		lineStart := document_get_line_start(cursor.head.doc, line);
+
+		cursor.virtualColumn = 0;
+		tempCursor : DocumentCursor;
+		tempCursor.doc = panel.document;
+		tempCursor.node = panel.document.pieceChainHead;
+		document_cursor_jump_to_offset(*tempCursor, lineStart);
+		for tempCursor {
+			if it == #char "\n" then break;
+			if it == #char "\t" {
+				cursor.virtualColumn += chars_to_tabstop(cursor.virtualColumn);
+			}
+			else {
+				cursor.virtualColumn += 1;
+			}
+		}
+	}
+	else {
+		cursor.virtualColumn -= 1;
+	}
+
 	if !extendSelections {
 		cursor.anchor = cursor.head;
 	}
 }
 
 move_one_char_right :: (using panel: *Panel, args: []string) {
-	document_cursor_step_one_forward(*cursor.head);
+	character := document_cursor_step_one_forward(*cursor.head);
+
+	if character == #char "\t" {
+		cursor.virtualColumn += chars_to_tabstop(cursor.virtualColumn);
+	}
+	else if character == #char "\n" {
+		cursor.virtualColumn = 0;
+	}
+	else {
+		cursor.virtualColumn += 1;
+	}
+
 	if !extendSelections {
 		cursor.anchor = cursor.head;
 	}
@@ -48,7 +88,7 @@ move_to_line_visual :: (using panel: *Panel, currentLine: s64, targetLine: s64) 
 	newCursor.node = panel.document.pieceChainHead;
 	document_cursor_jump_to_offset(*newCursor, lineStartNewLine);
 	newColumn := 0;
-	if targetVisualColumn > newColumn {
+	if cursor.virtualColumn > newColumn {
 		for newCursor {
 			// stop if we get to the end of the new line
 			if it == #char "\n" {
@@ -65,8 +105,8 @@ move_to_line_visual :: (using panel: *Panel, currentLine: s64, targetLine: s64) 
 			}
 			
 			// stop when we're matching the target visual column
-			if newColumn == targetVisualColumn then break;
-			if newColumn > targetVisualColumn {
+			if newColumn == cursor.virtualColumn then break;
+			if newColumn > cursor.virtualColumn {
 				document_cursor_step_one_backward(*newCursor);
 				break;
 			}
