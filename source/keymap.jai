@@ -413,8 +413,10 @@ input_handler :: (event: Input.Event) {
 		nodePtr = table_find_pointer(keyMap.pendingKeyNode.children, keyString);
 	}
 
-	for keyString {
-		array_add(*keyMap.pendingKeyString, it);
+	if editorMode != .INSERT {
+		for keyString {
+			array_add(*keyMap.pendingKeyString, it);
+		}
 	}
 
 	if nodePtr {
