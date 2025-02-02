@@ -707,6 +707,12 @@ document_cursor_get_coordinate :: (cursor: *DocumentCursor) -> Coordinate {
 	return .{curLine, curColumn};
 }
 
+flip_cursors :: (cursorA: *DocumentCursor, cursorB: *DocumentCursor) {
+	temp := <<cursorA;
+	<<cursorA = <<cursorB;
+	<<cursorB = temp;
+}
+
 document_get_line_length :: (doc: *Document, lineNum: s64, excludeEnding: bool = true) -> s64 {
 	lineContent := document_get_line_content(doc, lineNum,, temp);
 	if excludeEnding {

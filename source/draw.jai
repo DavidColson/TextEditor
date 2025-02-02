@@ -203,7 +203,7 @@ draw_panel :: (panel: *Panel) {
 	if cursorLine >= startVisibleLines && cursorLine <= endVisibleLines {
 		Simp.set_shader_for_color();
 		if panel.cursor.head.documentOffset != panel.cursor.anchor.documentOffset {
-			rangeStart, rangeEnd := convert_cursor_to_coordinate_range(panel.cursor, false);
+			rangeStart, rangeEnd := convert_cursor_to_coordinate_range(panel.cursor, true);
 			lineWidths: [..] s32;
 			lineWidths.allocator = temp;
 			for rangeStart.line..rangeEnd.line {

@@ -195,7 +195,24 @@ enter_normal_mode :: (panel: *Panel, args: []string) {
 	editorMode = .NORMAL;
 }
 
-enter_insert_mode :: (panel: *Panel, args: []string) {
+enter_insert_mode_start :: (using panel: *Panel, args: []string) {
+	if cursor.head.documentOffset > cursor.anchor.documentOffset {
+		flip_cursors(*cursor.head, *cursor.anchor);
+	}
+	if editorMode == .FILESYSTEM_NAVIGATOR {
+		filesystem_nav_reset(*panel.filesystemNav);
+	}
+	else if editorMode == .COMMAND_PICKER {
+		command_picker_reset(*panel.commandPicker);
+	}
+	editorMode = .INSERT;
+}
+
+enter_insert_mode_end :: (using panel: *Panel, args: []string) {
+	if cursor.head.documentOffset < cursor.anchor.documentOffset {
+		flip_cursors(*cursor.head, *cursor.anchor);
+	}
+	document_cursor_step_one_forward(*focusedPanel.cursor.head);
 	if editorMode == .FILESYSTEM_NAVIGATOR {
 		filesystem_nav_reset(*panel.filesystemNav);
 	}
@@ -223,31 +240,74 @@ delete_selection :: (using panel: *Panel, args: []string) {
 	cursor.anchor = cursor.head;
 }
 
+insert_mode_insert_string :: (input: string) {
+	// do the insert
+	distanceToAnchor := focusedPanel.cursor.anchor.documentOffset - focusedPanel.cursor.head.documentOffset;
+	focusedPanel.cursor.head = document_insert_text(focusedPanel.document, focusedPanel.cursor.head, input);
+
+	// update the anchor
+	focusedPanel.cursor.anchor = focusedPanel.cursor.head;
+	if distanceToAnchor > 0 {
+		for focusedPanel.cursor.anchor {
+			if it_index >= distanceToAnchor-1 then break;
+		}
+	}
+	else if distanceToAnchor < 0 {
+		for < focusedPanel.cursor.anchor {
+			if it_index >= abs(distanceToAnchor)-1 then break;
+		}
+	}
+	
+	// move the cursors as appropriate,
+	// head will move right, anchor will also move if it's ahead of the head
+	extendSelections = true;
+	if focusedPanel.cursor.head.documentOffset <= focusedPanel.cursor.anchor.documentOffset {
+		document_cursor_step_one_forward(*focusedPanel.cursor.anchor);
+	}
+	move_one_char_right(*focusedPanel, string.[]);
+	extendSelections = false;
+}
+
 // insert mode text handler
 insert_mode_handle_text_input :: (char: Utf8_Char) {
 	textToInsert := to_string(*char);
-	focusedPanel.cursor.head = document_insert_text(focusedPanel.document, focusedPanel.cursor.head, textToInsert);
-	move_one_char_right(*focusedPanel, string.[]);
-}
-
-insert_mode_delete_left_char :: (using panel: *Panel, args: []string) {
-	stepCursor := cursor.head;
-	document_cursor_step_one_backward(*stepCursor);
-
-	cursor.head = document_delete_text(document, stepCursor, cursor.head);
-	cursor.anchor = cursor.head;
+	insert_mode_insert_string(textToInsert);
 }
 
 insert_mode_line_break :: (using panel: *Panel, args: []string) {
 	textToInsert := "\r\n"; // @todo this should be changed depenending on document type
-	cursor.head = document_insert_text(document, cursor.head, textToInsert);
-	move_one_char_right(panel, string.[]);
+	insert_mode_insert_string(textToInsert);
 }
 
 insert_tab_character :: (using panel: *Panel, args: []string) {
 	textToInsert := "\t";
-	cursor.head = document_insert_text(document, cursor.head, textToInsert);
-	move_one_char_right(panel, string.[]);
+	insert_mode_insert_string(textToInsert);
+}
+
+insert_mode_delete_left_char :: (using panel: *Panel, args: []string) {
+	distanceToAnchor := focusedPanel.cursor.anchor.documentOffset - focusedPanel.cursor.head.documentOffset;
+
+	stepCursor := cursor.head;
+	document_cursor_step_one_backward(*stepCursor);
+	cursor.head = document_delete_text(document, stepCursor, cursor.head);
+
+	// update the anchor
+	focusedPanel.cursor.anchor = focusedPanel.cursor.head;
+	if distanceToAnchor > 0 {
+		for focusedPanel.cursor.anchor {
+			if it_index >= distanceToAnchor-1 then break;
+		}
+	}
+	else if distanceToAnchor < 0 {
+		for < focusedPanel.cursor.anchor {
+			if it_index >= abs(distanceToAnchor)-1 then break;
+		}
+	}
+
+	// move anchor as appropriate
+	if focusedPanel.cursor.head.documentOffset > focusedPanel.cursor.anchor.documentOffset {
+		document_cursor_step_one_forward(*focusedPanel.cursor.anchor);
+	}
 }
 
 // utilities 
@@ -264,7 +324,7 @@ convert_cursor_to_coordinate_range :: (cursor: Cursor, includeCursor: bool = tru
 		rangeStart.line = cursorHead.line;
 		rangeStart.col = cursorHead.col;
 		rangeEnd.line = cursorAnchor.line;
-		rangeEnd.col = cursorAnchor.col;
+		rangeEnd.col = cursorAnchor.col+cursorBonus;
 	}
 	else if cursorHead.line > cursorAnchor.line { 
 		// anchor is clearly earlier than the cursor
@@ -279,7 +339,7 @@ convert_cursor_to_coordinate_range :: (cursor: Cursor, includeCursor: bool = tru
 			rangeStart.line = cursorHead.line;
 			rangeStart.col = cursorHead.col;
 			rangeEnd.line = cursorAnchor.line;
-			rangeEnd.col = cursorAnchor.col;
+			rangeEnd.col = cursorAnchor.col+cursorBonus;
 		}
 		else {
 			rangeStart.line = cursorAnchor.line;
@@ -290,7 +350,6 @@ convert_cursor_to_coordinate_range :: (cursor: Cursor, includeCursor: bool = tru
 	}
 	return rangeStart, rangeEnd;
 }
-
 
 // @todo: this is windows only, move to windows file
 platform_enumerate_logical_drives :: () -> [] string {
