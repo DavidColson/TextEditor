@@ -193,6 +193,7 @@ enter_normal_mode :: (panel: *Panel, args: []string) {
 		command_picker_reset(*panel.commandPicker);
 	}
 	editorMode = .NORMAL;
+	extendSelections = false;
 }
 
 enter_insert_mode_start :: (using panel: *Panel, args: []string) {

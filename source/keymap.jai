@@ -182,6 +182,7 @@ commandList :: Command.[
 		.{ mode=.NORMAL, keys="a"}
 	]},
 	.{ "Enter Normal Mode", 0, enter_normal_mode, .[
+		.{ mode=.NORMAL, keys="<escape>"},
 		.{ mode=.INSERT, keys="<escape>"},
 		.{ mode=.COMMAND_PICKER, keys="<escape>"},
 		.{ mode=.FILESYSTEM_NAVIGATOR, keys="<escape>"},
