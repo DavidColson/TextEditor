@@ -6,6 +6,7 @@ KeyMappingDesc :: struct {
 
 CommandFlags :: enum_flags u8 {
 	HIDDEN;
+	REPEATABLE;
 	COMMAND_PICKER_ONLY;
 	FILESYSTEM_NAVIGATOR_ONLY;
 }
@@ -24,6 +25,7 @@ KeyMap :: struct {
 	pendingKeyNode: *KeyMapNode;
 	pendingKeyString: [..]u8;
 	pendingArgs: [..]string;
+	pendingCount: s32;
 }
 
 KeyMapNode :: struct {
@@ -47,19 +49,19 @@ commandList :: Command.[
 	.{ "Quit", 0, quit, .[.{mode=.NORMAL, keys="Q"}]},
 
 	// motions
-	.{ "Move one char left", 0, move_one_char_left, .[
+	.{ "Move one char left", .REPEATABLE, move_one_char_left, .[
 		.{ mode=.NORMAL, keys="h"},
 		.{ mode=.INSERT, keys="<left>"},
 	]},
-	.{ "Move one char right", 0, move_one_char_right, .[
+	.{ "Move one char right", .REPEATABLE, move_one_char_right, .[
 		.{ mode=.NORMAL, keys="l"},
 		.{ mode=.INSERT, keys="<right>"},
 	]},
-	.{ "Move one line down", 0, move_one_line_down, .[
+	.{ "Move one line down", .REPEATABLE, move_one_line_down, .[
 		.{ mode=.NORMAL, keys="j"},
 		.{ mode=.INSERT, keys="<down>"},
 	]},
-	.{ "Move one line up", 0, move_one_line_up, .[
+	.{ "Move one line up", .REPEATABLE, move_one_line_up, .[
 		.{ mode=.NORMAL, keys="k"},
 		.{ mode=.INSERT, keys="<up>"}
 	]},
@@ -75,37 +77,37 @@ commandList :: Command.[
 	.{ "Goto line end", 0, goto_line_end, .[
 		.{ mode=.NORMAL, keys="gl"},
 	]},
-	.{ "Move to next word start", 0, move_word_start, .[
+	.{ "Move to next word start", .REPEATABLE, move_word_start, .[
 		.{ mode=.NORMAL, keys="w"},
 	]},
-	.{ "Move to next word end", 0, move_word_end, .[
+	.{ "Move to next word end", .REPEATABLE, move_word_end, .[
 		.{ mode=.NORMAL, keys="e"},
 	]},
-	.{ "Move to prev word start", 0, move_prev_word_start, .[
+	.{ "Move to prev word start", .REPEATABLE, move_prev_word_start, .[
 		.{ mode=.NORMAL, keys="b"},
 	]},
-	.{ "Move to next long word start", 0, move_long_word_start, .[
+	.{ "Move to next long word start", .REPEATABLE, move_long_word_start, .[
 		.{ mode=.NORMAL, keys="W"},
 	]},
-	.{ "Move to next long word end", 0, move_long_word_end, .[
+	.{ "Move to next long word end", .REPEATABLE, move_long_word_end, .[
 		.{ mode=.NORMAL, keys="E"},
 	]},
-	.{ "Move to next sub word start", 0, move_sub_word_start, .[
+	.{ "Move to next sub word start", .REPEATABLE, move_sub_word_start, .[
 		.{ mode=.NORMAL, keys="alt+w"},
 	]},
-	.{ "Move to next sub word end", 0, move_sub_word_end, .[
+	.{ "Move to next sub word end", .REPEATABLE, move_sub_word_end, .[
 		.{ mode=.NORMAL, keys="alt+e"},
 	]},
-	.{ "Jump to first occurence of {char}", 0, jump_to_char, .[
+	.{ "Jump to first occurence of {char}", .REPEATABLE, jump_to_char, .[
 		.{ mode=.NORMAL, keys="f{char}"},
 	]},
-	.{ "Jump to last occurence of {char}", 0, jump_to_last_char, .[
+	.{ "Jump to last occurence of {char}", .REPEATABLE, jump_to_last_char, .[
 		.{ mode=.NORMAL, keys="F{char}"},
 	]},
-	.{ "Jump to just before first occurence of {char}", 0, jump_to_before_char, .[
+	.{ "Jump to just before first occurence of {char}", .REPEATABLE, jump_to_before_char, .[
 		.{ mode=.NORMAL, keys="t{char}"},
 	]},
-	.{ "Jump to just before last occurence of {char}", 0, jump_to_before_last_char, .[
+	.{ "Jump to just before last occurence of {char}", .REPEATABLE, jump_to_before_last_char, .[
 		.{ mode=.NORMAL, keys="T{char}"},
 	]},
 
@@ -121,7 +123,7 @@ commandList :: Command.[
 
 	// insert mode stuff
 	// @todo, may be able to unify this with some other commands?
-	.{ "Delete left char", 0, insert_mode_delete_left_char, .[
+	.{ "Delete left char", .HIDDEN, insert_mode_delete_left_char, .[
 		.{ mode=.INSERT, keys="<backspace>"}
 	]},
 	.{ "Insert line break", .HIDDEN, insert_mode_line_break, .[
@@ -370,6 +372,13 @@ input_handler :: (event: Input.Event) {
 
 	if keyString.count == 0 return;
 
+	// if a digit is given we take it as a count to repeat a motion
+	if keyMap.pendingKeyNode == *keyMap.root[editorMode] && is_digit(keyString[0]) {
+		digit, _, _ := string_to_int(keyString);
+		keyMap.pendingCount = keyMap.pendingCount * 10 + cast(s32) digit;
+		print("pencnt: %", keyMap.pendingCount);
+	}
+
 	nodePtr: **KeyMapNode;
 	// if we're waiting for args, then potentially add it to pending and don't change the pending keynode
 	if keyMap.pendingKeyNode.nArgs > keyMap.pendingArgs.count {
@@ -382,6 +391,10 @@ input_handler :: (event: Input.Event) {
 		nodePtr = table_find_pointer(keyMap.pendingKeyNode.children, keyString);
 	}
 
+	for keyString {
+		array_add(*keyMap.pendingKeyString, it);
+	}
+
 	if nodePtr {
 		node := <<nodePtr;
 		if node.cmd && keyMap.pendingArgs.count == node.nArgs {
@@ -389,10 +402,16 @@ input_handler :: (event: Input.Event) {
 			if editorMode != .COMMAND_PICKER && node.cmd.flags & .COMMAND_PICKER_ONLY block = true;
 			if editorMode != .FILESYSTEM_NAVIGATOR && node.cmd.flags & .FILESYSTEM_NAVIGATOR_ONLY block = true;
 
-			// for anyone debugging, here's where the actual magic happens,
-			// a command gets called, after we've figured out
-			// what command we're supposed to execute
-			if !block node.cmd.execute(*focusedPanel, keyMap.pendingArgs);
+			if !block {
+				if keyMap.pendingCount == 0 then keyMap.pendingCount = 1;
+				while keyMap.pendingCount > 0 {
+					// for anyone debugging, here's where the actual magic happens,
+					// a command gets called, after we've figured out
+					// what command we're supposed to execute
+					node.cmd.execute(*focusedPanel, keyMap.pendingArgs);
+					keyMap.pendingCount -= 1;
+				}
+			}
 
 			keyMap.pendingKeyNode = *keyMap.root[editorMode];
 			array_reset_keeping_memory(*keyMap.pendingKeyString);
@@ -400,9 +419,6 @@ input_handler :: (event: Input.Event) {
 		}
 		else {
 			keyMap.pendingKeyNode = node;
-			for keyString {
-				array_add(*keyMap.pendingKeyString, it);
-			}
 		}
 	}
 	// special handling for canceling a key sequence, not the neatest, but whatever
