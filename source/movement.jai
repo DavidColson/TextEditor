@@ -13,26 +13,74 @@ move_one_char_right :: (using panel: *Panel, args: []string) {
 	}
 }
 
+chars_to_tabstop :: (column: s64) -> s64 {
+	return tabSize - column % tabSize;
+}
+
+move_to_line_visual :: (using panel: *Panel, currentLine: s64, targetLine: s64) {
+	// please note this function assumes that cursor.head is on currentLine already
+
+	lineStartNewLine := document_get_line_start(document, targetLine);
+
+	// the target column actually needs to be the target visual column
+	// so we must find the start of the current line, and then count forward
+	// so that we can account for tabstops
+	targetVisualColumn := 0;
+	targetActualColumn := 0;
+	currentLineCursor := cursor.head;
+	for < currentLineCursor {
+		if it == #char "\n" || it == 0 then break;
+		targetActualColumn += 1;
+	}
+	document_cursor_step_one_forward(*currentLineCursor);
+	for currentLineCursor {
+		if targetActualColumn == it_index then break;
+		if it == #char "\t" {
+			targetVisualColumn += chars_to_tabstop(targetVisualColumn);
+		}
+		else {
+			targetVisualColumn += 1;
+		}
+	}
+
+	newCursor : DocumentCursor;
+	newCursor.doc = panel.document;
+	newCursor.node = panel.document.pieceChainHead;
+	document_cursor_jump_to_offset(*newCursor, lineStartNewLine);
+	newColumn := 0;
+	if targetVisualColumn > newColumn {
+		for newCursor {
+			// stop if we get to the end of the new line
+			if it == #char "\n" {
+				document_cursor_step_one_backward(*newCursor);
+				break;
+			}
+
+			// count the visual columns
+			if it == #char "\t" {
+				newColumn += chars_to_tabstop(newColumn);
+			}
+			else {
+				newColumn += 1;
+			}
+			
+			// stop when we're matching the target visual column
+			if newColumn == targetVisualColumn then break;
+			if newColumn > targetVisualColumn {
+				document_cursor_step_one_backward(*newCursor);
+				break;
+			}
+		}
+	}
+	cursor.head = newCursor;
+}
+
 move_one_line_down :: (using panel: *Panel, args: []string) {
-	// how could this be optimized?
-
-	// you need three expensive things here, the linestart of the current line we're on
-	// plus the line range of the next or previous line
-	// You could just copy the cursor and iterate forward or backward
-	// copy and iterate back to find the start of the line
-	// copy and iterate forward to find the start of the next line, and the end of said line
-	// this will make this algorithm scale on length of line, rather than number of edits to the document?
-
-	// @todo: this does not account for tab widths, and so will end up in the wrong place visually
-	// when navigating over lines with different tabs
-	cursorCoordinate := document_cursor_get_coordinate(*cursor.head);
-
+	currentLine := document_cursor_get_line(*cursor.head);
 	numLines := document_get_num_lines(document);
-	newLine := min(cursorCoordinate.line+1, numLines - 1);
+	newLine := min(currentLine+1, numLines - 1);
 
-	lineStart, lineEnd := document_get_line_range(document, newLine);
-	newColumn := min(lineEnd-lineStart, cursorCoordinate.col);
-	document_cursor_jump_to_offset(*cursor.head, lineStart + newColumn);
+	move_to_line_visual(panel, currentLine, newLine);
 
 	if !extendSelections {
 		cursor.anchor = cursor.head;
@@ -40,12 +88,10 @@ move_one_line_down :: (using panel: *Panel, args: []string) {
 }
 
 move_one_line_up :: (using panel: *Panel, args: []string) {
-	cursorCoordinate := document_cursor_get_coordinate(*cursor.head);
-	newLine :=max(cursorCoordinate.line-1, 0);
+	currentLine := document_cursor_get_line(*cursor.head);
+	newLine :=max(currentLine-1, 0);
 
-	lineStart, lineEnd := document_get_line_range(document, newLine);
-	newColumn := min(lineEnd-lineStart, cursorCoordinate.col);
-	document_cursor_jump_to_offset(*cursor.head, lineStart + newColumn);
+	move_to_line_visual(panel, currentLine, newLine);
 
 	if !extendSelections {
 		cursor.anchor = cursor.head;

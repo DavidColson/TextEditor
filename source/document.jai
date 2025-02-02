@@ -664,6 +664,7 @@ document_get_line_start :: (doc: *Document, line: s64) -> s64 {
 }
 
 document_get_line_range :: (doc: *Document, line: s64) -> s64, s64 {
+	// @todo: crlf assumption here, should actually check what the char is and move appropriately
 	return document_get_line_start(doc, line), document_get_line_start(doc, line+1)-2;
 }
 
