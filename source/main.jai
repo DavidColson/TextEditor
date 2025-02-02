@@ -223,6 +223,40 @@ enter_insert_mode_end :: (using panel: *Panel, args: []string) {
 	editorMode = .INSERT;
 }
 
+enter_insert_mode_line_start :: (using panel: *Panel, args: []string) {
+	extendSelections = false;
+	goto_line_start(panel, args);
+	cursorChar := document_cursor_get_char(*cursor.head);
+	if is_space(cursorChar) {
+		for cursor.head {
+			next := document_cursor_get_char(*cursor.head);
+			if !is_space(next) break;
+		}
+	}
+	cursor.anchor = cursor.head;
+
+	if editorMode == .FILESYSTEM_NAVIGATOR {
+		filesystem_nav_reset(*panel.filesystemNav);
+	}
+	else if editorMode == .COMMAND_PICKER {
+		command_picker_reset(*panel.commandPicker);
+	}
+	editorMode = .INSERT;
+}
+
+enter_insert_mode_line_end :: (using panel: *Panel, args: []string) {
+	extendSelections = false;
+	goto_line_end(panel, args);
+
+	if editorMode == .FILESYSTEM_NAVIGATOR {
+		filesystem_nav_reset(*panel.filesystemNav);
+	}
+	else if editorMode == .COMMAND_PICKER {
+		command_picker_reset(*panel.commandPicker);
+	}
+	editorMode = .INSERT;
+}
+
 toggle_extend_selections :: (using panel: *Panel, args: []string) { 
 	extendSelections = !extendSelections;
 }

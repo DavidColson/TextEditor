@@ -181,6 +181,12 @@ commandList :: Command.[
 	.{ "Enter Insert Mode End Of Selection", 0, enter_insert_mode_end, .[
 		.{ mode=.NORMAL, keys="a"}
 	]},
+	.{ "Enter Insert Mode Start Of Line", 0, enter_insert_mode_line_start, .[
+		.{ mode=.NORMAL, keys="I"}
+	]},
+	.{ "Enter Insert Mode End Of Line", 0, enter_insert_mode_line_end, .[
+		.{ mode=.NORMAL, keys="A"}
+	]},
 	.{ "Enter Normal Mode", 0, enter_normal_mode, .[
 		.{ mode=.NORMAL, keys="<escape>"},
 		.{ mode=.INSERT, keys="<escape>"},
