@@ -176,6 +176,10 @@ open_file :: (panel: *Panel, args: []string) {
 	filesystem_nav_refresh_directory_list(*panel.filesystemNav);
 }
 
+save_file :: (panel: *Panel, args: []string) {
+	document_save(panel.document, panel.document.path);
+}
+
 print_piece_chain_debug :: (panel: *Panel, args: []string) {
 	document_debug_print_piece_chain(panel.document);
 }
@@ -356,7 +360,7 @@ insert_mode_handle_text_input :: (char: Utf8_Char) {
 }
 
 insert_mode_line_break :: (using panel: *Panel, args: []string) {
-	textToInsert := "\r\n"; // @todo this should be changed depenending on document type
+	textToInsert := "\r\n"; // @todo crlf assumption, this should be changed depenending on document type
 	insert_mode_insert_string(textToInsert);
 }
 

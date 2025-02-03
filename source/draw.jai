@@ -192,6 +192,7 @@ draw_panel :: (panel: *Panel) {
 	}
 
 	// collect together the actual lines of text we need to render
+	// @todo: refactor to use document cursors to walk through text rather than get_line_content for every line
 	linesOnScreen: [..]string;
 	linesOnScreen.allocator = temp;
 	for startVisibleLines..endVisibleLines {

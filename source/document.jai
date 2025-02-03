@@ -203,6 +203,30 @@ document_open :: (path: string) {
 	focusedPanel.cursor.anchor.node = mainDocument.pieceChainHead;
 }
 
+document_save :: (doc: *Document, path: string) {
+	fileHandle, success := file_open(path, true, false);
+	if success {
+		cursor: DocumentCursor;
+		cursor.doc = doc;
+		cursor.node = doc.pieceChainHead;
+
+		while cursor.node != null {
+			buffer: = ifx cursor.node.added then *cursor.doc.addedData else *cursor.doc.originalData;
+			bufferStartOffset := buffer_cursor_to_offset(buffer, cursor.node.start);
+
+			success := file_write(*fileHandle, buffer.text.data + bufferStartOffset, cursor.node.length);
+
+			// move cursor to next node
+			cursor.documentOffset += cursor.node.length;
+			cursor.nodeStartOffset += cursor.node.length;
+			cursor.nodeStartLine += cursor.node.lineFeedCount;
+			cursor.node = cursor.node.next;
+		}
+
+		file_close(*fileHandle);
+	}
+}
+
 document_insert_text :: (doc: *Document, at: DocumentCursor, t: string) -> DocumentCursor {
 
 	// actually add the new text to a buffer, updating linestarts and what not
@@ -728,7 +752,7 @@ document_cursor_get_char :: (cursor: *DocumentCursor) -> u8 {
 		char := buffer.text[bufferOffset];
 		// if we iterated to a carraige return, we'd skip over it, so matching that behaviour
 		// with a small hack that assumes newline always comes next
-		// @todo: check if we can make this assumption?
+		// @todo crlf assumption, check if we can make this assumption in the case where we are using lf line endings
 		if char == #char "\r" return #char "\n"; else return char;
 	}
 
@@ -855,7 +879,7 @@ nodeTrimLeft :: (node: *PieceChainNode, buffer: *Buffer, pos: Coordinate) {
 	lenRight := (bufferOffsetStart + node.length) - bufferOffsetSplit;
 
 	// @todo crlf support, prevent splitting in the middle of a crlf
-	// we may not need this now that the cursors skip over carraige returns
+	// we may not need this now that the cursors skip over carraige returns, just remove it and test
 	splitPos := pos;
 	if bufferOffsetSplit < buffer.text.count && buffer.text[bufferOffsetSplit] == #char "\n" {
 		// we want to move right over the newline, rolling us over onto a new line

@@ -47,6 +47,7 @@ keyMap: KeyMap;
 // if they can't be selected, filter them out when doing fuzzy filtering
 commandList :: Command.[
 	.{ "Quit", 0, quit, .[.{mode=.NORMAL, keys="Q"}]},
+	.{ "Save File", 0, save_file, .[.{mode=.NORMAL, keys="ctrl+s"}]},
 
 	// motions
 	.{ "Move one char left", .REPEATABLE, move_one_char_left, .[
