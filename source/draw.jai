@@ -288,8 +288,16 @@ draw_panel :: (panel: *Panel) {
 		modeText = "INS";
 	}
 
+	lineEndingText := "[Mixed line endings, will be normalized to CRLF on save]";
+	if panel.document.lineEndings == .LF {
+		lineEndingText = "LF";
+	}
+	else if panel.document.lineEndings == .CRLF {
+		lineEndingText = "CRLF";
+	}
+
 	cursorCoordinate := document_cursor_get_coordinate(*panel.cursor.head);
-	width := Simp.prepare_text(my_font, tprint("% | % - %:% crlf", modeText, panel.document.path, cursorCoordinate.line+1, cursorCoordinate.col));
+	width := Simp.prepare_text(my_font, tprint("% | % - %:% %", modeText, panel.document.path, cursorCoordinate.line+1, cursorCoordinate.col, lineEndingText));
 	Simp.draw_prepared_text(my_font, 2, my_font.character_height + 2, Vector4.{0.8, 0.8, 0.8, 1.0});
 
 	pendingKeys := string.{keyMap.pendingKeyString.count, keyMap.pendingKeyString.data};

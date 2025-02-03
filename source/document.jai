@@ -18,6 +18,7 @@ Document :: struct {
 	pieceChainTail: *PieceChainNode;
 	
 	size: s64;
+	lineEndings: LineEndingMode;
 
 	path: string;
 	lastInsert: Coordinate;
@@ -39,6 +40,12 @@ Coordinate :: struct {
 Buffer :: struct {
 	text: []u8;
 	lineStarts: [..]s64;
+}
+
+LineEndingMode :: enum {
+	LF;
+	CRLF;
+	MIXED;
 }
 
 // proposal, use s32's instead to make this struct
@@ -131,12 +138,43 @@ document_open :: (path: string) {
 	// setup original data buffer
 	doc.originalData.text.data = file.data;
 	doc.originalData.text.count = file.count;
+
+	// find and count linestarts
 	doc.originalData.lineStarts.allocator = doc.pieceChainAlloc;
 	array_add(*doc.originalData.lineStarts, 0);
-	for byte, i: doc.originalData.text {
-		if byte == #char "\n" {
+	lfCount := 0;
+	crCount := 0;
+	crlfCount := 0;
+	i := 0;
+	while i < doc.originalData.text.count {
+		byte := doc.originalData.text[i];
+		if byte == #char "\r" {
+			if i < file.count-1 && doc.originalData.text[i+1] == #char "\n" {
+				crlfCount += 1;
+				array_add(*doc.originalData.lineStarts, xx (i+2));
+				i += 1; // skip \n
+			}
+			else {
+				crCount += 1;
+			}
+		}
+		else if byte == #char "\n" {
+			lfCount += 1;
 			array_add(*doc.originalData.lineStarts, xx (i+1));
 		}
+		i += 1;
+	}
+	if lfCount > 0 && crlfCount == 0 && crCount == 0 {
+		doc.lineEndings = .LF;
+	}
+	else if lfCount == 0 && crlfCount > 0 && crCount == 0 {
+		doc.lineEndings = .CRLF;
+	}
+	else if lfCount > 0 && crlfCount > 0 && crCount == 0 {
+		doc.lineEndings = .MIXED;
+	}
+	else if crCount > 0 {
+		assert(false, "Cannot cope with cr line endings, this file is bad news");
 	}
 
 	// setup added data buffer
