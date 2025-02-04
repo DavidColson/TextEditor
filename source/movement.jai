@@ -158,6 +158,15 @@ goto_document_start :: (using panel: *Panel, args: []string) {
 	if !extendSelections {
 		cursor.anchor = cursor.head;
 	}
+
+	// scroll the window if the cursor will now become out of view
+	startVisibleLine, endVisibleLine := panel_calculate_visible_lines(panel);
+	targetLine := 0;
+	currentLine := document_cursor_get_line(*cursor.head);
+	if targetLine <= startVisibleLine {
+		difference := currentLine - startVisibleLine;
+		scrollPos -= my_font.character_height * (difference-1);
+	}
 }
 
 goto_document_end :: (using panel: *Panel, args: []string) {
@@ -165,6 +174,15 @@ goto_document_end :: (using panel: *Panel, args: []string) {
 
 	if !extendSelections {
 		cursor.anchor = cursor.head;
+	}
+
+	// scroll the window if the cursor will now become out of view
+	startVisibleLine, endVisibleLine := panel_calculate_visible_lines(panel);
+	targetLine := document_get_num_lines(panel.document);
+	currentLine := document_cursor_get_line(*cursor.head);
+	if targetLine >= (endVisibleLine-1) {
+		difference := (endVisibleLine-1) - currentLine;
+		scrollPos += my_font.character_height * (difference-1);
 	}
 }
 
