@@ -122,6 +122,18 @@ main :: () {
 		scrollPos += Input.mouse_delta_z;
 		scrollPos = clamp(scrollPos, -(my_font.character_height * numLines) + my_font.character_height * 5, 0);
 
+		// keep the cursor on the screen when we scroll
+		startVisibleLine, endVisibleLine := panel_calculate_visible_lines(*focusedPanel);
+		cursorLine := document_cursor_get_line(*focusedPanel.cursor.head);
+		if cursorLine < startVisibleLine {
+			move_to_line_visual(*focusedPanel, cursorLine, startVisibleLine);
+			focusedPanel.cursor.anchor = focusedPanel.cursor.head;
+		}
+		else if cursorLine > endVisibleLine {
+			move_to_line_visual(*focusedPanel, cursorLine, endVisibleLine-1);
+			focusedPanel.cursor.anchor = focusedPanel.cursor.head;
+		}
+
         sleep_milliseconds(16);
         reset_temporary_storage();
     }
@@ -434,6 +446,24 @@ convert_cursor_to_coordinate_range :: (cursor: Cursor, includeCursor: bool = tru
 		}
 	}
 	return rangeStart, rangeEnd;
+}
+
+panel_calculate_visible_lines :: (panel: *Panel, clamped := false) -> s64, s64 {
+	numLines := document_get_num_lines(panel.document);
+	// @todo: these need to be parameterized styling values for the UI
+	headerPadding := 8;
+	headerHeight := my_font.character_height + headerPadding;
+	heightForCode := panel.rect.h - headerHeight;
+	startVisibleLines := clamp(-scrollPos / my_font.character_height, 0, numLines - 1);
+	endVisibleLinesUnclamped := startVisibleLines + cast(s64)heightForCode / my_font.character_height;
+	endVisibleLines := clamp(endVisibleLinesUnclamped, 0, numLines - 1);
+
+	if clamped {
+		return startVisibleLines, endVisibleLines;
+	}
+	else {
+		return startVisibleLines, endVisibleLinesUnclamped;
+	}
 }
 
 // @todo: this is windows only, move to windows file

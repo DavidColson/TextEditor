@@ -125,6 +125,13 @@ move_one_line_down :: (using panel: *Panel, args: []string) {
 	if !extendSelections {
 		cursor.anchor = cursor.head;
 	}
+
+	// scroll the window if the cursor will now become out of view
+	startVisibleLine, endVisibleLine := panel_calculate_visible_lines(panel);
+	if newLine >= (endVisibleLine-1) {
+		difference := (endVisibleLine-1) - currentLine;
+		scrollPos += my_font.character_height * (difference-1);
+	}
 }
 
 move_one_line_up :: (using panel: *Panel, args: []string) {
@@ -135,6 +142,13 @@ move_one_line_up :: (using panel: *Panel, args: []string) {
 
 	if !extendSelections {
 		cursor.anchor = cursor.head;
+	}
+
+	// scroll the window if the cursor will now become out of view
+	startVisibleLine, endVisibleLine := panel_calculate_visible_lines(panel);
+	if newLine <= startVisibleLine {
+		difference := currentLine - startVisibleLine;
+		scrollPos -= my_font.character_height * (difference-1);
 	}
 }
 
