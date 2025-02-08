@@ -70,15 +70,22 @@ filesystem_nav_action_item :: (using panel: *Panel, args: []string) {
 	state := *filesystemNav;
 
 	if state.pendingAction {
-		// @todo: the action may be more than just open, could be delete or rename
-		document_open(make_path_from_strings(state.currentPath,,temp));
-		editorMode = .NORMAL;
-		filesystem_nav_reset(state);
-	} else {
+		if state.saveMode {
+			document_save(panel.document, make_path_from_strings(state.currentPath,,temp));
+			editorMode = .NORMAL;
+			filesystem_nav_reset(state);
+		}
+		else {
+			// @todo: the action may be more than just open, could be delete or rename
+			document_open(make_path_from_strings(state.currentPath,,temp));
+			editorMode = .NORMAL;
+			filesystem_nav_reset(state);
+		}
+	}
+	else {
 		item := state.itemList[state.selectedItem];
 		if item.saveItem {
 			// save item, we need to save this file
-			// @todo: if file exists, then ask if they want to overwrite the file
 			fileName := copy_string(string.{state.textInput.count, state.textInput.data},,get_allocator(state));
 			array_add(*state.currentPath, fileName,, get_allocator(state));
 			document_save(panel.document, make_path_from_strings(state.currentPath,,temp));
@@ -173,7 +180,7 @@ filesystem_nav_filter_directory_list :: (state: *FilesystemNavigator) {
 		}
 		else {
 			// save item special case
-			if state.textInput.count > 0 {
+			if state.currentPath.count > 0 && state.textInput.count > 0 {
 				item.sortKey = 1;
 			}
 			else {

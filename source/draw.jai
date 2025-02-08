@@ -45,7 +45,12 @@ draw_filesystem_navigator :: (panelRect: Rect, navigator: *FilesystemNavigator) 
 	textX := curPathRect.x + 2;
 
 	if navigator.pendingAction {
-		Simp.prepare_text(my_font, "Enter: open file - D: Delete File - R: Rename/Move");
+		if navigator.saveMode {
+			Simp.prepare_text(my_font, "Overwite file? Enter: Confirm - Esc: Cancel");
+		}
+		else {
+			Simp.prepare_text(my_font, "Enter: open file - D: Delete File - R: Rename/Move");
+		}
 		Simp.draw_prepared_text(my_font, xx textX, xx textY, Vector4.{0.7, 0.7, 0.7, 1.0});
 	}
 	else {
@@ -85,7 +90,7 @@ draw_filesystem_navigator :: (panelRect: Rect, navigator: *FilesystemNavigator) 
 	}
 	
 	// special case, draw the save as item
-	if navigator.saveMode && navigator.textInput.count > 0 {
+	if navigator.saveMode && navigator.currentPath.count > 0 && navigator.textInput.count > 0 {
 		entryRect.y -= entryHeight;
 		builder: String_Builder;
 		builder.allocator = temp;

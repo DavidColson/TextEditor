@@ -229,6 +229,7 @@ document_save :: (doc: *Document, path: string) {
 
 		file_close(*fileHandle);
 	}
+	doc.path = copy_string(path,,doc.documentAlloc);
 }
 
 document_insert_text :: (doc: *Document, at: DocumentCursor, t: string) -> DocumentCursor {
