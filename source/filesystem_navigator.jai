@@ -5,6 +5,7 @@ FilesystemNavigator :: struct {
 	textInput: [..]u8;
 	cursor: s32;
 
+	saveMode: bool;
 	pendingAction: bool;
 	currentPath: [..]string;
 	itemList: [..]Item;
@@ -14,19 +15,23 @@ FilesystemNavigator :: struct {
 	Item :: struct {
 		name: string;
 		sortKey: s64;
+		saveItem: bool;
 	}
 }
 
 filesystem_nav_reset :: (state: *FilesystemNavigator) {
+	state.cursor = 0;
+	state.saveMode = false;
+	state.numToDisplay = 0;
+	state.pendingAction = false;
+	array_reset(*state.currentPath);
+	array_reset(*state.itemList);
+	array_reset(*state.textInput);
 	#if BUILD_TYPE == BuildType.DEBUG {
 		reset(*state.memory, overwrite_memory=true);
 	} else {
 		reset(*state.memory, overwrite_memory=false);
 	}
-	state.cursor = 0;
-	state.numToDisplay = 0;
-	state.pendingAction = false;
-	array_reset(*state.currentPath);
 }
 
 filesystem_nav_delete_path :: (using panel: *Panel, args: []string) {
@@ -51,13 +56,13 @@ filesystem_nav_delete_path :: (using panel: *Panel, args: []string) {
 
 filesystem_nav_select_next :: (using panel: *Panel, args: []string) {
 	state := *filesystemNav;
-	maxItems := state.itemList.count - 1;
+	maxItems := state.numToDisplay - 1;
 	state.selectedItem = clamp(state.selectedItem+1, 0, xx maxItems);
 }
 
 filesystem_nav_select_previous :: (using panel: *Panel, args: []string) {
 	state := *filesystemNav;
-	maxItems := state.itemList.count - 1;
+	maxItems := state.numToDisplay - 1;
 	state.selectedItem = clamp(state.selectedItem-1, 0, xx maxItems);
 }
 
@@ -65,20 +70,32 @@ filesystem_nav_action_item :: (using panel: *Panel, args: []string) {
 	state := *filesystemNav;
 
 	if state.pendingAction {
+		// @todo: the action may be more than just open, could be delete or rename
 		document_open(make_path_from_strings(state.currentPath,,temp));
 		editorMode = .NORMAL;
 		filesystem_nav_reset(state);
 	} else {
 		item := state.itemList[state.selectedItem];
-
-		array_add(*state.currentPath, item.name,, get_allocator(state));
-
-		if platform_is_path_directory(make_path_from_strings(state.currentPath,,temp)) {
-			filesystem_nav_refresh_directory_list(state);
-			state.textInput.count = 0;
+		if item.saveItem {
+			// save item, we need to save this file
+			// @todo: if file exists, then ask if they want to overwrite the file
+			fileName := copy_string(string.{state.textInput.count, state.textInput.data},,get_allocator(state));
+			array_add(*state.currentPath, fileName,, get_allocator(state));
+			document_save(panel.document, make_path_from_strings(state.currentPath,,temp));
+			editorMode = .NORMAL;
+			filesystem_nav_reset(state);
 		}
 		else {
-			state.pendingAction = true;
+			// normal case, add path element to list and refresh
+			array_add(*state.currentPath, item.name,, get_allocator(state));
+
+			if platform_is_path_directory(make_path_from_strings(state.currentPath,,temp)) {
+				filesystem_nav_refresh_directory_list(state);
+				state.textInput.count = 0;
+			}
+			else {
+				state.pendingAction = true;
+			}
 		}
 	}
 }
@@ -97,8 +114,17 @@ filesystem_nav_rename_move_item :: (using panel: *Panel, args: []string) {
 
 filesystem_nav_handle_text_input :: (state: *FilesystemNavigator, char: Utf8_Char) {
 	for 0..char.count-1 {
-		array_add(*state.textInput, char.bytes[it],,get_allocator(state));
-		state.cursor += 1;
+		// When you're in save mode we let you create new path sections by using path dividers
+		if state.saveMode && (char.bytes[it] == #char "/" || char.bytes[it] == #char "\\") {
+			dirName := copy_string(string.{state.textInput.count, state.textInput.data},,get_allocator(state));
+			array_add(*state.currentPath, dirName,, get_allocator(state));
+			filesystem_nav_refresh_directory_list(state);
+			state.textInput.count = 0;
+		}
+		else {
+			array_add(*state.textInput, char.bytes[it],,get_allocator(state));
+			state.cursor += 1;
+		}
 	}
 	filesystem_nav_filter_directory_list(state);
 }
@@ -106,6 +132,8 @@ filesystem_nav_handle_text_input :: (state: *FilesystemNavigator, char: Utf8_Cha
 filesystem_nav_refresh_directory_list :: (state: *FilesystemNavigator) {
 	state.numToDisplay = 0;
 	array_reset_keeping_memory(*state.itemList);
+	path := make_path_from_strings(state.currentPath,,temp);
+
 	// start with drives
 	if state.currentPath.count == 0 {
 		// @todo, at some point it should use the project directory maybe, or the current file
@@ -115,15 +143,21 @@ filesystem_nav_refresh_directory_list :: (state: *FilesystemNavigator) {
 			item.sortKey = 1;
 			state.numToDisplay += 1;
 		}
-	} else {
+	} else if file_exists(path) {
 		visitor :: (info: *File_Visit_Info, state: *FilesystemNavigator) {
 			new_item: FilesystemNavigator.Item;
 			new_item.name = copy_string(info.short_name,,get_allocator(state));
 			new_item.sortKey = 1;
 			array_add(*state.itemList, new_item,,get_allocator(state));
 		}
-		visit_files(make_path_from_strings(state.currentPath,,temp), false, state, visitor, visit_directories=true);
+		visit_files(path, false, state, visitor, visit_directories=true);
 		state.numToDisplay = state.itemList.count;
+	}
+
+	if state.saveMode {
+		item := array_add(*state.itemList,,get_allocator(state));
+		item.sortKey = 1;
+		item.saveItem = true;
 	}
 
 	maxItems := state.itemList.count - 1;
@@ -134,9 +168,20 @@ filesystem_nav_filter_directory_list :: (state: *FilesystemNavigator) {
 	state.numToDisplay = 0;
 	search_query:= string.{state.textInput.count, state.textInput.data};
 	for * item: state.itemList {
-		score := fuzzy_search(item.name, search_query);
-		item.sortKey = score;
-		if score > 0 {
+		if !item.saveItem {
+			item.sortKey = fuzzy_search(item.name, search_query);
+		}
+		else {
+			// save item special case
+			if state.textInput.count > 0 {
+				item.sortKey = 1;
+			}
+			else {
+				item.sortKey = 0;
+			}
+		}
+
+		if item.sortKey > 0 {
 			state.numToDisplay += 1;
 		}
 	}

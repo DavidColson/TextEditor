@@ -66,6 +66,7 @@ draw_filesystem_navigator :: (panelRect: Rect, navigator: *FilesystemNavigator) 
 		Simp.draw_prepared_text(my_font, xx textX, xx textY, Vector4.{0.8, 0.8, 0.8, 1.0});
 	}
 
+	// draw list of options
 	entryRect := cut_bottom(navigatorRect, xx entryHeight);
 	for * item, i: navigator.itemList  {
 		if item.sortKey == 0 continue;
@@ -77,7 +78,28 @@ draw_filesystem_navigator :: (panelRect: Rect, navigator: *FilesystemNavigator) 
 		}
 
 		width := Simp.prepare_text(my_font, item.name);
+		textX = entryRect.x + entryPadding;
+		textY = entryRect.y + entryHeight - 8;
+		Simp.draw_prepared_text(my_font, xx textX, xx textY, Vector4.{0.8, 0.8, 0.8, 1.0});
+		entryRect.y += entryHeight;
+	}
+	
+	// special case, draw the save as item
+	if navigator.saveMode && navigator.textInput.count > 0 {
+		entryRect.y -= entryHeight;
+		builder: String_Builder;
+		builder.allocator = temp;
+		init_string_builder(*builder);
 
+		append(*builder, "Save As - ");
+		for navigator.currentPath {
+			append(*builder, it);
+			if (it_index != navigator.currentPath.count-1)  append(*builder, "/");
+		}
+		append(*builder, "/");
+		append(*builder, string.{navigator.textInput.count, navigator.textInput.data});
+    
+		Simp.prepare_text(my_font, builder_to_string(*builder,,temp));
 		textX = entryRect.x + entryPadding;
 		textY = entryRect.y + entryHeight - 8;
 		Simp.draw_prepared_text(my_font, xx textX, xx textY, Vector4.{0.8, 0.8, 0.8, 1.0});

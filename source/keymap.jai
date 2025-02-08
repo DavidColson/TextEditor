@@ -48,6 +48,7 @@ keyMap: KeyMap;
 commandList :: Command.[
 	.{ "Quit", 0, quit, .[.{mode=.NORMAL, keys="Q"}]},
 	.{ "Save File", 0, save_file, .[.{mode=.NORMAL, keys="ctrl+s"}]},
+	.{ "Save File As", 0, save_file_as, .[.{mode=.NORMAL, keys="ctrl+shift+s"}]},
 
 	// motions
 	.{ "Move one char left", .REPEATABLE, move_one_char_left, .[

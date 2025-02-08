@@ -34,7 +34,7 @@ command_picker_reset :: (state: *CommandPicker) {
 	state.cursor = 0;
 	state.selectedCommand = 0;
 	array_reset(*state.filteredCommandList);
-	state.textInput.count = 0;
+	array_reset(*state.textInput);
 	#if BUILD_TYPE == BuildType.DEBUG {
 		reset(*state.memory, overwrite_memory=true);
 	} else {

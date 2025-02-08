@@ -85,7 +85,7 @@ main :: () {
 	focusedPanel.rect.h = xx windowHeight;
 	focusedPanel.document = *mainDocument;
 
-	document_open("C:/Dev/TextEditor/build.jai");
+	document_open("C:/Dev/TextEditor/test.jai");
 
     want_screenshot := false;
     while !pendingQuit {
@@ -190,6 +190,13 @@ open_file :: (panel: *Panel, args: []string) {
 
 save_file :: (panel: *Panel, args: []string) {
 	document_save(panel.document, panel.document.path);
+}
+
+save_file_as :: (panel: *Panel, args: []string) {
+	// open filesystem navigator
+	editorMode = .FILESYSTEM_NAVIGATOR;
+	panel.filesystemNav.saveMode = true;
+	filesystem_nav_refresh_directory_list(*panel.filesystemNav);
 }
 
 print_piece_chain_debug :: (panel: *Panel, args: []string) {

@@ -204,6 +204,10 @@ document_open :: (path: string) {
 }
 
 document_save :: (doc: *Document, path: string) {
+	// @todo: better error reporting (notifications)
+	directory_make_success := make_directory_if_it_does_not_exist(path_strip_filename(path), recursive = true);
+    if !directory_make_success print("Failed to make directory for file save");
+
 	fileHandle, success := file_open(path, true, false);
 	if success {
 		cursor: DocumentCursor;
