@@ -212,7 +212,7 @@ document_open :: (path: string) {
 	push_notification("Document Opened");
 }
 
-document_save :: (doc: *Document, path: string) {
+document_save :: (doc: *Document, path: string, backup := false) {
 	// @todo: better error reporting (notifications)
 	directory_make_success := make_directory_if_it_does_not_exist(path_strip_filename(path), recursive = true);
     if !directory_make_success push_notification("Failed to make directory for file save");
@@ -241,9 +241,14 @@ document_save :: (doc: *Document, path: string) {
 	else {
 		push_notification("Failed to save file");
 	}
-	doc.path = copy_string(path,,doc.documentAlloc);
-	doc.unsaved = false;
-	push_notification("Document Saved");
+	if !backup {
+		doc.path = copy_string(path,,doc.documentAlloc);
+		doc.unsaved = false;
+		push_notification("Document Saved");
+	}
+	else {
+		push_notification("Backup Saved");
+	}
 }
 
 document_insert_text :: (doc: *Document, at: DocumentCursor, t: string) -> DocumentCursor {

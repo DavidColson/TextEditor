@@ -179,7 +179,7 @@ main :: () {
 				append(*builder, "\\backups\\");
 				append(*builder, path_filename(mainDocument.path));
 
-				document_save(*mainDocument, builder_to_string(*builder,,temp));
+				document_save(*mainDocument, builder_to_string(*builder,,temp), true);
 			}
 		}
 
