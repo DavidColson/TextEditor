@@ -22,6 +22,7 @@ Document :: struct {
 
 	path: string;
 	lastInsert: Coordinate;
+	unsaved: bool;
 }
 
 DocumentCursor :: struct {
@@ -134,6 +135,7 @@ document_open :: (path: string) {
 	doc.path = copy_string(path,,doc.documentAlloc);
     file := read_entire_file(path,,doc.documentAlloc);
 	doc.size = file.count;
+	doc.unsaved = false;
 
 	// setup original data buffer
 	doc.originalData.text.data = file.data;
@@ -230,10 +232,11 @@ document_save :: (doc: *Document, path: string) {
 		file_close(*fileHandle);
 	}
 	doc.path = copy_string(path,,doc.documentAlloc);
+	doc.unsaved = false;
 }
 
 document_insert_text :: (doc: *Document, at: DocumentCursor, t: string) -> DocumentCursor {
-
+	doc.unsaved = true;
 	// actually add the new text to a buffer, updating linestarts and what not
 	text := copy_string(t,, doc.documentAlloc);
 	currentBufferEnd := doc.addedData.text.count;
@@ -365,7 +368,7 @@ document_insert_text :: (doc: *Document, at: DocumentCursor, t: string) -> Docum
 }
 
 document_delete_text :: (doc: *Document, startAt: DocumentCursor, endAt: DocumentCursor) -> DocumentCursor {
-
+	doc.unsaved = true;
 	startBuffer: = ifx startAt.node.added then *doc.addedData else *doc.originalData;
 	endBuffer: = ifx endAt.node.added then *doc.addedData else *doc.originalData;
 
