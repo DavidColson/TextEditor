@@ -133,7 +133,12 @@ document_open :: (path: string) {
 	doc.pieceChainAlloc = Allocator.{ proc = flat_pool_allocator_proc, data = *doc.pieceChainMemory };
 
 	doc.path = copy_string(path,,doc.documentAlloc);
-    file := read_entire_file(path,,doc.documentAlloc);
+    file, success := read_entire_file(path,,doc.documentAlloc);
+	if !success {
+		push_notification("File open failed");
+		// @todo: better cleanup
+		return;
+	}
 	doc.size = file.count;
 	doc.unsaved = false;
 
@@ -203,12 +208,14 @@ document_open :: (path: string) {
 	focusedPanel.cursor.head.node = mainDocument.pieceChainHead;
 	focusedPanel.cursor.anchor.doc = focusedPanel.document;
 	focusedPanel.cursor.anchor.node = mainDocument.pieceChainHead;
+
+	push_notification("Document Opened");
 }
 
 document_save :: (doc: *Document, path: string) {
 	// @todo: better error reporting (notifications)
 	directory_make_success := make_directory_if_it_does_not_exist(path_strip_filename(path), recursive = true);
-    if !directory_make_success print("Failed to make directory for file save");
+    if !directory_make_success push_notification("Failed to make directory for file save");
 
 	fileHandle, success := file_open(path, true, false);
 	if success {
@@ -231,8 +238,12 @@ document_save :: (doc: *Document, path: string) {
 
 		file_close(*fileHandle);
 	}
+	else {
+		push_notification("Failed to save file");
+	}
 	doc.path = copy_string(path,,doc.documentAlloc);
 	doc.unsaved = false;
+	push_notification("Document Saved");
 }
 
 document_insert_text :: (doc: *Document, at: DocumentCursor, t: string) -> DocumentCursor {

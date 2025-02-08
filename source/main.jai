@@ -34,9 +34,15 @@ EditorMode :: enum u8 {
 	FILESYSTEM_NAVIGATOR;
 }
 
+Notification :: struct {
+	content: string;
+	timer: float64;
+}
+
 EDITOR_MODE_NUM :: #run enum_highest_value(EditorMode) + 1;
 
 // globals
+// @todo: should put this in a global editor state struct
 editorMode := EditorMode.NORMAL;
 extendSelections := false;
 focusedPanel : Panel;
@@ -46,6 +52,10 @@ window: Window_Type;
 windowWidth  : s32 = 1920;
 windowHeight : s32 = 1080;
 pendingQuit := false;
+
+notifications : [10]Notification;
+numActiveNotifications := 0;
+notificationTime: float64 = 10;
 
 // options
 textSize :: 15;
@@ -87,8 +97,16 @@ main :: () {
 
 	document_open("C:/Dev/TextEditor/test.jai");
 
+	lastTime := seconds_since_init();
     want_screenshot := false;
     while !pendingQuit {
+		now := seconds_since_init();
+		delta : float64 = now - lastTime;
+		lastTime = now;
+		// count time, every n minutes, trigger a save of the open file
+		// if there are edits that have not been saved
+		// save to exe location (working dir?) in a folder called backups
+
         Input.update_window_events();
 
         for Input.get_window_resizes() {
@@ -134,7 +152,24 @@ main :: () {
 			focusedPanel.cursor.anchor = focusedPanel.cursor.head;
 		}
 
-        sleep_milliseconds(16);
+		// update notifications
+		nNotificationsToRemove := 0;
+		it := 0;
+		while it < numActiveNotifications {
+			notif := *notifications[it];
+			notif.timer -= delta;
+			if notif.timer < 0 {
+				nNotificationsToRemove += 1;
+			}
+			it += 1;
+		}
+
+		if nNotificationsToRemove > 0 {
+			memcpy(notifications.data, notifications.data+nNotificationsToRemove, nNotificationsToRemove*size_of(Notification));
+			numActiveNotifications -= nNotificationsToRemove;
+		}
+
+        sleep_milliseconds(cast(s32) (16 - delta/1000));
         reset_temporary_storage();
     }
 }
@@ -201,6 +236,7 @@ save_file_as :: (panel: *Panel, args: []string) {
 
 print_piece_chain_debug :: (panel: *Panel, args: []string) {
 	document_debug_print_piece_chain(panel.document);
+	push_notification("Piecechain debug printed to stdout");
 }
 
 toggle_render_line_endings :: (panel: *Panel, args: []string) {
@@ -528,6 +564,21 @@ find_index_from_left_nocase :: (s: string, substring: string, start_index := 0) 
     }
 
     return -1;
+}
+
+// notifications
+
+// this function will not copy the string
+push_notification :: (message: string) {
+	if numActiveNotifications < 10 {
+		notifications[numActiveNotifications] = Notification.{message, notificationTime}; 
+		numActiveNotifications += 1;
+	}
+	else {
+		// we'll delete the oldest element to make space for this one, so no notifications get missed
+		memcpy(notifications.data, notifications.data+1, size_of(Notification));
+		notifications[9] = Notification.{message, 20}; 
+	}
 }
 
 

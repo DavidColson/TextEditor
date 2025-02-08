@@ -8,7 +8,38 @@ draw_one_frame :: () {
     time := seconds_since_init();
 
 	draw_panel(*focusedPanel);
-    
+
+
+	// draw notifications
+	// @todo: styling variable here
+	notificationY := my_font.character_height + 20 ;
+	it := numActiveNotifications;
+	while it > 0 {
+		notif := notifications[it-1];
+		
+		width := Simp.prepare_text(my_font, notif.content);
+
+		Simp.set_shader_for_color();
+		notifRect:Rect;
+		// @todo: styling variable
+		// @todo: make the notifications bigger and in bold
+		textPadding := 5;
+		notifRect.w = cast(float) width + textPadding * 2;
+		notifRect.h = cast(float) my_font.character_height + 4;
+		notifRect.x = cast(float) windowWidth - (width + textPadding + 20);
+		notifRect.y = cast(float) notificationY + (numActiveNotifications-it) * notifRect.h;
+
+		fadeOutTime := cast(float) notificationTime*0.3;
+		timeFactor := cast(float) clamp(notif.timer, 0.0, fadeOutTime) / fadeOutTime;
+		alpha := lerp(0.0, 1.0, timeFactor);
+		draw_rect(notifRect, Vector4.{c.x, c.y, c.z, alpha});
+
+		textX := notifRect.x + textPadding;
+		textY := notifRect.y + notifRect.h - textPadding;
+		Simp.draw_prepared_text(my_font, xx textX, xx textY, Vector4.{0.8, 0.8, 0.8, alpha});
+		it -= 1;
+	}
+
     Simp.swap_buffers(window);
 }
 
