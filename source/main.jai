@@ -52,6 +52,7 @@ window: Window_Type;
 windowWidth  : s32 = 1920;
 windowHeight : s32 = 1080;
 pendingQuit := false;
+backupSaveTimer:float64 = 300;
 
 notifications : [10]Notification;
 numActiveNotifications := 0;
@@ -103,9 +104,6 @@ main :: () {
 		now := seconds_since_init();
 		delta : float64 = now - lastTime;
 		lastTime = now;
-		// count time, every n minutes, trigger a save of the open file
-		// if there are edits that have not been saved
-		// save to exe location (working dir?) in a folder called backups
 
         Input.update_window_events();
 
@@ -167,6 +165,22 @@ main :: () {
 		if nNotificationsToRemove > 0 {
 			memcpy(notifications.data, notifications.data+nNotificationsToRemove, nNotificationsToRemove*size_of(Notification));
 			numActiveNotifications -= nNotificationsToRemove;
+		}
+
+		// update backups timer
+		backupSaveTimer -= delta;
+		if backupSaveTimer <= 0 {
+			if mainDocument.unsaved {
+				builder : String_Builder;
+				builder.allocator = temp;
+				init_string_builder(*builder);
+
+				append(*builder, get_working_directory());
+				append(*builder, "\\backups\\");
+				append(*builder, path_filename(mainDocument.path));
+
+				document_save(*mainDocument, builder_to_string(*builder,,temp));
+			}
 		}
 
         sleep_milliseconds(cast(s32) (16 - delta/1000));
