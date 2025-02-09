@@ -139,6 +139,10 @@ commandList :: Command.[
 	.{ "Toggle Extend Selections", 0, toggle_extend_selections, .[
 		.{ mode=.NORMAL, keys="v"}
 	]},
+	.{ "Search Document", 0, search_document, .[
+		.{ mode=.NORMAL, keys="/"}
+	]},
+	
 
 	// changes
 	.{ "Delete selection", 0, delete_selection, .[

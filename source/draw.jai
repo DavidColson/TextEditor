@@ -67,7 +67,7 @@ draw_filesystem_navigator :: (panelRect: Rect, navigator: *FilesystemNavigator) 
 
 	inputRect: Rect;
 	inputRect, navigatorRect = cut_bottom(navigatorRect, xx entryHeight);
-	inputRect = shrink(inputRect, 3);
+	inputRect = shrink(inputRect, 4);
 	draw_rect(inputRect, Vector4.{0.5, 0.5, 0.5, 1.0});
 
 	curPathRect: Rect;
@@ -344,13 +344,13 @@ draw_panel :: (panel: *Panel) {
 
 	cursorCoordinate := document_cursor_get_coordinate(*panel.cursor.head);
 	width := Simp.prepare_text(my_font, tprint("% | %0% - %:% %", 
-	modeText,
-	panel.document.path,
-	ifx panel.document.unsaved then "[UNSAVED]" else "",
-	cursorCoordinate.line+1,
-	cursorCoordinate.col,
-	lineEndingText));
-	Simp.draw_prepared_text(my_font, 2, my_font.character_height + 2, Vector4.{0.8, 0.8, 0.8, 1.0});
+								modeText,
+								panel.document.path,
+								ifx panel.document.unsaved then "[UNSAVED]" else "",
+								cursorCoordinate.line+1,
+								cursorCoordinate.col,
+								lineEndingText));
+								Simp.draw_prepared_text(my_font, 2, my_font.character_height + 2, Vector4.{0.8, 0.8, 0.8, 1.0});
 
 	pendingKeys := string.{keyMap.pendingKeyString.count, keyMap.pendingKeyString.data};
 	width = Simp.prepare_text(my_font, tprint("%", pendingKeys));
@@ -363,6 +363,34 @@ draw_panel :: (panel: *Panel) {
 
 	if editorMode == .FILESYSTEM_NAVIGATOR {
 		draw_filesystem_navigator(panel.rect, *panel.filesystemNav);
+	}
+
+	// Draw search bar
+	if panel.searchActive {
+		Simp.set_shader_for_color();
+
+		// @todo: styling params
+		searchBarTextPadding := 3;
+		searchBarInputBoxPadding := 4;
+
+		searchBarRect: Rect;
+		searchBarRect.w = cast(float) panel.rect.w;
+		searchBarRect.h = cast(float) my_font.character_height + searchBarInputBoxPadding*2 + searchBarTextPadding*2;
+		searchBarRect.x = cast(float) panel.rect.x;
+		searchBarRect.y = cast(float) panel.rect.h - searchBarRect.h;
+
+		draw_rect(searchBarRect, .{0.4, 0.4, 0.4, 1.0});
+
+		width = Simp.prepare_text(my_font, "Search: ");
+
+		inputBoxRect := shrink(searchBarRect, xx searchBarInputBoxPadding);
+		inputBoxRect.x += width + searchBarTextPadding;
+		inputBoxRect.w -= width + searchBarTextPadding;
+
+		Simp.draw_prepared_text(my_font, cast(s64) (inputBoxRect.x - width), cast(s64) (inputBoxRect.y + my_font.character_height), Vector4.{0.8, 0.8, 0.8, 1.0});
+
+		Simp.set_shader_for_color();
+		draw_rect(inputBoxRect, .{0.5, 0.5, 0.5, 1.0});
 	}
 }
 

@@ -23,6 +23,7 @@ Panel :: struct {
 	rect: Rect;
 	commandMessage: string;
 
+	searchActive := false;
 	commandPicker: CommandPicker;
 	filesystemNav: FilesystemNavigator;
 }
@@ -278,6 +279,7 @@ enter_normal_mode :: (panel: *Panel, args: []string) {
 	}
 	editorMode = .NORMAL;
 	extendSelections = false;
+	panel.searchActive = false;
 }
 
 enter_insert_mode_start :: (using panel: *Panel, args: []string) {
@@ -405,6 +407,15 @@ new_line_above :: (using panel: *Panel, args: []string) {
 	enter_insert_mode_start(panel, args);
 }
 
+// search
+
+search_document :: (using panel: *Panel, args: []string) {
+	// show search bar
+	panel.searchActive = true;
+}
+
+// insert mode stuff
+
 insert_mode_insert_string :: (input: string) {
 	// do the insert
 	distanceToAnchor := focusedPanel.cursor.anchor.documentOffset - focusedPanel.cursor.head.documentOffset;
@@ -433,7 +444,6 @@ insert_mode_insert_string :: (input: string) {
 	extendSelections = false;
 }
 
-// insert mode text handler
 insert_mode_handle_text_input :: (char: Utf8_Char) {
 	textToInsert := to_string(*char);
 	insert_mode_insert_string(textToInsert);
