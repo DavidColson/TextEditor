@@ -201,9 +201,6 @@ commandList :: Command.[
 	.{ "Open Command Picker", .HIDDEN, command_picker_open, .[
 		.{ mode=.NORMAL, keys=":"}
 	]},
-	.{ "Delete Previous Char", .HIDDEN | .COMMAND_PICKER_ONLY, command_picker_delete_char, .[
-		.{ mode=.COMMAND_PICKER, keys="<backspace>"}
-	]},
 	.{ "Execute Command", .HIDDEN | .COMMAND_PICKER_ONLY, command_picker_execute_command, .[
 		.{ mode=.COMMAND_PICKER, keys="<enter>"}
 	]},
@@ -212,6 +209,12 @@ commandList :: Command.[
 	]},
 	.{ "Select Previous", .HIDDEN | .COMMAND_PICKER_ONLY, command_picker_select_previous, .[
 		.{ mode=.COMMAND_PICKER, keys="<up>"}
+	]},
+
+	// input fields
+	.{ "Delete left char", .HIDDEN, input_field_backspace_char, .[
+		.{ mode=.NORMAL, keys="<backspace>"},
+		.{ mode=.COMMAND_PICKER, keys="<backspace>"},
 	]},
 
 
@@ -351,18 +354,15 @@ input_handler :: (event: Input.Event) {
 	if event.type == .TEXT_INPUT {
 		char: Utf8_Char = convert_utf32_to_utf8(event.utf32);
 
-		// if there are no pending key sequences allow the current mode to take the text input
+		// if there are no pending key sequences give the text input to a currently focused input field
+		// otherwise normal insert mode can have it
 		if keyMap.pendingKeyNode == *keyMap.root[editorMode] {
-			if editorMode == .INSERT {
+			if focusedInputField {
+				input_field_handle_text_input(focusedInputField, char);
+				return;
+			}
+			else if editorMode == .INSERT {
 				insert_mode_handle_text_input(char);
-				return;
-			}
-			else if editorMode == .COMMAND_PICKER {
-				command_picker_handle_text_input(*focusedPanel.commandPicker, char);
-				return;
-			}
-			else if editorMode == .FILESYSTEM_NAVIGATOR {
-				filesystem_nav_handle_text_input(*focusedPanel.filesystemNav, char);
 				return;
 			}
 		}

@@ -48,6 +48,7 @@ editorMode := EditorMode.NORMAL;
 extendSelections := false;
 focusedPanel : Panel;
 mainDocument : Document;
+focusedInputField: *InputField = null;
 scrollPos := 0;
 window: Window_Type;
 windowWidth  : s32 = 1920;
@@ -237,8 +238,7 @@ quit :: (panel: *Panel, args: []string) {
 }
 
 open_file :: (panel: *Panel, args: []string) {
-	editorMode = .FILESYSTEM_NAVIGATOR;
-	filesystem_nav_refresh_directory_list(*panel.filesystemNav);
+	filesystem_nav_open(*panel.filesystemNav);
 }
 
 save_file :: (panel: *Panel, args: []string) {
@@ -246,10 +246,7 @@ save_file :: (panel: *Panel, args: []string) {
 }
 
 save_file_as :: (panel: *Panel, args: []string) {
-	// open filesystem navigator
-	editorMode = .FILESYSTEM_NAVIGATOR;
-	panel.filesystemNav.saveMode = true;
-	filesystem_nav_refresh_directory_list(*panel.filesystemNav);
+	filesystem_nav_open(*panel.filesystemNav, true);
 }
 
 print_piece_chain_debug :: (panel: *Panel, args: []string) {
@@ -736,6 +733,48 @@ to_string :: (utf8_char: *Utf8_Char) -> string {
     str.data  = *utf8_char.bytes[0];
     str.count = utf8_char.count;
     return str;
+}
+
+// simple input field
+
+InputField :: struct {
+	text: [..]u8;
+	cursor: s32;
+	onEditCallback: (*void, string);
+	userData: *void;
+}
+
+input_field_handle_text_input :: (inputField: *InputField, char: Utf8_Char) {
+	for 0..char.count-1 {
+		array_add(*inputField.text, char.bytes[it]);
+		inputField.cursor += 1;
+	}
+	inputField.onEditCallback(inputField.userData, string.{focusedInputField.text.count, focusedInputField.text.data});
+}
+
+input_field_backspace_char :: (using panel: *Panel, args: []string) {
+	if focusedInputField {
+		focusedInputField.text.count -= 1;
+		focusedInputField.cursor -= 1;
+		if focusedInputField.text.count <= 0 {
+			focusedInputField.text.count = 0;
+		}
+		focusedInputField.onEditCallback(focusedInputField.userData, string.{focusedInputField.text.count, focusedInputField.text.data});
+	}
+}
+
+input_field_reset :: (inputField: *InputField) {
+	array_reset(*inputField.text);
+	inputField.cursor = 0;
+}
+
+input_field_reset_keeping_memory :: (inputField: *InputField) {
+	inputField.text.count = 0;
+	inputField.cursor = 0;
+}
+
+input_field_get_text :: (inputField: *InputField) -> string {
+	return string.{inputField.text.count, inputField.text.data};
 }
 
 Utf8_Char :: struct {

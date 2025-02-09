@@ -98,7 +98,7 @@ draw_filesystem_navigator :: (panelRect: Rect, navigator: *FilesystemNavigator) 
 		}
 
 		// draw input filter text
-		Simp.prepare_text(my_font, string.{navigator.textInput.count, navigator.textInput.data});
+		Simp.prepare_text(my_font, input_field_get_text(*navigator.input));
 		Simp.draw_prepared_text(my_font, xx textX, xx textY, Vector4.{0.8, 0.8, 0.8, 1.0});
 	}
 
@@ -121,7 +121,7 @@ draw_filesystem_navigator :: (panelRect: Rect, navigator: *FilesystemNavigator) 
 	}
 	
 	// special case, draw the save as item
-	if navigator.saveMode && navigator.currentPath.count > 0 && navigator.textInput.count > 0 {
+	if navigator.saveMode && navigator.currentPath.count > 0 && navigator.input.text.count > 0 {
 		entryRect.y -= entryHeight;
 		builder: String_Builder;
 		builder.allocator = temp;
@@ -133,7 +133,7 @@ draw_filesystem_navigator :: (panelRect: Rect, navigator: *FilesystemNavigator) 
 			if (it_index != navigator.currentPath.count-1)  append(*builder, "/");
 		}
 		append(*builder, "/");
-		append(*builder, string.{navigator.textInput.count, navigator.textInput.data});
+		append(*builder, input_field_get_text(*navigator.input));
     
 		Simp.prepare_text(my_font, builder_to_string(*builder,,temp));
 		textX = entryRect.x + entryPadding;
@@ -166,7 +166,7 @@ draw_command_picker :: (panelRect: Rect, picker: *CommandPicker) {
 	inputRect = shrink(inputRect, 3);
 	draw_rect(inputRect, Vector4.{0.5, 0.5, 0.5, 1.0});
 
-	Simp.prepare_text(my_font, string.{picker.textInput.count, picker.textInput.data});
+	Simp.prepare_text(my_font, input_field_get_text(*picker.input));
 	textX := inputRect.x + commandEntryPadding;
 	textY := inputRect.y + commandEntryHeight - 10;
 	Simp.draw_prepared_text(my_font, xx textX, xx textY, Vector4.{0.8, 0.8, 0.8, 1.0});

@@ -130,7 +130,7 @@ document_open :: (path: string) {
 	doc := *mainDocument;
 	document_free(doc);
 
-	doc.documentMemory.alignment = 1; // @Todo, check this is okay, but it should be fine, we just want an endless char array
+	doc.documentMemory.alignment = 1;
 	doc.documentAlloc = Allocator.{ proc = flat_pool_allocator_proc, data = *doc.documentMemory };
 	doc.pieceChainAlloc = Allocator.{ proc = flat_pool_allocator_proc, data = *doc.pieceChainMemory };
 
