@@ -96,7 +96,7 @@ main :: () {
 	focusedPanel.rect.h = xx windowHeight;
 	focusedPanel.document = *mainDocument;
 
-	document_open("C:/Dev/TextEditor/test.jai");
+	document_open("C:/Dev/TextEditor/source/main.jai");
 
 	lastTime := seconds_since_init();
     want_screenshot := false;
@@ -130,12 +130,14 @@ main :: () {
 			input_handler(it);
 		}
 
+		// @todo: don't re-render if nothing's changed
 		draw_one_frame();
 
-		// todo: smooth lerp animations on this
+		// @todo: smooth lerp animations on this
 		// have a rawscroll value, and then a lerped value that we lerp toward every frame
-		numLines := document_get_num_lines(*mainDocument);
 		scrollPos += Input.mouse_delta_z;
+
+		numLines := document_get_num_lines(*mainDocument);
 		scrollPos = clamp(scrollPos, -(my_font.character_height * numLines) + my_font.character_height * 5, 0);
 
 		// keep the cursor on the screen when we scroll
@@ -187,6 +189,7 @@ main :: () {
         reset_temporary_storage();
     }
 }
+
 
 my_init_fonts :: () {
     my_font = Simp.get_font_at_size("fonts", "FiraMonoNerdFontMono-Medium.ttf", textSize);
@@ -475,6 +478,102 @@ insert_mode_delete_left_char :: (using panel: *Panel, args: []string) {
 	}
 }
 
+// view commands
+page_up :: (using panel: *Panel, args: []string) {
+	numLines := document_get_num_lines(*mainDocument);
+
+	startVisibleLine, endVisibleLine := panel_calculate_visible_lines(panel);
+	numVisibleLines := endVisibleLine - startVisibleLine;
+
+	scrollPosOld := scrollPos;
+	scrollPos += my_font.character_height * numVisibleLines;
+	scrollPos = clamp(scrollPos, -(my_font.character_height * numLines) + my_font.character_height * 5, 0);
+
+	if scrollPos != scrollPosOld {
+		cursorLine := document_cursor_get_line(*focusedPanel.cursor.head);
+		lineRelativeToPanel := cursorLine - startVisibleLine;
+		newLine := (startVisibleLine - numVisibleLines) + lineRelativeToPanel;
+		move_to_line_visual(*focusedPanel, cursorLine, newLine);
+		focusedPanel.cursor.anchor = focusedPanel.cursor.head;
+	}
+}
+
+page_down :: (using panel: *Panel, args: []string) {
+	numLines := document_get_num_lines(*mainDocument);
+
+	startVisibleLine, endVisibleLine := panel_calculate_visible_lines(panel);
+	numVisibleLines := endVisibleLine - startVisibleLine;
+
+	scrollPosOld := scrollPos;
+	scrollPos -= my_font.character_height * numVisibleLines;
+	scrollPos = clamp(scrollPos, -(my_font.character_height * numLines) + my_font.character_height * 5, 0);
+
+	if scrollPos != scrollPosOld {
+		cursorLine := document_cursor_get_line(*focusedPanel.cursor.head);
+		lineRelativeToPanel := cursorLine - startVisibleLine;
+		newLine := endVisibleLine + lineRelativeToPanel;
+		move_to_line_visual(*focusedPanel, cursorLine, newLine);
+		focusedPanel.cursor.anchor = focusedPanel.cursor.head;
+	}
+}
+
+half_page_up :: (using panel: *Panel, args: []string) {
+	numLines := document_get_num_lines(*mainDocument);
+
+	startVisibleLine, endVisibleLine := panel_calculate_visible_lines(panel);
+	linesToScroll := (endVisibleLine - startVisibleLine) / 2;
+
+	scrollPosOld := scrollPos;
+	scrollPos += my_font.character_height * linesToScroll;
+	scrollPos = clamp(scrollPos, -(my_font.character_height * numLines) + my_font.character_height * 5, 0);
+
+	if scrollPos != scrollPosOld {
+		cursorLine := document_cursor_get_line(*focusedPanel.cursor.head);
+		lineRelativeToPanel := cursorLine - startVisibleLine;
+		newLine := (startVisibleLine - linesToScroll) + lineRelativeToPanel;
+		move_to_line_visual(*focusedPanel, cursorLine, newLine);
+		focusedPanel.cursor.anchor = focusedPanel.cursor.head;
+	}
+}
+
+half_page_down :: (using panel: *Panel, args: []string) {
+	numLines := document_get_num_lines(*mainDocument);
+
+	startVisibleLine, endVisibleLine := panel_calculate_visible_lines(panel);
+	linesToScroll := (endVisibleLine - startVisibleLine) / 2;
+
+	scrollPosOld := scrollPos;
+	scrollPos -= my_font.character_height * linesToScroll;
+	scrollPos = clamp(scrollPos, -(my_font.character_height * numLines) + my_font.character_height * 5, 0);
+
+	if scrollPos != scrollPosOld {
+		cursorLine := document_cursor_get_line(*focusedPanel.cursor.head);
+		lineRelativeToPanel := cursorLine - startVisibleLine;
+		newLine := startVisibleLine + linesToScroll + lineRelativeToPanel;
+		move_to_line_visual(*focusedPanel, cursorLine, newLine);
+		focusedPanel.cursor.anchor = focusedPanel.cursor.head;
+	}
+}
+
+// panel functions @todo, move to it's own file
+panel_calculate_visible_lines :: (panel: *Panel, clamped := false) -> s64, s64 {
+	numLines := document_get_num_lines(panel.document);
+	// @todo: these need to be parameterized styling values for the UI
+	headerPadding := 8;
+	headerHeight := my_font.character_height + headerPadding;
+	heightForCode := panel.rect.h - headerHeight;
+	startVisibleLines := clamp(-scrollPos / my_font.character_height, 0, numLines - 1);
+	endVisibleLinesUnclamped := startVisibleLines + cast(s64)heightForCode / my_font.character_height;
+	endVisibleLines := clamp(endVisibleLinesUnclamped, 0, numLines - 1);
+
+	if clamped {
+		return startVisibleLines, endVisibleLines;
+	}
+	else {
+		return startVisibleLines, endVisibleLinesUnclamped;
+	}
+}
+
 // utilities 
 convert_cursor_to_coordinate_range :: (cursor: Cursor, includeCursor: bool = true) -> start: Coordinate, end: Coordinate {
 	rangeStart: Coordinate;
@@ -514,24 +613,6 @@ convert_cursor_to_coordinate_range :: (cursor: Cursor, includeCursor: bool = tru
 		}
 	}
 	return rangeStart, rangeEnd;
-}
-
-panel_calculate_visible_lines :: (panel: *Panel, clamped := false) -> s64, s64 {
-	numLines := document_get_num_lines(panel.document);
-	// @todo: these need to be parameterized styling values for the UI
-	headerPadding := 8;
-	headerHeight := my_font.character_height + headerPadding;
-	heightForCode := panel.rect.h - headerHeight;
-	startVisibleLines := clamp(-scrollPos / my_font.character_height, 0, numLines - 1);
-	endVisibleLinesUnclamped := startVisibleLines + cast(s64)heightForCode / my_font.character_height;
-	endVisibleLines := clamp(endVisibleLinesUnclamped, 0, numLines - 1);
-
-	if clamped {
-		return startVisibleLines, endVisibleLines;
-	}
-	else {
-		return startVisibleLines, endVisibleLinesUnclamped;
-	}
 }
 
 // @todo: this is windows only, move to windows file

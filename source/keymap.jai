@@ -54,18 +54,22 @@ commandList :: Command.[
 	.{ "Move one char left", .REPEATABLE, move_one_char_left, .[
 		.{ mode=.NORMAL, keys="h"},
 		.{ mode=.INSERT, keys="<left>"},
+		.{ mode=.NORMAL, keys="<left>"},
 	]},
 	.{ "Move one char right", .REPEATABLE, move_one_char_right, .[
 		.{ mode=.NORMAL, keys="l"},
 		.{ mode=.INSERT, keys="<right>"},
+		.{ mode=.NORMAL, keys="<right>"},
 	]},
 	.{ "Move one line down", .REPEATABLE, move_one_line_down, .[
 		.{ mode=.NORMAL, keys="j"},
 		.{ mode=.INSERT, keys="<down>"},
+		.{ mode=.NORMAL, keys="<down>"},
 	]},
 	.{ "Move one line up", .REPEATABLE, move_one_line_up, .[
 		.{ mode=.NORMAL, keys="k"},
-		.{ mode=.INSERT, keys="<up>"}
+		.{ mode=.INSERT, keys="<up>"},
+		.{ mode=.NORMAL, keys="<up>"}
 	]},
 	.{ "Goto document start", 0, goto_document_start, .[
 		.{ mode=.NORMAL, keys="gk"},
@@ -111,6 +115,24 @@ commandList :: Command.[
 	]},
 	.{ "Jump to just before last occurence of {char}", .REPEATABLE, jump_to_before_last_char, .[
 		.{ mode=.NORMAL, keys="T{char}"},
+	]},
+
+	// view commands
+	.{ "Page Up", 0, page_up, .[
+		.{ mode=.NORMAL, keys="ctrl+b"},
+		.{ mode=.NORMAL, keys="<pageup>"},
+		.{ mode=.INSERT, keys="<pageup>"},
+	]},
+	.{ "Page Down", 0, page_down, .[
+		.{ mode=.NORMAL, keys="ctrl+f"},
+		.{ mode=.NORMAL, keys="<pagedown>"},
+		.{ mode=.INSERT, keys="<pagedown>"},
+	]},
+	.{ "Half Page Up", 0, half_page_up, .[
+		.{ mode=.NORMAL, keys="ctrl+u"}
+	]},
+	.{ "Half Page Down", 0, half_page_down, .[
+		.{ mode=.NORMAL, keys="ctrl+d"}
 	]},
 
 	// misc normal mode
@@ -384,6 +406,12 @@ input_handler :: (event: Input.Event) {
 		}
 		else if event.key_pressed && event.key_code == .TAB {
 			append(*builder, "<tab>");
+		}
+		else if event.key_pressed && event.key_code == .PAGE_UP {
+			append(*builder, "<pageup>");
+		}
+		else if event.key_pressed && event.key_code == .PAGE_DOWN {
+			append(*builder, "<pagedown>");
 		}
 		else if event.key_pressed && event.key_code >= 33 && event.key_code <= 96 && event.modifier_flags.packed {
 			// Note we only take characters as events here if there are modifiers on, otherwise we let the text
