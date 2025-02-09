@@ -258,6 +258,14 @@ toggle_render_line_endings :: (panel: *Panel, args: []string) {
 	Simp.force_regenerate_glyph_table(my_font);
 }
 
+normalize_line_endings_lf :: (panel: *Panel, args: []string) {
+	document_normalize_line_endings(panel.document, .LF);
+}
+
+normalize_line_endings_crlf :: (panel: *Panel, args: []string) {
+	document_normalize_line_endings(panel.document, .CRLF);
+}
+
 enter_normal_mode :: (panel: *Panel, args: []string) {
 	if editorMode == .FILESYSTEM_NAVIGATOR {
 		filesystem_nav_reset(*panel.filesystemNav);
@@ -429,7 +437,10 @@ insert_mode_handle_text_input :: (char: Utf8_Char) {
 }
 
 insert_mode_line_break :: (using panel: *Panel, args: []string) {
-	textToInsert := "\r\n"; // @todo crlf assumption, this should be changed depenending on document type
+	textToInsert := "\r\n";
+	if panel.document.lineEndings == .LF || panel.document.lineEndings == .MIXED_MAJORITY_LF {
+		textToInsert = "\n";
+	}
 	insert_mode_insert_string(textToInsert);
 }
 

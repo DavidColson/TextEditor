@@ -338,6 +338,9 @@ draw_panel :: (panel: *Panel) {
 	else if panel.document.lineEndings == .CRLF {
 		lineEndingText = "CRLF";
 	}
+	else if panel.document.lineEndings == .MIXED_MAJORITY_LF {
+		lineEndingText = "[Mixed line endings, will be normalized to LF on save]";
+	}
 
 	cursorCoordinate := document_cursor_get_coordinate(*panel.cursor.head);
 	width := Simp.prepare_text(my_font, tprint("% | %0% - %:% %", 

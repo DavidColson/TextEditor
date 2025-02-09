@@ -210,7 +210,11 @@ commandList :: Command.[
 
 	// misc commands
 	.{ "Print piece chain debug", 0, print_piece_chain_debug, .[]},
-	.{ "Toggle line endings", 0, toggle_render_line_endings, .[]},
+	.{ "Toggle draw line endings", 0, toggle_render_line_endings, .[]},
+
+	// @todo: need command arguments to clean this up, second option box pops up to select from a dropdown
+	.{ "Normalize Line Endings To LF", 0, normalize_line_endings_lf, .[]},
+	.{ "Normalize Line Endings To CRLF", 0, normalize_line_endings_crlf, .[]},
 ];
 
 rebuild_key_map :: ()  {

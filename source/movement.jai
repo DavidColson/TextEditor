@@ -83,10 +83,7 @@ move_to_line_visual :: (using panel: *Panel, currentLine: s64, targetLine: s64) 
 		}
 	}
 
-	newCursor : DocumentCursor;
-	newCursor.doc = panel.document;
-	newCursor.node = panel.document.pieceChainHead;
-	document_cursor_jump_to_offset(*newCursor, lineStartNewLine);
+	newCursor := document_create_cursor(panel.document, lineStartNewLine);
 	newColumn := 0;
 	if cursor.virtualColumn > newColumn {
 		for newCursor {

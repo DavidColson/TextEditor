@@ -31,6 +31,7 @@ DocumentCursor :: struct {
 	nodeStartOffset: s64;
 	nodeStartLine: s64;
 	documentOffset: s64;
+	handleLineEndings := true;
 }
 
 Coordinate :: struct {
@@ -46,7 +47,8 @@ Buffer :: struct {
 LineEndingMode :: enum {
 	LF;
 	CRLF;
-	MIXED;
+	MIXED_MAJORITY_LF;
+	MIXED_MAJORITY_CRLF;
 }
 
 // proposal, use s32's instead to make this struct
@@ -178,7 +180,12 @@ document_open :: (path: string) {
 		doc.lineEndings = .CRLF;
 	}
 	else if lfCount > 0 && crlfCount > 0 && crCount == 0 {
-		doc.lineEndings = .MIXED;
+		if lfCount > crlfCount {
+			doc.lineEndings = .MIXED_MAJORITY_LF;
+		}
+		else {
+			doc.lineEndings = .MIXED_MAJORITY_CRLF;
+		}
 	}
 	else if crCount > 0 {
 		assert(false, "Cannot cope with cr line endings, this file is bad news");
@@ -213,7 +220,13 @@ document_open :: (path: string) {
 }
 
 document_save :: (doc: *Document, path: string, backup := false) {
-	// @todo: better error reporting (notifications)
+	if doc.lineEndings == .MIXED_MAJORITY_LF {
+		document_normalize_line_endings(doc, .LF);
+	}
+	else if doc.lineEndings == .MIXED_MAJORITY_CRLF {
+		document_normalize_line_endings(doc, .CRLF);
+	}
+
 	directory_make_success := make_directory_if_it_does_not_exist(path_strip_filename(path), recursive = true);
     if !directory_make_success push_notification("Failed to make directory for file save");
 
@@ -296,6 +309,7 @@ document_insert_text :: (doc: *Document, at: DocumentCursor, t: string) -> Docum
 		newPiece.lineFeedCount = buffer_line_start_count(newPiece.start, newPiece.end);
 
 		newCursor: DocumentCursor;
+		newCursor.handleLineEndings = at.handleLineEndings;
 
 		// insert into linked list
 		if insertPos == at.node.end {
@@ -342,8 +356,8 @@ document_insert_text :: (doc: *Document, at: DocumentCursor, t: string) -> Docum
 		// copy the old node and then trim left and right to get the new nodes
 		newPieceRight := New(PieceChainNode,, doc.pieceChainAlloc);
 		<<newPieceRight = <<at.node;
-		nodeTrimLeft(newPieceRight, insertBuffer, insertPos);
-		nodeTrimRight(at.node, insertBuffer, insertPos);
+		node_trim_left(newPieceRight, insertBuffer, insertPos);
+		node_trim_right(at.node, insertBuffer, insertPos);
 
 		// create a new piece with the appended text data
 		endOffset := doc.addedData.text.count;
@@ -379,6 +393,7 @@ document_insert_text :: (doc: *Document, at: DocumentCursor, t: string) -> Docum
 		newCursor.nodeStartOffset = at.nodeStartOffset + at.node.length;
 		newCursor.nodeStartLine = at.nodeStartLine + at.node.lineFeedCount; 
 		newCursor.documentOffset = at.documentOffset;
+		newCursor.handleLineEndings = at.handleLineEndings;
 		return newCursor;
 	}
 }
@@ -397,6 +412,7 @@ document_delete_text :: (doc: *Document, startAt: DocumentCursor, endAt: Documen
 	newCursor: DocumentCursor;
 	newCursor.doc = doc;
 	newCursor.documentOffset = startAt.documentOffset;
+	newCursor.handleLineEndings = startAt.handleLineEndings;
 
 	remove_node_range :: (doc: *Document, first: *PieceChainNode, last: *PieceChainNode) {
 		if first.prev != null {
@@ -445,7 +461,7 @@ document_delete_text :: (doc: *Document, startAt: DocumentCursor, endAt: Documen
 				}
 				return newCursor;
 			}
-			nodeTrimLeft(startAt.node, buffer, end);
+			node_trim_left(startAt.node, buffer, end);
 
 			newCursor.node = startAt.node;
 			deletedInThisNode := buffer_cursor_to_offset(buffer, end) - buffer_cursor_to_offset(buffer, startAt.node.start);
@@ -454,7 +470,7 @@ document_delete_text :: (doc: *Document, startAt: DocumentCursor, endAt: Documen
 			newCursor.nodeStartLine = startAt.nodeStartLine + linesDeletedInThisNode;
 		}
 		else if end == startAt.node.end {
-			nodeTrimRight(startAt.node, buffer, start);
+			node_trim_right(startAt.node, buffer, start);
 
 			newCursor.node = startAt.node;
 			newCursor.nodeStartOffset = startAt.nodeStartOffset;
@@ -463,8 +479,8 @@ document_delete_text :: (doc: *Document, startAt: DocumentCursor, endAt: Documen
 		else {
 			newPieceRight := New(PieceChainNode,, doc.pieceChainAlloc);
 			<<newPieceRight = <<startAt.node;
-			nodeTrimLeft(newPieceRight, buffer, end);
-			nodeTrimRight(startAt.node, buffer, start);
+			node_trim_left(newPieceRight, buffer, end);
+			node_trim_right(startAt.node, buffer, start);
 
 			startAt.node.next = newPieceRight;
 			newPieceRight.prev = startAt.node;
@@ -487,7 +503,7 @@ document_delete_text :: (doc: *Document, startAt: DocumentCursor, endAt: Documen
 			// take some of start node
 			buffer : *Buffer;
 			ifx startAt.node.added then buffer = *doc.addedData else buffer = *doc.originalData;
-			nodeTrimRight(startAt.node, buffer, start);
+			node_trim_right(startAt.node, buffer, start);
 
 			newCursor.node = startAt.node;
 			newCursor.nodeStartOffset = startAt.nodeStartOffset;
@@ -507,7 +523,7 @@ document_delete_text :: (doc: *Document, startAt: DocumentCursor, endAt: Documen
 			// take some of end node
 			buffer : *Buffer;
 			ifx endAt.node.added then buffer = *doc.addedData else buffer = *doc.originalData;
-			nodeTrimLeft(endAt.node, buffer, end);
+			node_trim_left(endAt.node, buffer, end);
 
 			if newCursor.node == null {
 				newCursor.node = endAt.node;
@@ -596,6 +612,17 @@ document_get_line_content :: (doc: *Document, lineNum: s64) -> string {
 	return builder_to_string(*builder,,temp);
 }
 
+document_create_cursor :: (document: *Document, startOffset: s64 = 0, handleLineEndings := true) -> DocumentCursor {
+	newCursor : DocumentCursor;
+	newCursor.doc = document;
+	newCursor.node = document.pieceChainHead;
+	newCursor.handleLineEndings = handleLineEndings;
+	if startOffset != 0 {
+		document_cursor_jump_to_offset(*newCursor, startOffset);
+	}
+	return newCursor;
+}
+
 document_cursor_jump_to_offset :: (cursor: *DocumentCursor, offset: s64) {
 	nodeStartOffset: s64 = cursor.nodeStartOffset;
 	nodeStartLine: s64 = cursor.nodeStartLine;
@@ -657,7 +684,7 @@ document_cursor_step_one_forward :: (cursor: *DocumentCursor) -> u8 {
 	cursor.documentOffset += 1;
 
 	// CRLF handling, skip over the return, pretending it's not there
-	if character == #char "\r" {
+	if cursor.handleLineEndings && character == #char "\r" {
 		return document_cursor_step_one_forward(cursor);
 	}
 	return character;
@@ -686,7 +713,7 @@ document_cursor_step_one_backward :: (cursor: *DocumentCursor) -> u8 {
 	character := buffer.text[bufferOffset];
 
 	// CRLF handling, skip over the return, pretending it's not there
-	if character == #char "\n" {
+	if cursor.handleLineEndings && character == #char "\n" {
 		newChar := document_cursor_step_one_backward(cursor);
 		if newChar == #char "\r" {
 			return character;
@@ -709,6 +736,7 @@ for_expansion :: (cursor: *DocumentCursor, body: Code, flags: For_Flags) #expand
 		#insert body;
 		counter += 1;
 		if cursor.documentOffset == 0 then break;
+		if cursor.documentOffset == cursor.doc.size then break;
 	}
 }
 
@@ -749,9 +777,20 @@ document_get_line_start :: (doc: *Document, line: s64) -> s64 {
 	return nodeStartOffset;
 }
 
-document_get_line_range :: (doc: *Document, line: s64) -> s64, s64 {
-	// @todo: crlf assumption here, should actually check what the char is and move appropriately
-	return document_get_line_start(doc, line), document_get_line_start(doc, line+1)-2;
+document_get_line_range :: (doc: *Document, line: s64, excludeLineEndings := false) -> s64, s64 {
+	lineStartNext := document_get_line_start(doc, line+1);
+
+	if excludeLineEndings {
+		tempCursor := document_create_cursor(doc, lineStartNext-2);
+		if document_cursor_get_char(*tempCursor) == #char "\r" {
+			return document_get_line_start(doc, line), lineStartNext-2;
+		}
+		else {
+			return document_get_line_start(doc, line), lineStartNext-1;
+		}
+	}
+
+	return document_get_line_start(doc, line), lineStartNext;
 }
 
 document_get_num_lines :: (doc: *Document) -> s64 {
@@ -776,8 +815,7 @@ document_cursor_get_char :: (cursor: *DocumentCursor) -> u8 {
 		char := buffer.text[bufferOffset];
 		// if we iterated to a carraige return, we'd skip over it, so matching that behaviour
 		// with a small hack that assumes newline always comes next
-		// @todo crlf assumption, check if we can make this assumption in the case where we are using lf line endings
-		if char == #char "\r" return #char "\n"; else return char;
+		if cursor.handleLineEndings && char == #char "\r" return #char "\n"; else return char;
 	}
 
 	buffer: = ifx cursor.node.added then *cursor.doc.addedData else *cursor.doc.originalData;
@@ -813,6 +851,77 @@ document_get_line_length :: (doc: *Document, lineNum: s64, excludeEnding: bool =
 	return max(lineContent.count, 0);
 }
 
+document_normalize_line_endings :: (doc: *Document, desiredEndings: LineEndingMode) {
+	// not valid ending options
+	if desiredEndings == .MIXED_MAJORITY_LF || desiredEndings == .MIXED_MAJORITY_CRLF {
+		return;
+	}
+
+	cursor := document_create_cursor(doc, 0, false);
+
+	// manually implemented for_expansion so we can edit the cursor as we iterate
+	counter := 0;
+	while cursor.documentOffset <= cursor.doc.size {
+		it := document_cursor_step_one_forward(*cursor);
+
+		if it == #char "\r" {
+			// lookahead one
+			cursorCopy := cursor;
+			next := document_cursor_step_one_forward(*cursorCopy);
+			if next == #char "\n" {
+				// crlf
+				if desiredEndings == .LF {
+					cursorStart := cursor;
+					document_cursor_step_one_backward(*cursorStart);
+					cursorEnd := cursor;
+					document_cursor_step_one_forward(*cursorEnd);
+					cursor = document_delete_text(doc, cursorStart, cursorEnd);
+					cursor = document_insert_text(doc, cursor, "\n");
+				}
+				document_cursor_step_one_forward(*cursor); // step over \n
+			}
+			else {
+				// cr
+				if desiredEndings == .LF {
+					cursorStart := cursor;
+					document_cursor_step_one_backward(*cursorStart);
+					cursor = document_delete_text(doc, cursorStart, cursor);
+					cursor = document_insert_text(doc, cursor, "\n");
+					document_cursor_step_one_forward(*cursor);
+				}
+				else if desiredEndings == .CRLF {
+					cursorStart := cursor;
+					document_cursor_step_one_backward(*cursorStart);
+					cursor = document_delete_text(doc, cursorStart, cursor);
+					cursor = document_insert_text(doc, cursor, "\r\n");
+					document_cursor_step_one_forward(*cursor);
+					document_cursor_step_one_forward(*cursor); // step over new newline
+				}
+			}
+		}
+		else if it == #char "\n" {
+			// lf
+			if desiredEndings == .CRLF {
+				cursorStart := cursor;
+				document_cursor_step_one_backward(*cursorStart);
+				cursor = document_delete_text(doc, cursorStart, cursor);
+				cursor = document_insert_text(doc, cursor, "\r\n");
+				document_cursor_step_one_forward(*cursor);
+				document_cursor_step_one_forward(*cursor); // step over new newline
+			}
+		}
+		counter += 1;
+		if cursor.documentOffset == cursor.doc.size then break;
+	}
+	doc.lineEndings = desiredEndings;
+	if desiredEndings == .LF {
+		push_notification("Normalized line endings to LF");
+	}
+	else {
+		push_notification("Normalized line endings to CRLF");
+	}
+}
+
 document_debug_print_piece_chain :: (doc: *Document) {
 	builder: String_Builder;
 	builder.allocator = temp;
@@ -829,7 +938,6 @@ document_debug_print_piece_chain :: (doc: *Document) {
 		endOffset := buffer_cursor_to_offset(buffer, node.end);
 		text := string.{endOffset-startOffset, buffer.text.data + startOffset};
 		for text {
-			// @todo: assumes crlf endings
 			if it == #char "\r" {
 				append(*builder, "CR");
 			} 
@@ -886,9 +994,8 @@ buffer_offset_to_cursor :: (buffer: *Buffer, node: *PieceChainNode, offsetInNode
 }
 
 // Find the actual offset into the given buffer from a cursor for that buffer
-// @todo: rename cursor to coord or something
-buffer_cursor_to_offset :: (buffer: *Buffer, cursor: Coordinate) -> s64 {
-	return buffer.lineStarts[cursor.line] + cursor.col;
+buffer_cursor_to_offset :: (buffer: *Buffer, pos: Coordinate) -> s64 {
+	return buffer.lineStarts[pos.line] + pos.col;
 }
 
 // figure out how many linestarts are between start and length in the given buffer
@@ -896,43 +1003,24 @@ buffer_line_start_count :: (start: Coordinate, end: Coordinate) -> s64 {
 	return (end.line - start.line);
 }
 
-nodeTrimLeft :: (node: *PieceChainNode, buffer: *Buffer, pos: Coordinate) {
+node_trim_left :: (node: *PieceChainNode, buffer: *Buffer, pos: Coordinate) {
 	// remove the left side of node up to pos
 	bufferOffsetStart := buffer_cursor_to_offset(buffer, node.start);
 	bufferOffsetSplit := buffer_cursor_to_offset(buffer, pos);
 	lenRight := (bufferOffsetStart + node.length) - bufferOffsetSplit;
 
-	// @todo crlf support, prevent splitting in the middle of a crlf
-	// we may not need this now that the cursors skip over carraige returns, just remove it and test
-	splitPos := pos;
-	if bufferOffsetSplit < buffer.text.count && buffer.text[bufferOffsetSplit] == #char "\n" {
-		// we want to move right over the newline, rolling us over onto a new line
-		splitPos.col = 0;
-		splitPos.line += 1;
-		lenRight -= 1;
-	}
-
-	node.start = splitPos;
+	node.start = pos;
 	node.length = lenRight;
 	node.lineFeedCount = buffer_line_start_count(node.start, node.end);
 }
 
-nodeTrimRight :: (node: *PieceChainNode, buffer: *Buffer, pos: Coordinate) {
+node_trim_right :: (node: *PieceChainNode, buffer: *Buffer, pos: Coordinate) {
 	// remove the right side of node from pos
 	bufferOffsetStart := buffer_cursor_to_offset(buffer, node.start);
 	bufferOffsetSplit := buffer_cursor_to_offset(buffer, pos);
 	lenLeft := bufferOffsetSplit - bufferOffsetStart;
 
-	// @todo crlf support, prevent splitting in the middle of a crlf
-	// we may not need this now that the cursors skip over carraige returns
-	splitPos := pos;
-	if bufferOffsetSplit < buffer.text.count && buffer.text[bufferOffsetSplit] == #char "\n" {
-		// moves left of the newline, leaving it behind on the right side
-		splitPos.col -= 1;
-		lenLeft -= 1;
-	}
-
-	node.end = splitPos;
+	node.end = pos;
 	node.length = lenLeft;
 	node.lineFeedCount = buffer_line_start_count(node.start, node.end);
 }
