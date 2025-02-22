@@ -444,7 +444,9 @@ document_search_on_edit :: (userData: *void, input: string) {
 
 	// so here's an issue, how do you search the document when it's in pieces?
 	// one thing at a time I guess
-	matched, captures := Regex.match(string.{mainDocument.originalData.text.count, mainDocument.originalData.text.data}, input);
+	regexp, success := compile(input);
+	defer uninit(*regexp);
+	matched, captures := match(*mainDocument, regexp);
 	defer array_free(captures);
 
 	// totally just works! very cool
@@ -875,6 +877,7 @@ GetLogicalDriveStringsW :: (nBufferLength: DWORD, lpBuffer: *u16) -> DWORD #fore
 #load "keymap.jai";
 #load "document.jai";
 #load "movement.jai";
+#load "uniform/module.jai";
 
 #run {
     #if OS == .WINDOWS {

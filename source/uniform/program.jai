@@ -1054,6 +1054,48 @@ prefix_accel_front_and_back :: (using prog: *Prog, text: string, pos: int) -> in
 	return -1;
 }
 
+// same as above, but searchs a document instead of a string
+prefix_accel :: (using prog: *Prog, doc: *Document, pos: int) -> int {
+	assert(prefix_size >= 1);
+	if prefix_size == 1 {
+		cursor := document_create_cursor(doc, pos);
+		result: int = -1;
+		found := false;
+		for cursor {
+			if cast(u8)prefix_front == it {
+				result = cursor.documentOffset-1;
+				found = true;
+				break;
+			}
+		}
+		if !found	return -1;
+		return result;
+	} else {
+		return prefix_accel_front_and_back(prog, doc, pos);
+	}
+}
+
+prefix_accel_front_and_back :: (using prog: *Prog, doc: *Document, pos: int) -> int {
+	assert(prefix_size >= 2);
+	if doc.size - pos < prefix_size {
+		return -1;
+	}
+
+	// essentially want to maintain two cursors, for the front and back, iterating both
+	cursorFront := document_create_cursor(doc, pos);
+	cursorBack := document_create_cursor(doc, pos + prefix_size - 1);
+
+	while cursorBack.documentOffset < doc.size {
+		front := document_cursor_step_one_forward(*cursorFront);
+		back := document_cursor_step_one_forward(*cursorBack);
+		if front == prefix_front && back == prefix_back {
+			return cursorFront.documentOffset-1;
+		}
+	}
+
+	return -1;
+}
+
 append :: (builder: *String_Builder, inst: Inst) {
 	if get_opcode(inst) == {
 		case;

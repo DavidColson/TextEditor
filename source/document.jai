@@ -34,6 +34,11 @@ DocumentCursor :: struct {
 	handleLineEndings := true;
 }
 
+DocumentRange :: struct {
+	start: DocumentCursor;
+	end: DocumentCursor;
+}
+
 Coordinate :: struct {
 	line: s64;
 	col: s64;
@@ -624,6 +629,8 @@ document_create_cursor :: (document: *Document, startOffset: s64 = 0, handleLine
 }
 
 document_cursor_jump_to_offset :: (cursor: *DocumentCursor, offset: s64) {
+	if offset == cursor.documentOffset return;
+
 	nodeStartOffset: s64 = cursor.nodeStartOffset;
 	nodeStartLine: s64 = cursor.nodeStartLine;
 

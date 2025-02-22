@@ -54,7 +54,7 @@ match_nfa :: (prog: *Prog, text: string, ctx: string, ctx_offset: int, anchor_in
 			c := ifx pos < text.count then cast(int) text[pos] else -1;
 
 			// This is a no-op the first time around the loop because runq is empty.
-			id := step(*nfa, runq, nextq, c, text, ctx, ctx_offset, pos);
+			id := step(*nfa, runq, nextq, c, text.count, empty_flags(ctx, ctx_offset + pos), pos);
 			assert(runq.count == 0);
 			nextq, runq = runq, nextq;
 
@@ -108,7 +108,7 @@ match_nfa :: (prog: *Prog, text: string, ctx: string, ctx_offset: int, anchor_in
 				copy_capture(*t.capture, nfa.match);
 				t.capture[0] = pos;
 				c = ifx pos < text.count then cast(s16)text[pos] else -1;
-				add_to_queue(*nfa, runq, prog.start, c, ctx, ctx_offset, t, pos);
+				add_to_queue(*nfa, runq, prog.start, c, empty_flags(ctx, ctx_offset + pos), t, pos);
 				decref(*nfa, t);
 			}
 
@@ -128,6 +128,169 @@ match_nfa :: (prog: *Prog, text: string, ctx: string, ctx_offset: int, anchor_in
 		}
 
 		if kind == .kFullMatch && matches[0].count != text.count {
+			return false, matches;
+		}
+	}
+
+	return nfa.matched, matches;
+}
+
+// Search using NFA: can find submatches but kind of slow.
+match_nfa :: (prog: *Prog, doc: *Document, prefix_offset: int, anchor_in: Prog.Anchor, kind: Prog.MatchKind, num_matches: int) -> bool, matches: [] DocumentRange {
+	assert(num_matches > 0, "We need to capture at least the full match");
+
+	nfa: Nfa;
+	// We don’t want the matches in the pool, but everything else
+	matches: [] DocumentRange;
+
+	docSize := doc.size;
+	textSize := doc.size - prefix_offset;
+
+	pool: Pool;
+	defer release(*pool);
+	set_allocators(*pool);
+	#if REGEXP_DEBUG	pool.overwrite_memory = true;
+
+	{
+		push_allocator(pool_allocator_proc, *pool);
+		nfa.prog = prog;
+
+		init(*nfa.q0, prog.inst.count);
+		init(*nfa.q1, prog.inst.count);
+		array_reserve(*nfa.stack,
+			2 * prog.inst_count[cast(u32)InstOp.kInstCapture] +
+			prog.inst_count[cast(u32)InstOp.kInstEmptyWidth] +
+			prog.inst_count[cast(u32)InstOp.kInstNop] + 1); // + 1 for start inst
+
+		nfa.start = prog.start;
+		anchor := anchor_in;
+		if kind == .kFullMatch {
+			anchor = .ANCHORED;
+		}
+
+		if nfa.start == 0	return false, matches;
+		if prog.anchor_start && docSize != textSize		return false, matches;
+		if prog.anchor_end && docSize != prefix_offset + textSize	return false, matches;
+
+		anchored := (anchor == .ANCHORED) || prog.anchor_start;
+		nfa.longest = (kind != .kFirstMatch);
+		nfa.endmatch = false;
+		if prog.anchor_end {
+			nfa.longest = true;
+			nfa.endmatch = true;
+		}
+
+		nfa.ncaptures = 2 * num_matches;
+		nfa.match = NewArray(nfa.ncaptures, int, false);
+		memset(nfa.match.data, 0, nfa.match.count * size_of(type_of(nfa.match[0])));
+
+		runq := *nfa.q0;
+		nextq := *nfa.q1;
+
+		// Loop over the text, stepping the machine.
+		cursor := document_create_cursor(doc, prefix_offset);
+		// @todo: dave there was a +1 here, find out if we need that
+		for pos: prefix_offset..docSize {
+			c := -1;
+			if pos < docSize {
+				document_cursor_jump_to_offset(*cursor, pos);
+				c = cast(int) document_cursor_get_char(*cursor);
+			}
+
+			// get empty flags for this area of text
+			// empty_flags needs pos and pos-1
+			emptyFlags: EmptyOp;
+			{
+				testChars: [2]u8;
+				tempCursor := cursor;
+				testChars[1] = document_cursor_get_char(*tempCursor);
+				document_cursor_step_one_backward(*tempCursor);
+				testChars[0] = document_cursor_get_char(*tempCursor);
+				emptyFlags = empty_flags(string.{testChars.count, testChars.data}, 1);
+			}
+
+			// This is a no-op the first time around the loop because runq is empty.
+			id := step(*nfa, runq, nextq, c, textSize, emptyFlags, pos);
+			assert(runq.count == 0);
+			nextq, runq = runq, nextq;
+
+			if id != 0 {
+				// We're done: full match ahead.
+				pos = docSize;
+				while true {
+					i := prog.inst[id];
+					if get_opcode(i) == {
+						case .kInstCapture;
+							if i.cap < nfa.ncaptures {
+								nfa.match[i.cap] = pos;
+							}
+							id = get_out(i);
+							continue;
+
+						case .kInstNop;
+							id = get_out(i);
+							continue;
+
+						case .kInstMatch;
+							nfa.match[1] = pos;
+							nfa.matched = true;
+
+						case;
+							assert(false, "Unexpected opcode in short circuit: %", get_opcode(i));
+					}
+					break;
+				}
+				break;
+			}
+
+			if pos > docSize		break;
+
+			// Start a new thread if there have not been any matches.
+			// (No point in starting a new thread if there have been
+			// matches, since it would be to the right of the match
+			// we already found.)
+			if !nfa.matched && (!anchored || pos == 0) {
+				// Try to use prefix accel (e.g. memchr) to skip ahead.
+				// The search must be unanchored and there must be zero
+				// possible matches already.
+				if !anchored && !runq.count && pos < docSize && prog.prefix_size {
+					pos = prefix_accel(prog, doc, pos);
+					if pos < 0 {
+						pos = docSize;
+					}
+				}
+
+				t := new_thread(*nfa);
+				copy_capture(*t.capture, nfa.match);
+				t.capture[0] = pos;
+				if pos < docSize {
+					document_cursor_jump_to_offset(*cursor, pos);
+					c = cast(int) document_cursor_get_char(*cursor);
+				}
+				else {
+					c = -1;
+				}
+				add_to_queue(*nfa, runq, prog.start, c, emptyFlags, t, pos);
+				decref(*nfa, t);
+			}
+
+			// If all the threads have died, stop early.
+			if runq.count == 0		break;
+
+			// @ToDo There was a special case here.
+			// Not sure if it is needed after our transformations.
+
+		}
+	}
+
+	if nfa.matched {
+		matches = NewArray(num_matches, DocumentRange, false);
+		for i: 0..num_matches - 1 {
+			matches[i].start = document_create_cursor(doc, nfa.match[2 * i]);
+			matches[i].end = document_create_cursor(doc, nfa.match[2 * i + 1]);
+		}
+
+		if kind == .kFullMatch && (matches[0].end.documentOffset - matches[0].start.documentOffset) != docSize {
 			return false, matches;
 		}
 	}
@@ -214,7 +377,7 @@ copy_capture :: (dst: *[] int, src: [] int) {
 // p-1 will be used when processing Match instructions.
 // Frees all the threads on runq.
 // If there is a shortcut to the end, returns that shortcut.
-step :: (using nfa: *Nfa, runq: *Thread_Queue, nextq: *Thread_Queue, c: int, text: string, ctx: string, ctx_offset: int, pos: int) -> int {
+step :: (using nfa: *Nfa, runq: *Thread_Queue, nextq: *Thread_Queue, c: int, text_count: s64, emptyFlags: EmptyOp, pos: int) -> int {
 	for runq {
 		t := it.value;
 		if t == null		continue;
@@ -235,7 +398,7 @@ step :: (using nfa: *Nfa, runq: *Thread_Queue, nextq: *Thread_Queue, c: int, tex
 				assert(false, "Unexpected opcode: %", get_opcode(i));
 
 			case .kInstByteRange;
-				add_to_queue(nfa, nextq, get_out(i), c, ctx, ctx_offset, t, pos);
+				add_to_queue(nfa, nextq, get_out(i), c, emptyFlags, t, pos);
 
 			case .kInstAltMatch;
 				if it_index == 0 {
@@ -263,7 +426,7 @@ step :: (using nfa: *Nfa, runq: *Thread_Queue, nextq: *Thread_Queue, c: int, tex
 				// @ToDo There was a special case here.
 				// Not sure if it is needed after our transformations.
 
-				if !endmatch || pos - 1 == text.count {
+				if !endmatch || pos - 1 == text_count {
 					if longest {
 						// Leftmost-longest mode: save this match only if
 						// it is either farther to the left or at the same
@@ -305,7 +468,7 @@ step :: (using nfa: *Nfa, runq: *Thread_Queue, nextq: *Thread_Queue, c: int, tex
 // Enqueues only the ByteRange instructions that match byte c.
 // context is used (with p) for evaluating empty-width specials.
 // pos is the current input position, and t0 is the current thread.
-add_to_queue :: (using nfa: *Nfa, q: *Thread_Queue, id0: int, c: int, ctx: string, ctx_offset: int, t0_in: *Thread, pos: int) {
+add_to_queue :: (using nfa: *Nfa, q: *Thread_Queue, id0: int, c: int, emptyFlags: EmptyOp, t0_in: *Thread, pos: int) {
 	if id0 == 0		return;
 
 	// Use stack_ to hold our stack of instructions yet to process.
@@ -406,7 +569,7 @@ add_to_queue :: (using nfa: *Nfa, q: *Thread_Queue, id0: int, c: int, ctx: strin
 				}
 
 				// Continue on if we have all the right flag bits.
-				if !(i.empty & ~empty_flags(ctx, ctx_offset + pos)) {
+				if !(i.empty & ~emptyFlags) {
 					array_add(*stack, make_state(get_out(i), null));
 				}
 

@@ -1,3 +1,7 @@
+# Dave Note
+
+This library has been modified to integrate it more tightly with the document system in the text editor, hence it's been moved to the core source tree. I've removed the tests since we don't need them but otherwise left as much along as possible. The main changes are to the match and nfa files where we have custom match functions that work on documents.
+
 # Uniform – a fully-featured regular expression library for Jai
 
 This library is a partial port of [RE2](https://github.com/google/re2).
