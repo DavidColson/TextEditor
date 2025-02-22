@@ -848,7 +848,6 @@ my_font: *Simp.Dynamic_Font;
 
 Simp  :: #import "Simp";
 Input :: #import "Input";
-Regex :: #import "uniform";
 
 #import "Window_Creation";
 
