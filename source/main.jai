@@ -26,6 +26,7 @@ Panel :: struct {
 	searchActive := false;
 	commandPicker: CommandPicker;
 	filesystemNav: FilesystemNavigator;
+	searchInput: InputField;
 }
 
 EditorMode :: enum u8 {
@@ -278,6 +279,7 @@ enter_normal_mode :: (panel: *Panel, args: []string) {
 	editorMode = .NORMAL;
 	extendSelections = false;
 	panel.searchActive = false;
+	focusedInputField = null;
 }
 
 enter_insert_mode_start :: (using panel: *Panel, args: []string) {
@@ -410,6 +412,61 @@ new_line_above :: (using panel: *Panel, args: []string) {
 search_document :: (using panel: *Panel, args: []string) {
 	// show search bar
 	panel.searchActive = true;
+	panel.searchInput.onEditCallback = document_search_on_edit;
+	focusedInputField = *panel.searchInput;
+
+
+	// how do we share a simple input field?
+
+	// what state does the input field need?
+		// the array of text data
+		// cursor position
+		// in future, selection range
+
+	// what events does it need to function?
+		// text input
+		// certain keys such as backspace, arrow keys, delete
+		// eventually ctrl+c/v etc
+
+	// what if keymap had a group of commands shared by all simple input fields
+	// global editor state could store a reference to the currently focused simple input field
+	// keymapper events would either get sent to this focused field, or just ignored if no focus exists
+
+	// the various systems, such as search, command picker, filesystem nav etc would be responsible for
+	// setting and unsetting the focused input field
+
+	// how would they know if the text changed to update things or do things?
+	// function pointer in the simpleInputField?
+}
+
+document_search_on_edit :: (userData: *void, input: string) {
+	// text has edited, so refresh the search
+
+	// so here's an issue, how do you search the document when it's in pieces?
+	// one thing at a time I guess
+	matched, captures := Regex.match(string.{mainDocument.originalData.text.count, mainDocument.originalData.text.data}, input);
+	defer array_free(captures);
+
+	// totally just works! very cool
+	// so now how to solve the piece table issue?
+	
+	// two options I see, one is to actually flatten the piece table
+	// but in chunks from the search point
+	// i.e. flatten 256 chars, do the search. matches will give you pointers to the flattened string
+	// so you can work out the document cursor from where you started the search
+	
+	// or, we make a custom version of match_nfa, which takes a document cursor, and iterates it
+	// this will obviously not use much memory, no flattening will occur
+	// but of course it will be more complex
+	// we will likely also need to modify match_nfa to give back document cursors in the captures array
+
+	// it's useful that while working, match_nfa tracks just offsets
+	// so we could just alter that code to take the start document offset, and then jump to subsequent offsets
+
+	// without just duplicating match_nfa, which I am reluctant to do cause it does interesting work
+	// we would need to convert it in place to take a text iterator function instead of text (with some additional data)
+	// then a param to tell it to return the offsets rather than slices
+	// then we can do the processing on our side
 }
 
 // insert mode stuff
@@ -750,7 +807,9 @@ input_field_handle_text_input :: (inputField: *InputField, char: Utf8_Char) {
 		array_add(*inputField.text, char.bytes[it]);
 		inputField.cursor += 1;
 	}
-	inputField.onEditCallback(inputField.userData, string.{focusedInputField.text.count, focusedInputField.text.data});
+	if inputField.onEditCallback {
+		inputField.onEditCallback(inputField.userData, string.{focusedInputField.text.count, focusedInputField.text.data});
+	}
 }
 
 input_field_backspace_char :: (using panel: *Panel, args: []string) {
@@ -760,7 +819,9 @@ input_field_backspace_char :: (using panel: *Panel, args: []string) {
 		if focusedInputField.text.count <= 0 {
 			focusedInputField.text.count = 0;
 		}
-		focusedInputField.onEditCallback(focusedInputField.userData, string.{focusedInputField.text.count, focusedInputField.text.data});
+		if focusedInputField.onEditCallback {
+			focusedInputField.onEditCallback(focusedInputField.userData, string.{focusedInputField.text.count, focusedInputField.text.data});
+		}
 	}
 }
 
@@ -787,6 +848,7 @@ my_font: *Simp.Dynamic_Font;
 
 Simp  :: #import "Simp";
 Input :: #import "Input";
+Regex :: #import "uniform";
 
 #import "Window_Creation";
 

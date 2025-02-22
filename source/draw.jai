@@ -287,7 +287,7 @@ draw_panel :: (panel: *Panel) {
 	Simp.draw_code_end();
 
 	// Draw cursor
-	if cursorLine >= startVisibleLines && cursorLine <= endVisibleLines {
+	if !panel.searchActive && cursorLine >= startVisibleLines && cursorLine <= endVisibleLines {
 		Simp.set_shader_for_color();
 		cursorChar := document_cursor_get_char(*panel.cursor.head);
 		cursorCharWidth := calculate_string_length_pixels(my_font, cast(string) u8.[cursorChar]);
@@ -391,6 +391,11 @@ draw_panel :: (panel: *Panel) {
 
 		Simp.set_shader_for_color();
 		draw_rect(inputBoxRect, .{0.5, 0.5, 0.5, 1.0});
+
+		Simp.prepare_text(my_font, input_field_get_text(*panel.searchInput));
+		textX := inputBoxRect.x + searchBarTextPadding;
+		textY := inputBoxRect.y + my_font.character_height;
+		Simp.draw_prepared_text(my_font, xx textX, xx textY, Vector4.{0.8, 0.8, 0.8, 1.0});
 	}
 }
 
