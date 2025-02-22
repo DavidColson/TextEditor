@@ -185,6 +185,7 @@ main :: () {
 
 				document_save(*mainDocument, builder_to_string(*builder,,temp), true);
 			}
+			backupSaveTimer = 300;
 		}
 
         sleep_milliseconds(cast(s32) (16 - delta/1000));
