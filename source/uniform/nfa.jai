@@ -136,15 +136,15 @@ match_nfa :: (prog: *Prog, text: string, ctx: string, ctx_offset: int, anchor_in
 }
 
 // Search using NFA: can find submatches but kind of slow.
-match_nfa :: (prog: *Prog, doc: *Document, prefix_offset: int, anchor_in: Prog.Anchor, kind: Prog.MatchKind, num_matches: int) -> bool, matches: [] DocumentRange {
+match_nfa :: (prog: *Prog, doc: *Document, prefix_offset: int, anchor_in: Prog.Anchor, kind: Prog.MatchKind, num_matches: int, startOffset: s64 = 0) -> bool, matches: [] DocumentRange {
 	assert(num_matches > 0, "We need to capture at least the full match");
 
 	nfa: Nfa;
 	// We don’t want the matches in the pool, but everything else
 	matches: [] DocumentRange;
 
-	docSize := doc.size;
-	textSize := doc.size - prefix_offset;
+	docSize := doc.size - startOffset;
+	textSize := docSize - prefix_offset;
 
 	pool: Pool;
 	defer release(*pool);
@@ -188,9 +188,9 @@ match_nfa :: (prog: *Prog, doc: *Document, prefix_offset: int, anchor_in: Prog.A
 		nextq := *nfa.q1;
 
 		// Loop over the text, stepping the machine.
-		cursor := document_create_cursor(doc, prefix_offset);
+		cursor := document_create_cursor(doc, startOffset + prefix_offset);
 		// @todo: dave there was a +1 here, find out if we need that
-		for pos: prefix_offset..docSize {
+		for pos: startOffset + prefix_offset..docSize {
 			c := -1;
 			if pos < docSize {
 				document_cursor_jump_to_offset(*cursor, pos);

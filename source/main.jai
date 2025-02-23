@@ -284,8 +284,14 @@ enter_normal_mode :: (panel: *Panel, args: []string) {
 		command_picker_reset(*panel.commandPicker);
 	}
 	else if editorMode == .SEARCH {
+		// @todo: may want to consider a "search_reset" function
 		scrollPos = panel.previousScrollState; 
 		input_field_reset_keeping_memory(*panel.searchInput);
+		panel.searchInput.onEditCallback = null;
+		panel.searchInput.userData = null;
+		if panel.results.count {
+			array_reset(*panel.results);
+		}
 	}
 	editorMode = .NORMAL;
 	extendSelections = false;
@@ -431,12 +437,49 @@ enter_search_mode :: (using panel: *Panel, args: []string) {
 confirm_search :: (using panel: *Panel, args: []string) {
 	// set real cursor to the match that was found, setup stepping
 	if panel.hasMatches {
-		panel.cursor.head = panel.results[0].end;
 		panel.cursor.anchor = panel.results[0].start;
+		panel.cursor.head = panel.results[0].end;
+		document_cursor_step_one_backward(*panel.cursor.head);
 	}
 	focusedInputField = null;
 	editorMode = .NORMAL;
 	input_field_reset_keeping_memory(*panel.searchInput);
+	panel.searchInput.onEditCallback = null;
+	panel.searchInput.userData = null;
+	if panel.results.count {
+		array_reset(*panel.results);
+	}
+}
+
+next_search_result :: (using panel: *Panel, args: []string) {
+	startOffset := panel.cursor.head.documentOffset;
+	if panel.cursor.anchor.documentOffset > startOffset {
+		startOffset = panel.cursor.anchor.documentOffset; 
+	}
+	panel.hasMatches, panel.results = match(*mainDocument, panel.currentRegex, startOffset);
+
+	if panel.hasMatches {
+		panel.cursor.anchor = panel.results[0].start;
+		panel.cursor.head = panel.results[0].end;
+		document_cursor_step_one_backward(*panel.cursor.head);
+		
+		// is the result off the edge of the screen? if so scroll so it's centered
+		matchLine := document_cursor_get_line(*panel.results[0].start);
+		startVisibleLine, endVisibleLine := panel_calculate_visible_lines(panel);
+		pageSize := endVisibleLine - startVisibleLine;
+		if matchLine < startVisibleLine || matchLine >= (endVisibleLine-1) {
+			panel_scroll_to_line(panel, matchLine - pageSize/2); 
+		}
+	}
+}
+
+previous_search_result :: (using panel: *Panel, args: []string) {
+	// what do here?
+	// you basically need to find all from document start to the cursor, 
+	// so do a match from doc 0 to cursor
+	// while loop another match
+	// continue until no more matches
+	// the last match is the one you want
 }
 
 document_search_on_edit :: (userData: *void, input: string) {
@@ -444,7 +487,6 @@ document_search_on_edit :: (userData: *void, input: string) {
 
 	if panel.currentRegex.prog {
 		uninit(*panel.currentRegex);
-		array_reset(*panel.results);
 	}
 
 	// search for capital letters, if they do not exist, do not do a case sensitive search
@@ -460,7 +502,11 @@ document_search_on_edit :: (userData: *void, input: string) {
 	}
 	panel.currentRegex, success = compile(input, flags);
 	if success {
-		panel.hasMatches, panel.results = match(*mainDocument, panel.currentRegex);
+		startOffset := panel.cursor.head.documentOffset;
+		if panel.cursor.anchor.documentOffset > startOffset {
+			startOffset = panel.cursor.anchor.documentOffset; 
+		}
+		panel.hasMatches, panel.results = match(*mainDocument, panel.currentRegex, startOffset);
 
 		// is the result off the edge of the screen? if so scroll so it's centered
 		if panel.hasMatches {
@@ -471,6 +517,7 @@ document_search_on_edit :: (userData: *void, input: string) {
 				panel_scroll_to_line(panel, matchLine - pageSize/2); 
 			}
 		}
+
 	}
 }
 

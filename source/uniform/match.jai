@@ -80,7 +80,7 @@ match :: (text: string, re: Regexp, re_anchor_in: Anchor = .UNANCHORED) -> match
 }
 
 // You need to free the captures array, but not its contents (which just references the input text)
-match :: (doc: *Document, re: Regexp, re_anchor_in: Anchor = .UNANCHORED) -> matched: bool, captures: []DocumentRange {
+match :: (doc: *Document, re: Regexp, startOffset: s64 = 0, re_anchor_in: Anchor = .UNANCHORED) -> matched: bool, captures: []DocumentRange {
 	num_captures := 1 + re.num_capture_groups;
 
 	re_anchor := re_anchor_in;
@@ -93,7 +93,7 @@ match :: (doc: *Document, re: Regexp, re_anchor_in: Anchor = .UNANCHORED) -> mat
 	if re.prefix.count {
 		// copy out the prefix of the document to check it
 		documentPrefix := alloc_string(re.prefix.count,,temp);
-		tempCursor := document_create_cursor(doc, 0);
+		tempCursor := document_create_cursor(doc, startOffset);
 		for 0..re.prefix.count-1 {
 			documentPrefix[it] = document_cursor_step_one_forward(*tempCursor);
 		}
@@ -135,7 +135,7 @@ match :: (doc: *Document, re: Regexp, re_anchor_in: Anchor = .UNANCHORED) -> mat
 
 	// @ToDo: Implement fast-passes
 
-	matched, submatches := match_nfa(re.prog, doc, re.prefix.count, anchor, kind, num_captures);
+	matched, submatches := match_nfa(re.prog, doc, re.prefix.count, anchor, kind, num_captures, startOffset);
 
 	if re.prefix.count && matched {
 		// Prepend prefix to full match

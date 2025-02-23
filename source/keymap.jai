@@ -139,6 +139,12 @@ commandList :: Command.[
 	.{ "Toggle Extend Selections", 0, toggle_extend_selections, .[
 		.{ mode=.NORMAL, keys="v"}
 	]},
+	.{ "Next search result", 0, next_search_result, .[
+		.{ mode=.NORMAL, keys="n"}
+	]},
+	.{ "Previous search result", 0, previous_search_result, .[
+		.{ mode=.NORMAL, keys="N"}
+	]},
 
 	// search mode
 	.{ "Search Document", 0, enter_search_mode, .[

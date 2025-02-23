@@ -280,7 +280,7 @@ draw_panel :: (panel: *Panel) {
 	}
 
 	// draw the cursor selection
-	if cursorLine >= startVisibleLines && cursorLine <= endVisibleLines {
+	if editorMode != .SEARCH && cursorLine >= startVisibleLines && cursorLine <= endVisibleLines {
 		Simp.set_shader_for_color();
 		if panel.cursor.head.documentOffset != panel.cursor.anchor.documentOffset {
 			draw_cursor_range(textRegionX, textRegionY, panel.cursor.head, panel.cursor.anchor, linesOnScreen, startVisibleLines, true);
@@ -362,14 +362,14 @@ draw_panel :: (panel: *Panel) {
 	}
 
 	cursorCoordinate := document_cursor_get_coordinate(*panel.cursor.head);
-	width := Simp.prepare_text(my_font, tprint("% | %0% - %:% % docOff: %", 
+	width := Simp.prepare_text(my_font, tprint("% | %0% - %:%(%) %", 
 								modeText,
 								panel.document.path,
 								ifx panel.document.unsaved then "[UNSAVED]" else "",
 								cursorCoordinate.line+1,
 								cursorCoordinate.col,
-								lineEndingText,
-								panel.cursor.head.documentOffset));
+								panel.cursor.head.documentOffset,
+								lineEndingText));
 								Simp.draw_prepared_text(my_font, 2, my_font.character_height + 2, Vector4.{0.8, 0.8, 0.8, 1.0});
 
 	pendingKeys := string.{keyMap.pendingKeyString.count, keyMap.pendingKeyString.data};
