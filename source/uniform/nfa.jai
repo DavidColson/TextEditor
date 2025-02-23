@@ -136,15 +136,13 @@ match_nfa :: (prog: *Prog, text: string, ctx: string, ctx_offset: int, anchor_in
 }
 
 // Search using NFA: can find submatches but kind of slow.
-match_nfa :: (prog: *Prog, doc: *Document, prefix_offset: int, anchor_in: Prog.Anchor, kind: Prog.MatchKind, num_matches: int, startOffset: s64 = 0) -> bool, matches: [] DocumentRange {
+match_nfa :: (prog: *Prog, doc: *Document, start: s64, end: s64, prefix_offset: int, anchor_in: Prog.Anchor, kind: Prog.MatchKind, num_matches: int) -> bool, matches: [] DocumentRange {
 	assert(num_matches > 0, "We need to capture at least the full match");
 
 	nfa: Nfa;
 	// We don’t want the matches in the pool, but everything else
 	matches: [] DocumentRange;
 
-	docSize := doc.size - startOffset;
-	textSize := docSize - prefix_offset;
 
 	pool: Pool;
 	defer release(*pool);
@@ -168,6 +166,8 @@ match_nfa :: (prog: *Prog, doc: *Document, prefix_offset: int, anchor_in: Prog.A
 			anchor = .ANCHORED;
 		}
 
+		docSize := end - start;
+		textSize := docSize - prefix_offset;
 		if nfa.start == 0	return false, matches;
 		if prog.anchor_start && docSize != textSize		return false, matches;
 		if prog.anchor_end && docSize != prefix_offset + textSize	return false, matches;
@@ -188,11 +188,11 @@ match_nfa :: (prog: *Prog, doc: *Document, prefix_offset: int, anchor_in: Prog.A
 		nextq := *nfa.q1;
 
 		// Loop over the text, stepping the machine.
-		cursor := document_create_cursor(doc, startOffset + prefix_offset);
+		cursor := document_create_cursor(doc, start + prefix_offset);
 		// @todo: dave there was a +1 here, find out if we need that
-		for pos: startOffset + prefix_offset..docSize {
+		for pos: start + prefix_offset..end {
 			c := -1;
-			if pos < docSize {
+			if pos < end {
 				document_cursor_jump_to_offset(*cursor, pos);
 				c = cast(int) document_cursor_get_char(*cursor);
 			}
@@ -212,13 +212,13 @@ match_nfa :: (prog: *Prog, doc: *Document, prefix_offset: int, anchor_in: Prog.A
 			}
 
 			// This is a no-op the first time around the loop because runq is empty.
-			id := step(*nfa, runq, nextq, c, textSize, emptyFlags, pos);
+			id := step(*nfa, runq, nextq, c, end, emptyFlags, pos);
 			assert(runq.count == 0);
 			nextq, runq = runq, nextq;
 
 			if id != 0 {
 				// We're done: full match ahead.
-				pos = docSize;
+				pos = end;
 				while true {
 					i := prog.inst[id];
 					if get_opcode(i) == {
@@ -245,7 +245,7 @@ match_nfa :: (prog: *Prog, doc: *Document, prefix_offset: int, anchor_in: Prog.A
 				break;
 			}
 
-			if pos > docSize		break;
+			if pos > end		break;
 
 			// Start a new thread if there have not been any matches.
 			// (No point in starting a new thread if there have been
@@ -255,17 +255,17 @@ match_nfa :: (prog: *Prog, doc: *Document, prefix_offset: int, anchor_in: Prog.A
 				// Try to use prefix accel (e.g. memchr) to skip ahead.
 				// The search must be unanchored and there must be zero
 				// possible matches already.
-				if !anchored && !runq.count && pos < docSize && prog.prefix_size {
+				if !anchored && !runq.count && pos < end && prog.prefix_size {
 					pos = prefix_accel(prog, doc, pos);
 					if pos < 0 {
-						pos = docSize;
+						pos = end;
 					}
 				}
 
 				t := new_thread(*nfa);
 				copy_capture(*t.capture, nfa.match);
 				t.capture[0] = pos;
-				if pos < docSize {
+				if pos < end {
 					document_cursor_jump_to_offset(*cursor, pos);
 					c = cast(int) document_cursor_get_char(*cursor);
 				}
@@ -292,7 +292,7 @@ match_nfa :: (prog: *Prog, doc: *Document, prefix_offset: int, anchor_in: Prog.A
 			matches[i].end = document_create_cursor(doc, nfa.match[2 * i + 1]);
 		}
 
-		if kind == .kFullMatch && (matches[0].end.documentOffset - matches[0].start.documentOffset) != docSize {
+		if kind == .kFullMatch && (matches[0].end.documentOffset - matches[0].start.documentOffset) != end {
 			return false, matches;
 		}
 	}

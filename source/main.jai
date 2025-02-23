@@ -452,11 +452,16 @@ confirm_search :: (using panel: *Panel, args: []string) {
 }
 
 next_search_result :: (using panel: *Panel, args: []string) {
+	// clear previous result
+	if panel.results.count {
+		array_reset(*panel.results);
+	}
+
 	startOffset := panel.cursor.head.documentOffset;
 	if panel.cursor.anchor.documentOffset > startOffset {
 		startOffset = panel.cursor.anchor.documentOffset; 
 	}
-	panel.hasMatches, panel.results = match(*mainDocument, panel.currentRegex, startOffset);
+	panel.hasMatches, panel.results = match(*mainDocument, startOffset, mainDocument.size, panel.currentRegex);
 
 	if panel.hasMatches {
 		panel.cursor.anchor = panel.results[0].start;
@@ -474,12 +479,38 @@ next_search_result :: (using panel: *Panel, args: []string) {
 }
 
 previous_search_result :: (using panel: *Panel, args: []string) {
-	// what do here?
 	// you basically need to find all from document start to the cursor, 
-	// so do a match from doc 0 to cursor
-	// while loop another match
-	// continue until no more matches
-	// the last match is the one you want
+	start := 0;
+	end := panel.cursor.anchor.documentOffset;
+	if panel.cursor.head.documentOffset < end {
+		end = panel.cursor.head.documentOffset; 
+	}
+	while true {
+		hasMatch, results := match(*mainDocument, start, end, panel.currentRegex);
+		if hasMatch {
+			if panel.results.count {
+				array_reset(*panel.results);
+			}
+
+			panel.results = results;
+			start = results[0].end.documentOffset;
+		}
+		else {
+			// failed to find anymore matches, so what we last saved is the previous match
+			break;
+		}
+	}
+	panel.cursor.anchor = panel.results[0].start;
+	panel.cursor.head = panel.results[0].end;
+	document_cursor_step_one_backward(*panel.cursor.head);
+
+	// is the result off the edge of the screen? if so scroll so it's centered
+	matchLine := document_cursor_get_line(*panel.results[0].start);
+	startVisibleLine, endVisibleLine := panel_calculate_visible_lines(panel);
+	pageSize := endVisibleLine - startVisibleLine;
+	if matchLine < startVisibleLine || matchLine >= (endVisibleLine-1) {
+		panel_scroll_to_line(panel, matchLine - pageSize/2); 
+	}
 }
 
 document_search_on_edit :: (userData: *void, input: string) {
@@ -506,7 +537,7 @@ document_search_on_edit :: (userData: *void, input: string) {
 		if panel.cursor.anchor.documentOffset > startOffset {
 			startOffset = panel.cursor.anchor.documentOffset; 
 		}
-		panel.hasMatches, panel.results = match(*mainDocument, panel.currentRegex, startOffset);
+		panel.hasMatches, panel.results = match(*mainDocument, startOffset, mainDocument.size, panel.currentRegex);
 
 		// is the result off the edge of the screen? if so scroll so it's centered
 		if panel.hasMatches {
