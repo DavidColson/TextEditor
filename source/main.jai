@@ -304,7 +304,7 @@ enter_insert_mode_end :: (using panel: *Panel, args: []string) {
 	if cursor.head.documentOffset < cursor.anchor.documentOffset {
 		flip_cursors(*cursor.head, *cursor.anchor);
 	}
-	document_cursor_step_one_forward(*focusedPanel.cursor.head);
+	document_cursor_step_one_forward(*focusedPanel.cursor.head, true);
 	if editorMode == .FILESYSTEM_NAVIGATOR {
 		filesystem_nav_reset(*panel.filesystemNav);
 	}
@@ -355,12 +355,12 @@ toggle_extend_selections :: (using panel: *Panel, args: []string) {
 delete_selection :: (using panel: *Panel, args: []string) {
 	if cursor.head.documentOffset < cursor.anchor.documentOffset {
 		end := cursor.anchor;
-		document_cursor_step_one_forward(*end);
+		document_cursor_step_one_forward(*end, true);
 		cursor.head = document_delete_text(document, cursor.head, end);
 	}
 	else {
 		end := cursor.head;
-		document_cursor_step_one_forward(*end);
+		document_cursor_step_one_forward(*end, true);
 		cursor.head = document_delete_text(document, cursor.anchor, end);
 	}
 	cursor.anchor = cursor.head;
@@ -430,13 +430,22 @@ document_search_on_edit :: (userData: *void, input: string) {
 		array_reset(*panel.results);
 	}
 
+	// search for capital letters, if they do not exist, do not do a case sensitive search
+	doCaseSensitive := false;
+	for input {
+		if is_upper(it) then doCaseSensitive = true;
+	}
+
 	success: bool;
-	panel.currentRegex, success = compile(input);
+	flags := ParseFlags.LikePerl;
+	if !doCaseSensitive {
+		flags |= .FoldCase;
+	}
+	panel.currentRegex, success = compile(input, flags);
 	if success {
 		panel.hasMatches, panel.results = match(*mainDocument, panel.currentRegex);
 
 		// is the result off the edge of the screen? if so scroll so it's centered
-
 		if panel.hasMatches {
 			matchLine := document_cursor_get_line(*panel.results[0].start);
 
@@ -480,7 +489,7 @@ insert_mode_insert_string :: (input: string) {
 	// head will move right, anchor will also move if it's ahead of the head
 	extendSelections = true;
 	if focusedPanel.cursor.head.documentOffset <= focusedPanel.cursor.anchor.documentOffset {
-		document_cursor_step_one_forward(*focusedPanel.cursor.anchor);
+		document_cursor_step_one_forward(*focusedPanel.cursor.anchor, true);
 	}
 	move_one_char_right(*focusedPanel, string.[]);
 	extendSelections = false;
@@ -508,7 +517,7 @@ insert_mode_delete_left_char :: (using panel: *Panel, args: []string) {
 	distanceToAnchor := focusedPanel.cursor.anchor.documentOffset - focusedPanel.cursor.head.documentOffset;
 
 	stepCursor := cursor.head;
-	document_cursor_step_one_backward(*stepCursor);
+	document_cursor_step_one_backward(*stepCursor, true);
 	cursor.head = document_delete_text(document, stepCursor, cursor.head);
 
 	// update the anchor
@@ -526,7 +535,7 @@ insert_mode_delete_left_char :: (using panel: *Panel, args: []string) {
 
 	// move anchor as appropriate
 	if focusedPanel.cursor.head.documentOffset > focusedPanel.cursor.anchor.documentOffset {
-		document_cursor_step_one_forward(*focusedPanel.cursor.anchor);
+		document_cursor_step_one_forward(*focusedPanel.cursor.anchor, true);
 	}
 }
 
