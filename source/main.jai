@@ -30,6 +30,7 @@ Panel :: struct {
 	searchInput: InputField;
 	currentRegex: Regexp;
 	hasMatches := false;
+	previousScrollState := 0;
 	results: []DocumentRange;
 }
 
@@ -148,7 +149,7 @@ main :: () {
 		scrollPos = clamp(scrollPos, -(my_font.character_height * numLines) + my_font.character_height * 5, 0);
 
 		// keep the cursor on the screen when we scroll
-		if Input.mouse_delta_z > 0 {
+		if abs(Input.mouse_delta_z) > 0 {
 			startVisibleLine, endVisibleLine := panel_calculate_visible_lines(*focusedPanel);
 			cursorLine := document_cursor_get_line(*focusedPanel.cursor.head);
 			if cursorLine < startVisibleLine {
@@ -283,7 +284,8 @@ enter_normal_mode :: (panel: *Panel, args: []string) {
 		command_picker_reset(*panel.commandPicker);
 	}
 	else if editorMode == .SEARCH {
-		// scroll back to where you used to be
+		scrollPos = panel.previousScrollState; 
+		input_field_reset_keeping_memory(*panel.searchInput);
 	}
 	editorMode = .NORMAL;
 	extendSelections = false;
@@ -422,13 +424,19 @@ enter_search_mode :: (using panel: *Panel, args: []string) {
 	editorMode = .SEARCH;
 	panel.searchInput.onEditCallback = document_search_on_edit;
 	panel.searchInput.userData = cast(*void) panel;
+	panel.previousScrollState = scrollPos;
 	focusedInputField = *panel.searchInput;
 }
 
 confirm_search :: (using panel: *Panel, args: []string) {
 	// set real cursor to the match that was found, setup stepping
+	if panel.hasMatches {
+		panel.cursor.head = panel.results[0].end;
+		panel.cursor.anchor = panel.results[0].start;
+	}
 	focusedInputField = null;
 	editorMode = .NORMAL;
+	input_field_reset_keeping_memory(*panel.searchInput);
 }
 
 document_search_on_edit :: (userData: *void, input: string) {
@@ -457,22 +465,10 @@ document_search_on_edit :: (userData: *void, input: string) {
 		// is the result off the edge of the screen? if so scroll so it's centered
 		if panel.hasMatches {
 			matchLine := document_cursor_get_line(*panel.results[0].start);
-
-			// this could be done with 
-			// startLine, endLine := ..
-			// nLines := end - start
-			// scroll_to_line(matchLine-nLines/2);
 			startVisibleLine, endVisibleLine := panel_calculate_visible_lines(panel);
-			nLines := endVisibleLine - startVisibleLine;
-			if matchLine >= (endVisibleLine-1) {
-				difference := (endVisibleLine-1) - matchLine;
-				difference -= nLines / 2; // center in screen
-				scrollPos += my_font.character_height * (difference);
-			}
-			else if matchLine < startVisibleLine {
-				difference := matchLine - startVisibleLine;
-				difference -= nLines / 2; // center in screen
-				scrollPos -= my_font.character_height * (difference);
+			pageSize := endVisibleLine - startVisibleLine;
+			if matchLine < startVisibleLine || matchLine >= (endVisibleLine-1) {
+				panel_scroll_to_line(panel, matchLine - pageSize/2); 
 			}
 		}
 	}
@@ -554,89 +550,74 @@ insert_mode_delete_left_char :: (using panel: *Panel, args: []string) {
 
 // view commands
 page_up :: (using panel: *Panel, args: []string) {
-	numLines := document_get_num_lines(*mainDocument);
-
 	startVisibleLine, endVisibleLine := panel_calculate_visible_lines(panel);
-	numVisibleLines := endVisibleLine - startVisibleLine;
+	pageSize := endVisibleLine - startVisibleLine;
 
-	scrollPosOld := scrollPos;
-	scrollPos += my_font.character_height * numVisibleLines;
-	scrollPos = clamp(scrollPos, -(my_font.character_height * numLines) + my_font.character_height * 5, 0);
+	// move the cursor up half a page
+	cursorLine := document_cursor_get_line(*focusedPanel.cursor.head);
+	move_to_line_visual(*focusedPanel, cursorLine, max(cursorLine - pageSize, 0));
+	focusedPanel.cursor.anchor = focusedPanel.cursor.head;
 
-	if scrollPos != scrollPosOld {
-		cursorLine := document_cursor_get_line(*focusedPanel.cursor.head);
-		lineRelativeToPanel := cursorLine - startVisibleLine;
-		newLine := (startVisibleLine - numVisibleLines) + lineRelativeToPanel;
-		move_to_line_visual(*focusedPanel, cursorLine, newLine);
-		focusedPanel.cursor.anchor = focusedPanel.cursor.head;
-	}
+	// scroll to keep the cursor in the same relative place on screen
+	panel_scroll_to_line(panel, startVisibleLine - pageSize);
 }
 
 page_down :: (using panel: *Panel, args: []string) {
-	numLines := document_get_num_lines(*mainDocument);
-
 	startVisibleLine, endVisibleLine := panel_calculate_visible_lines(panel);
-	numVisibleLines := endVisibleLine - startVisibleLine;
+	pageSize := endVisibleLine - startVisibleLine;
+	numLinesDocument := document_get_num_lines(panel.document);
 
-	scrollPosOld := scrollPos;
-	scrollPos -= my_font.character_height * numVisibleLines;
-	scrollPos = clamp(scrollPos, -(my_font.character_height * numLines) + my_font.character_height * 5, 0);
+	// move the cursor down half a page
+	cursorLine := document_cursor_get_line(*focusedPanel.cursor.head);
+	move_to_line_visual(*focusedPanel, cursorLine, min(cursorLine + pageSize, numLinesDocument));
+	focusedPanel.cursor.anchor = focusedPanel.cursor.head;
 
-	if scrollPos != scrollPosOld {
-		cursorLine := document_cursor_get_line(*focusedPanel.cursor.head);
-		lineRelativeToPanel := cursorLine - startVisibleLine;
-		newLine := endVisibleLine + lineRelativeToPanel;
-		move_to_line_visual(*focusedPanel, cursorLine, newLine);
-		focusedPanel.cursor.anchor = focusedPanel.cursor.head;
-	}
+	// scroll to keep the cursor in the same relative place on screen
+	panel_scroll_to_line(panel, startVisibleLine + pageSize);
 }
 
 half_page_up :: (using panel: *Panel, args: []string) {
-	numLines := document_get_num_lines(*mainDocument);
-
 	startVisibleLine, endVisibleLine := panel_calculate_visible_lines(panel);
-	linesToScroll := (endVisibleLine - startVisibleLine) / 2;
+	pageSize := endVisibleLine - startVisibleLine;
 
-	scrollPosOld := scrollPos;
-	scrollPos += my_font.character_height * linesToScroll;
-	scrollPos = clamp(scrollPos, -(my_font.character_height * numLines) + my_font.character_height * 5, 0);
+	// move the cursor up half a page
+	cursorLine := document_cursor_get_line(*focusedPanel.cursor.head);
+	move_to_line_visual(*focusedPanel, cursorLine, max(cursorLine - pageSize/2, 0));
+	focusedPanel.cursor.anchor = focusedPanel.cursor.head;
 
-	if scrollPos != scrollPosOld {
-		cursorLine := document_cursor_get_line(*focusedPanel.cursor.head);
-		lineRelativeToPanel := cursorLine - startVisibleLine;
-		newLine := (startVisibleLine - linesToScroll) + lineRelativeToPanel;
-		move_to_line_visual(*focusedPanel, cursorLine, newLine);
-		focusedPanel.cursor.anchor = focusedPanel.cursor.head;
-	}
+	// scroll to keep the cursor in the same relative place on screen
+	panel_scroll_to_line(panel, startVisibleLine - pageSize/2);
 }
 
 half_page_down :: (using panel: *Panel, args: []string) {
-
-	// these functions could be done with
-	// startLine, endLine := ..
-	// nLines := end - start
-	// scroll_to_line(startLine + nLines / 2)
-	// cursorLineInPanel := cursorLine - startVisibleLine
-	// move_to_line(startLine + cursorLineInPanel + nLines / 2);
-
-	// remove /2 for full page
-
-	numLines := document_get_num_lines(*mainDocument);
-
 	startVisibleLine, endVisibleLine := panel_calculate_visible_lines(panel);
-	linesToScroll := (endVisibleLine - startVisibleLine) / 2;
+	pageSize := endVisibleLine - startVisibleLine;
+	numLinesDocument := document_get_num_lines(panel.document);
 
-	scrollPosOld := scrollPos;
-	scrollPos -= my_font.character_height * linesToScroll;
-	scrollPos = clamp(scrollPos, -(my_font.character_height * numLines) + my_font.character_height * 5, 0);
+	// move the cursor down half a page
+	cursorLine := document_cursor_get_line(*focusedPanel.cursor.head);
+	move_to_line_visual(*focusedPanel, cursorLine, min(cursorLine + pageSize/2, numLinesDocument));
+	focusedPanel.cursor.anchor = focusedPanel.cursor.head;
 
-	if scrollPos != scrollPosOld {
-		cursorLine := document_cursor_get_line(*focusedPanel.cursor.head);
-		lineRelativeToPanel := cursorLine - startVisibleLine;
-		newLine := startVisibleLine + linesToScroll + lineRelativeToPanel;
-		move_to_line_visual(*focusedPanel, cursorLine, newLine);
-		focusedPanel.cursor.anchor = focusedPanel.cursor.head;
-	}
+	// scroll to keep the cursor in the same relative place on screen
+	panel_scroll_to_line(panel, startVisibleLine + pageSize/2);
+}
+
+// targetLine will be the top edge of the panel, such that target line = 0 will leave you scrolled
+// up as high as you can go. Will allow you to scroll off the end as far as a couple lines are still visible
+panel_scroll_to_line :: (panel: *Panel, targetLine: s64) {
+	startVisibleLine := -scrollPos / my_font.character_height;
+	numLinesDocument := document_get_num_lines(panel.document);
+
+	// @todo: these need to be parameterized styling values for the UI
+	headerPadding := 8;
+	headerHeight := my_font.character_height + headerPadding;
+	heightForCode := panel.rect.h - headerHeight;
+	maxScroll := cast(s64) (numLinesDocument * my_font.character_height + heightForCode - 2); 
+
+	delta := targetLine - startVisibleLine;
+	scrollPos -= my_font.character_height * delta;
+	scrollPos = clamp(scrollPos, -maxScroll, 0);
 }
 
 // panel functions @todo, move to it's own file
@@ -656,6 +637,14 @@ panel_calculate_visible_lines :: (panel: *Panel, clamped := false) -> s64, s64 {
 	else {
 		return startVisibleLines, endVisibleLinesUnclamped;
 	}
+}
+
+panel_get_page_size :: (panel: *Panel) -> s64 {
+	// @todo: these need to be parameterized styling values for the UI
+	headerPadding := 8;
+	headerHeight := my_font.character_height + headerPadding;
+	heightForCode := panel.rect.h - headerHeight;
+	return cast(s64) (heightForCode / my_font.character_height);
 }
 
 // utilities 

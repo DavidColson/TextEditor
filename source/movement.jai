@@ -124,13 +124,9 @@ move_one_line_down :: (using panel: *Panel, args: []string) {
 	}
 
 	// scroll the window if the cursor will now become out of view
-
-	// could be done with
-	// scroll_to_line(startVisibleLine + 1)
 	startVisibleLine, endVisibleLine := panel_calculate_visible_lines(panel);
-	if newLine >= (endVisibleLine-1) {
-		difference := (endVisibleLine-1) - currentLine;
-		scrollPos += my_font.character_height * (difference-1);
+	if newLine >= endVisibleLine {
+		panel_scroll_to_line(panel, startVisibleLine + 1);
 	}
 }
 
@@ -146,10 +142,10 @@ move_one_line_up :: (using panel: *Panel, args: []string) {
 
 	// scroll the window if the cursor will now become out of view
 	startVisibleLine, endVisibleLine := panel_calculate_visible_lines(panel);
-	if newLine <= startVisibleLine {
-		difference := currentLine - startVisibleLine;
-		scrollPos -= my_font.character_height * (difference-1);
+	if newLine < startVisibleLine {
+		panel_scroll_to_line(panel, startVisibleLine - 1);
 	}
+
 }
 
 goto_document_start :: (using panel: *Panel, args: []string) {
@@ -160,13 +156,7 @@ goto_document_start :: (using panel: *Panel, args: []string) {
 	}
 
 	// scroll the window if the cursor will now become out of view
-	startVisibleLine, endVisibleLine := panel_calculate_visible_lines(panel);
-	targetLine := 0;
-	currentLine := document_cursor_get_line(*cursor.head);
-	if targetLine <= startVisibleLine {
-		difference := currentLine - startVisibleLine;
-		scrollPos -= my_font.character_height * (difference-1);
-	}
+	panel_scroll_to_line(panel, 0);
 }
 
 goto_document_end :: (using panel: *Panel, args: []string) {
@@ -177,13 +167,9 @@ goto_document_end :: (using panel: *Panel, args: []string) {
 	}
 
 	// scroll the window if the cursor will now become out of view
-	startVisibleLine, endVisibleLine := panel_calculate_visible_lines(panel);
-	targetLine := document_get_num_lines(panel.document);
-	currentLine := document_cursor_get_line(*cursor.head);
-	if targetLine >= (endVisibleLine-1) {
-		difference := (endVisibleLine-1) - currentLine;
-		scrollPos += my_font.character_height * (difference-1);
-	}
+	pageSize := panel_get_page_size(panel);
+	cursorLine := document_cursor_get_line(*cursor.head);
+	panel_scroll_to_line(panel, cursorLine - pageSize + 1);
 }
 
 goto_line_end :: (using panel: *Panel, args: []string) { 
