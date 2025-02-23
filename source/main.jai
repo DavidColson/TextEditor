@@ -27,7 +27,6 @@ Panel :: struct {
 	filesystemNav: FilesystemNavigator;
 
 	// search state
-	searchActive := false;
 	searchInput: InputField;
 	currentRegex: Regexp;
 	hasMatches := false;
@@ -37,6 +36,7 @@ Panel :: struct {
 EditorMode :: enum u8 {
 	NORMAL;
 	INSERT;
+	SEARCH;
 	COMMAND_PICKER;
 	FILESYSTEM_NAVIGATOR;
 }
@@ -144,20 +144,21 @@ main :: () {
 		// @todo: smooth lerp animations on this
 		// have a rawscroll value, and then a lerped value that we lerp toward every frame
 		scrollPos += Input.mouse_delta_z;
-
 		numLines := document_get_num_lines(*mainDocument);
 		scrollPos = clamp(scrollPos, -(my_font.character_height * numLines) + my_font.character_height * 5, 0);
 
 		// keep the cursor on the screen when we scroll
-		startVisibleLine, endVisibleLine := panel_calculate_visible_lines(*focusedPanel);
-		cursorLine := document_cursor_get_line(*focusedPanel.cursor.head);
-		if cursorLine < startVisibleLine {
-			move_to_line_visual(*focusedPanel, cursorLine, startVisibleLine);
-			focusedPanel.cursor.anchor = focusedPanel.cursor.head;
-		}
-		else if cursorLine > endVisibleLine {
-			move_to_line_visual(*focusedPanel, cursorLine, endVisibleLine-1);
-			focusedPanel.cursor.anchor = focusedPanel.cursor.head;
+		if Input.mouse_delta_z > 0 {
+			startVisibleLine, endVisibleLine := panel_calculate_visible_lines(*focusedPanel);
+			cursorLine := document_cursor_get_line(*focusedPanel.cursor.head);
+			if cursorLine < startVisibleLine {
+				move_to_line_visual(*focusedPanel, cursorLine, startVisibleLine);
+				focusedPanel.cursor.anchor = focusedPanel.cursor.head;
+			}
+			else if cursorLine > endVisibleLine {
+				move_to_line_visual(*focusedPanel, cursorLine, endVisibleLine-1);
+				focusedPanel.cursor.anchor = focusedPanel.cursor.head;
+			}
 		}
 
 		// update notifications
@@ -281,9 +282,11 @@ enter_normal_mode :: (panel: *Panel, args: []string) {
 	else if editorMode == .COMMAND_PICKER {
 		command_picker_reset(*panel.commandPicker);
 	}
+	else if editorMode == .SEARCH {
+		// scroll back to where you used to be
+	}
 	editorMode = .NORMAL;
 	extendSelections = false;
-	panel.searchActive = false;
 	focusedInputField = null;
 }
 
@@ -414,12 +417,18 @@ new_line_above :: (using panel: *Panel, args: []string) {
 
 // search
 
-search_document :: (using panel: *Panel, args: []string) {
+enter_search_mode :: (using panel: *Panel, args: []string) {
 	// show search bar
-	panel.searchActive = true;
+	editorMode = .SEARCH;
 	panel.searchInput.onEditCallback = document_search_on_edit;
 	panel.searchInput.userData = cast(*void) panel;
 	focusedInputField = *panel.searchInput;
+}
+
+confirm_search :: (using panel: *Panel, args: []string) {
+	// set real cursor to the match that was found, setup stepping
+	focusedInputField = null;
+	editorMode = .NORMAL;
 }
 
 document_search_on_edit :: (userData: *void, input: string) {
@@ -449,6 +458,10 @@ document_search_on_edit :: (userData: *void, input: string) {
 		if panel.hasMatches {
 			matchLine := document_cursor_get_line(*panel.results[0].start);
 
+			// this could be done with 
+			// startLine, endLine := ..
+			// nLines := end - start
+			// scroll_to_line(matchLine-nLines/2);
 			startVisibleLine, endVisibleLine := panel_calculate_visible_lines(panel);
 			nLines := endVisibleLine - startVisibleLine;
 			if matchLine >= (endVisibleLine-1) {
@@ -598,6 +611,16 @@ half_page_up :: (using panel: *Panel, args: []string) {
 }
 
 half_page_down :: (using panel: *Panel, args: []string) {
+
+	// these functions could be done with
+	// startLine, endLine := ..
+	// nLines := end - start
+	// scroll_to_line(startLine + nLines / 2)
+	// cursorLineInPanel := cursorLine - startVisibleLine
+	// move_to_line(startLine + cursorLineInPanel + nLines / 2);
+
+	// remove /2 for full page
+
 	numLines := document_get_num_lines(*mainDocument);
 
 	startVisibleLine, endVisibleLine := panel_calculate_visible_lines(panel);

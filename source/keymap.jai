@@ -139,10 +139,14 @@ commandList :: Command.[
 	.{ "Toggle Extend Selections", 0, toggle_extend_selections, .[
 		.{ mode=.NORMAL, keys="v"}
 	]},
-	.{ "Search Document", 0, search_document, .[
+
+	// search mode
+	.{ "Search Document", 0, enter_search_mode, .[
 		.{ mode=.NORMAL, keys="/"}
 	]},
-	
+	.{ "Confirm Search", 0, confirm_search, .[
+		.{ mode=.SEARCH, keys="<enter>"}
+	]},
 
 	// changes
 	.{ "Delete selection", 0, delete_selection, .[
@@ -162,7 +166,6 @@ commandList :: Command.[
 	]},
 
 	// insert mode stuff
-	// @todo, may be able to unify this with some other commands?
 	.{ "Delete left char", .HIDDEN, insert_mode_delete_left_char, .[
 		.{ mode=.INSERT, keys="<backspace>"}
 	]},
@@ -214,6 +217,7 @@ commandList :: Command.[
 	// input fields
 	.{ "Delete left char", .HIDDEN, input_field_backspace_char, .[
 		.{ mode=.NORMAL, keys="<backspace>"},
+		.{ mode=.SEARCH, keys="<backspace>"},
 		.{ mode=.COMMAND_PICKER, keys="<backspace>"},
 	]},
 
@@ -233,6 +237,7 @@ commandList :: Command.[
 	.{ "Enter Normal Mode", 0, enter_normal_mode, .[
 		.{ mode=.NORMAL, keys="<escape>"},
 		.{ mode=.INSERT, keys="<escape>"},
+		.{ mode=.SEARCH, keys="<escape>"},
 		.{ mode=.COMMAND_PICKER, keys="<escape>"},
 		.{ mode=.FILESYSTEM_NAVIGATOR, keys="<escape>"},
 	]},

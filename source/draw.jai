@@ -288,7 +288,7 @@ draw_panel :: (panel: *Panel) {
 	}
 
 	// draw search results
-	if panel.searchActive {
+	if editorMode == .SEARCH {
 		for panel.results {
 			draw_cursor_range(textRegionX, textRegionY, it.start, it.end, linesOnScreen, startVisibleLines);
 		}
@@ -303,7 +303,7 @@ draw_panel :: (panel: *Panel) {
 	Simp.draw_code_end();
 
 	// Draw cursor
-	if !panel.searchActive && cursorLine >= startVisibleLines && cursorLine <= endVisibleLines {
+	if editorMode != .SEARCH && cursorLine >= startVisibleLines && cursorLine <= endVisibleLines {
 		Simp.set_shader_for_color();
 		cursorChar := document_cursor_get_char(*panel.cursor.head);
 		cursorCharWidth := calculate_string_length_pixels(my_font, cast(string) u8.[cursorChar]);
@@ -343,8 +343,11 @@ draw_panel :: (panel: *Panel) {
 	if extendSelections && editorMode == .NORMAL {
 		modeText = "SEL";
 	}
-	if editorMode == .INSERT {
+	else if editorMode == .INSERT {
 		modeText = "INS";
+	}
+	else if editorMode == .SEARCH {
+		modeText = "SRCH";
 	}
 
 	lineEndingText := "[Mixed line endings, will be normalized to CRLF on save]";
@@ -383,7 +386,7 @@ draw_panel :: (panel: *Panel) {
 	}
 
 	// Draw search bar
-	if panel.searchActive {
+	if editorMode == .SEARCH {
 		Simp.set_shader_for_color();
 
 		// search bar itself

@@ -124,6 +124,9 @@ move_one_line_down :: (using panel: *Panel, args: []string) {
 	}
 
 	// scroll the window if the cursor will now become out of view
+
+	// could be done with
+	// scroll_to_line(startVisibleLine + 1)
 	startVisibleLine, endVisibleLine := panel_calculate_visible_lines(panel);
 	if newLine >= (endVisibleLine-1) {
 		difference := (endVisibleLine-1) - currentLine;
