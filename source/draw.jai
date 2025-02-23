@@ -191,6 +191,44 @@ draw_command_picker :: (panelRect: Rect, picker: *CommandPicker) {
 	}
 }
 
+draw_cursor_range :: (textAreaX: s64, textAreaY: s64, cursor1: DocumentCursor, cursor2: DocumentCursor, linesOnScreen: []string, startVisibleLine: s64, includeCursor := false) {
+    Simp.set_shader_for_color();
+	rangeStart, rangeEnd := convert_cursors_to_coordinate_range(cursor1, cursor2, includeCursor);
+	lineWidths: [..] s32;
+	lineWidths.allocator = temp;
+	endVisibleLine := startVisibleLine + linesOnScreen.count;
+	if rangeStart.line < startVisibleLine || rangeEnd.line > endVisibleLine {
+		return;
+	}
+	for rangeStart.line..rangeEnd.line {
+		line := linesOnScreen[it - startVisibleLine];
+		lineWidth := calculate_string_length_pixels(my_font, line);
+
+		isFirstLine:= it == rangeStart.line;
+		isLastLine:= it == rangeEnd.line;
+
+		selectionX := 0;
+		selectionW := lineWidth;
+		if isFirstLine {
+			selectionX = calculate_string_length_pixels(my_font, string.{rangeStart.col,line.data});
+			selectionW = lineWidth - selectionX;
+		}
+		if isLastLine {
+			selectionW = calculate_string_length_pixels(my_font, string.{rangeEnd.col,line.data}) - selectionX;
+		}
+
+
+		selection: Rect;
+		selection.x = cast(float)(textAreaX + selectionX);
+		selection.y = cast(float)(textAreaY - my_font.typical_descender + my_font.character_height * (it-startVisibleLine));
+		selection.w = cast(float)selectionW;
+		selection.h = cast(float)my_font.character_height;
+
+		draw_rect(selection, .{0.4, 0.4, 0.4, 1.0});
+	}
+
+}
+
 draw_panel :: (panel: *Panel) {
 
 	headerPadding := 8;
@@ -242,39 +280,17 @@ draw_panel :: (panel: *Panel) {
 	}
 
 	// draw the cursor selection
-	anchorLine := document_cursor_get_line(*panel.cursor.anchor);
 	if cursorLine >= startVisibleLines && cursorLine <= endVisibleLines {
 		Simp.set_shader_for_color();
 		if panel.cursor.head.documentOffset != panel.cursor.anchor.documentOffset {
-			rangeStart, rangeEnd := convert_cursor_to_coordinate_range(panel.cursor, true);
-			lineWidths: [..] s32;
-			lineWidths.allocator = temp;
-			for rangeStart.line..rangeEnd.line {
-				line := linesOnScreen[it - startVisibleLines];
-				lineWidth := calculate_string_length_pixels(my_font, line);
+			draw_cursor_range(textRegionX, textRegionY, panel.cursor.head, panel.cursor.anchor, linesOnScreen, startVisibleLines, true);
+		}
+	}
 
-				isFirstLine:= it == rangeStart.line;
-				isLastLine:= it == rangeEnd.line;
-
-				selectionX := 0;
-				selectionW := lineWidth;
-				if isFirstLine {
-					selectionX = calculate_string_length_pixels(my_font, string.{rangeStart.col,line.data});
-					selectionW = lineWidth - selectionX;
-				}
-				if isLastLine {
-					selectionW = calculate_string_length_pixels(my_font, string.{rangeEnd.col,line.data}) - selectionX;
-				}
-				
-
-				selection: Rect;
-				selection.x = cast(float)(textRegionX + selectionX);
-				selection.y = cast(float)(textRegionY - my_font.typical_descender + my_font.character_height * (it-startVisibleLines));
-				selection.w = cast(float)selectionW;
-				selection.h = cast(float)my_font.character_height;
-
-				draw_rect(selection, .{0.4, 0.4, 0.4, 1.0});
-			}
+	// draw search results
+	if panel.searchActive {
+		for panel.results {
+			draw_cursor_range(textRegionX, textRegionY, it.start, it.end, linesOnScreen, startVisibleLines);
 		}
 	}
 
@@ -343,13 +359,14 @@ draw_panel :: (panel: *Panel) {
 	}
 
 	cursorCoordinate := document_cursor_get_coordinate(*panel.cursor.head);
-	width := Simp.prepare_text(my_font, tprint("% | %0% - %:% %", 
+	width := Simp.prepare_text(my_font, tprint("% | %0% - %:% % docOff: %", 
 								modeText,
 								panel.document.path,
 								ifx panel.document.unsaved then "[UNSAVED]" else "",
 								cursorCoordinate.line+1,
 								cursorCoordinate.col,
-								lineEndingText));
+								lineEndingText,
+								panel.cursor.head.documentOffset));
 								Simp.draw_prepared_text(my_font, 2, my_font.character_height + 2, Vector4.{0.8, 0.8, 0.8, 1.0});
 
 	pendingKeys := string.{keyMap.pendingKeyString.count, keyMap.pendingKeyString.data};
@@ -369,6 +386,7 @@ draw_panel :: (panel: *Panel) {
 	if panel.searchActive {
 		Simp.set_shader_for_color();
 
+		// search bar itself
 		// @todo: styling params
 		searchBarTextPadding := 3;
 		searchBarInputBoxPadding := 4;
@@ -396,6 +414,7 @@ draw_panel :: (panel: *Panel) {
 		textX := inputBoxRect.x + searchBarTextPadding;
 		textY := inputBoxRect.y + my_font.character_height;
 		Simp.draw_prepared_text(my_font, xx textX, xx textY, Vector4.{0.8, 0.8, 0.8, 1.0});
+
 	}
 }
 

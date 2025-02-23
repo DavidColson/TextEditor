@@ -16,17 +16,22 @@ Cursor :: struct {
 }
 
 Panel :: struct {
-	// @todo make a free panel function which yeets the wrapped lines
 	document: *Document;
-
-	cursor: Cursor;
 	rect: Rect;
-	commandMessage: string;
 
-	searchActive := false;
+	// cursors
+	cursor: Cursor;
+
+	// widgets
 	commandPicker: CommandPicker;
 	filesystemNav: FilesystemNavigator;
+
+	// search state
+	searchActive := false;
 	searchInput: InputField;
+	currentRegex: Regexp;
+	hasMatches := false;
+	results: []DocumentRange;
 }
 
 EditorMode :: enum u8 {
@@ -413,62 +418,42 @@ search_document :: (using panel: *Panel, args: []string) {
 	// show search bar
 	panel.searchActive = true;
 	panel.searchInput.onEditCallback = document_search_on_edit;
+	panel.searchInput.userData = cast(*void) panel;
 	focusedInputField = *panel.searchInput;
-
-
-	// how do we share a simple input field?
-
-	// what state does the input field need?
-		// the array of text data
-		// cursor position
-		// in future, selection range
-
-	// what events does it need to function?
-		// text input
-		// certain keys such as backspace, arrow keys, delete
-		// eventually ctrl+c/v etc
-
-	// what if keymap had a group of commands shared by all simple input fields
-	// global editor state could store a reference to the currently focused simple input field
-	// keymapper events would either get sent to this focused field, or just ignored if no focus exists
-
-	// the various systems, such as search, command picker, filesystem nav etc would be responsible for
-	// setting and unsetting the focused input field
-
-	// how would they know if the text changed to update things or do things?
-	// function pointer in the simpleInputField?
 }
 
 document_search_on_edit :: (userData: *void, input: string) {
-	// text has edited, so refresh the search
+	panel := cast(*Panel) userData;
 
-	// so here's an issue, how do you search the document when it's in pieces?
-	// one thing at a time I guess
-	regexp, success := compile(input);
-	defer uninit(*regexp);
-	matched, captures := match(*mainDocument, regexp);
-	defer array_free(captures);
+	if panel.currentRegex.prog {
+		uninit(*panel.currentRegex);
+		array_reset(*panel.results);
+	}
 
-	// totally just works! very cool
-	// so now how to solve the piece table issue?
-	
-	// two options I see, one is to actually flatten the piece table
-	// but in chunks from the search point
-	// i.e. flatten 256 chars, do the search. matches will give you pointers to the flattened string
-	// so you can work out the document cursor from where you started the search
-	
-	// or, we make a custom version of match_nfa, which takes a document cursor, and iterates it
-	// this will obviously not use much memory, no flattening will occur
-	// but of course it will be more complex
-	// we will likely also need to modify match_nfa to give back document cursors in the captures array
+	success: bool;
+	panel.currentRegex, success = compile(input);
+	if success {
+		panel.hasMatches, panel.results = match(*mainDocument, panel.currentRegex);
 
-	// it's useful that while working, match_nfa tracks just offsets
-	// so we could just alter that code to take the start document offset, and then jump to subsequent offsets
+		// is the result off the edge of the screen? if so scroll so it's centered
 
-	// without just duplicating match_nfa, which I am reluctant to do cause it does interesting work
-	// we would need to convert it in place to take a text iterator function instead of text (with some additional data)
-	// then a param to tell it to return the offsets rather than slices
-	// then we can do the processing on our side
+		if panel.hasMatches {
+			matchLine := document_cursor_get_line(*panel.results[0].start);
+
+			startVisibleLine, endVisibleLine := panel_calculate_visible_lines(panel);
+			nLines := endVisibleLine - startVisibleLine;
+			if matchLine >= (endVisibleLine-1) {
+				difference := (endVisibleLine-1) - matchLine;
+				difference -= nLines / 2; // center in screen
+				scrollPos += my_font.character_height * (difference);
+			}
+			else if matchLine < startVisibleLine {
+				difference := matchLine - startVisibleLine;
+				difference -= nLines / 2; // center in screen
+				scrollPos -= my_font.character_height * (difference);
+			}
+		}
+	}
 }
 
 // insert mode stuff
@@ -642,41 +627,41 @@ panel_calculate_visible_lines :: (panel: *Panel, clamped := false) -> s64, s64 {
 }
 
 // utilities 
-convert_cursor_to_coordinate_range :: (cursor: Cursor, includeCursor: bool = true) -> start: Coordinate, end: Coordinate {
+convert_cursors_to_coordinate_range :: (cursor1: DocumentCursor, cursor2: DocumentCursor, includeCursor: bool = true) -> start: Coordinate, end: Coordinate {
 	rangeStart: Coordinate;
 	rangeEnd: Coordinate;
 	cursorBonus := ifx includeCursor then 1 else 0;
 
-	cursorHead := document_cursor_get_coordinate(*cursor.head);
-	cursorAnchor := document_cursor_get_coordinate(*cursor.anchor);
+	coordinate1 := document_cursor_get_coordinate(*cursor1);
+	coordinate2 := document_cursor_get_coordinate(*cursor2);
 
-	if cursorHead.line < cursorAnchor.line {
-		// cursor is clearly earlier than the anchor
-		rangeStart.line = cursorHead.line;
-		rangeStart.col = cursorHead.col;
-		rangeEnd.line = cursorAnchor.line;
-		rangeEnd.col = cursorAnchor.col+cursorBonus;
+	if coordinate1.line < coordinate2.line {
+		// coordinate1 is clearly earlier than coordinate2
+		rangeStart.line = coordinate1.line;
+		rangeStart.col = coordinate1.col;
+		rangeEnd.line = coordinate2.line;
+		rangeEnd.col = coordinate2.col+cursorBonus;
 	}
-	else if cursorHead.line > cursorAnchor.line { 
-		// anchor is clearly earlier than the cursor
-		rangeStart.line = cursorAnchor.line;
-		rangeStart.col = cursorAnchor.col;
-		rangeEnd.line = cursorHead.line;
-		rangeEnd.col = cursorHead.col+cursorBonus; // cursor itself is considered part of the selection
+	else if coordinate1.line > coordinate2.line { 
+		// coordinate2 is clearly earlier than the coordinate1
+		rangeStart.line = coordinate2.line;
+		rangeStart.col = coordinate2.col;
+		rangeEnd.line = coordinate1.line;
+		rangeEnd.col = coordinate1.col+cursorBonus; // cursor itself is considered part of the selection
 	}
 	else {
 		// they are on the same line, pick based on column
-		if cursorHead.col <= cursorAnchor.col {
-			rangeStart.line = cursorHead.line;
-			rangeStart.col = cursorHead.col;
-			rangeEnd.line = cursorAnchor.line;
-			rangeEnd.col = cursorAnchor.col+cursorBonus;
+		if coordinate1.col <= coordinate2.col {
+			rangeStart.line = coordinate1.line;
+			rangeStart.col = coordinate1.col;
+			rangeEnd.line = coordinate2.line;
+			rangeEnd.col = coordinate2.col+cursorBonus;
 		}
 		else {
-			rangeStart.line = cursorAnchor.line;
-			rangeStart.col = cursorAnchor.col;
-			rangeEnd.line = cursorHead.line;
-			rangeEnd.col = cursorHead.col+cursorBonus;
+			rangeStart.line = coordinate2.line;
+			rangeStart.col = coordinate2.col;
+			rangeEnd.line = coordinate1.line;
+			rangeEnd.col = coordinate1.col+cursorBonus;
 		}
 	}
 	return rangeStart, rangeEnd;

@@ -56,8 +56,6 @@ LineEndingMode :: enum {
 	MIXED_MAJORITY_CRLF;
 }
 
-// proposal, use s32's instead to make this struct
-// smaller so we can iterate over it faster
 PieceChainNode :: struct {
 	next: *PieceChainNode;
 	prev: *PieceChainNode;
