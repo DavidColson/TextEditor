@@ -31,7 +31,6 @@ DocumentCursor :: struct {
 	nodeStartOffset: s64;
 	nodeStartLine: s64;
 	documentOffset: s64;
-	handleLineEndings := true;
 }
 
 DocumentRange :: struct {
@@ -312,7 +311,6 @@ document_insert_text :: (doc: *Document, at: DocumentCursor, t: string) -> Docum
 		newPiece.lineFeedCount = buffer_line_start_count(newPiece.start, newPiece.end);
 
 		newCursor: DocumentCursor;
-		newCursor.handleLineEndings = at.handleLineEndings;
 
 		// insert into linked list
 		if insertPos == at.node.end {
@@ -396,7 +394,6 @@ document_insert_text :: (doc: *Document, at: DocumentCursor, t: string) -> Docum
 		newCursor.nodeStartOffset = at.nodeStartOffset + at.node.length;
 		newCursor.nodeStartLine = at.nodeStartLine + at.node.lineFeedCount; 
 		newCursor.documentOffset = at.documentOffset;
-		newCursor.handleLineEndings = at.handleLineEndings;
 		return newCursor;
 	}
 }
@@ -415,7 +412,6 @@ document_delete_text :: (doc: *Document, startAt: DocumentCursor, endAt: Documen
 	newCursor: DocumentCursor;
 	newCursor.doc = doc;
 	newCursor.documentOffset = startAt.documentOffset;
-	newCursor.handleLineEndings = startAt.handleLineEndings;
 
 	remove_node_range :: (doc: *Document, first: *PieceChainNode, last: *PieceChainNode) {
 		if first.prev != null {
@@ -615,11 +611,10 @@ document_get_line_content :: (doc: *Document, lineNum: s64) -> string {
 	return builder_to_string(*builder,,temp);
 }
 
-document_create_cursor :: (document: *Document, startOffset: s64 = 0, handleLineEndings := true) -> DocumentCursor {
+document_create_cursor :: (document: *Document, startOffset: s64 = 0) -> DocumentCursor {
 	newCursor : DocumentCursor;
 	newCursor.doc = document;
 	newCursor.node = document.pieceChainHead;
-	newCursor.handleLineEndings = handleLineEndings;
 	if startOffset != 0 {
 		document_cursor_jump_to_offset(*newCursor, startOffset);
 	}
@@ -665,7 +660,7 @@ document_cursor_jump_to_offset :: (cursor: *DocumentCursor, offset: s64) {
 }
 
 
-document_cursor_step_one_forward :: (cursor: *DocumentCursor) -> u8 {
+document_cursor_step_one_forward :: (cursor: *DocumentCursor, skipReturns := false) -> u8 {
 	buffer: = ifx cursor.node.added then *cursor.doc.addedData else *cursor.doc.originalData;
 	offsetInNode := cursor.documentOffset - cursor.nodeStartOffset;
 
@@ -689,13 +684,13 @@ document_cursor_step_one_forward :: (cursor: *DocumentCursor) -> u8 {
 	cursor.documentOffset += 1;
 
 	// CRLF handling, skip over the return, pretending it's not there
-	if cursor.handleLineEndings && character == #char "\r" {
+	if skipReturns && character == #char "\r" {
 		return document_cursor_step_one_forward(cursor);
 	}
 	return character;
 }
 
-document_cursor_step_one_backward :: (cursor: *DocumentCursor) -> u8 {
+document_cursor_step_one_backward :: (cursor: *DocumentCursor, skipReturns := false) -> u8 {
 	cursor.documentOffset -= 1;
 	buffer: = ifx cursor.node.added then *cursor.doc.addedData else *cursor.doc.originalData;
 	offsetInNode := cursor.documentOffset - cursor.nodeStartOffset;
@@ -718,7 +713,7 @@ document_cursor_step_one_backward :: (cursor: *DocumentCursor) -> u8 {
 	character := buffer.text[bufferOffset];
 
 	// CRLF handling, skip over the return, pretending it's not there
-	if cursor.handleLineEndings && character == #char "\n" {
+	if skipReturns && character == #char "\n" {
 		newChar := document_cursor_step_one_backward(cursor);
 		if newChar == #char "\r" {
 			return character;
@@ -738,6 +733,19 @@ for_expansion :: (cursor: *DocumentCursor, body: Code, flags: For_Flags) #expand
 		// this tells you how far you've iterated since the start
 		`it_index := counter;
 		`it := ifx flags & .REVERSE then document_cursor_step_one_backward(cursor) else document_cursor_step_one_forward(cursor);
+		#insert body;
+		counter += 1;
+		if cursor.documentOffset == 0 then break;
+		if cursor.documentOffset == cursor.doc.size then break;
+	}
+}
+
+skip_returns :: (cursor: *DocumentCursor, body: Code, flags: For_Flags) #expand {
+	counter := 0;
+	while cursor.documentOffset <= cursor.doc.size {
+		// this tells you how far you've iterated since the start
+		`it_index := counter;
+		`it := ifx flags & .REVERSE then document_cursor_step_one_backward(cursor, true) else document_cursor_step_one_forward(cursor, true);
 		#insert body;
 		counter += 1;
 		if cursor.documentOffset == 0 then break;
@@ -820,13 +828,13 @@ document_cursor_get_char :: (cursor: *DocumentCursor) -> u8 {
 		char := buffer.text[bufferOffset];
 		// if we iterated to a carraige return, we'd skip over it, so matching that behaviour
 		// with a small hack that assumes newline always comes next
-		if cursor.handleLineEndings && char == #char "\r" return #char "\n"; else return char;
+		return char;
 	}
 
 	buffer: = ifx cursor.node.added then *cursor.doc.addedData else *cursor.doc.originalData;
 	bufferOffset := buffer_cursor_to_offset(buffer, cursor.node.start) + offsetInNode;
 	char := buffer.text[bufferOffset];
-	if char == #char "\r" return #char "\n"; else return char;
+	return char;
 }
 
 document_cursor_get_coordinate :: (cursor: *DocumentCursor) -> Coordinate {
@@ -862,7 +870,7 @@ document_normalize_line_endings :: (doc: *Document, desiredEndings: LineEndingMo
 		return;
 	}
 
-	cursor := document_create_cursor(doc, 0, false);
+	cursor := document_create_cursor(doc, 0);
 
 	// manually implemented for_expansion so we can edit the cursor as we iterate
 	counter := 0;

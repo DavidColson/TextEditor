@@ -199,6 +199,8 @@ match_nfa :: (prog: *Prog, doc: *Document, prefix_offset: int, anchor_in: Prog.A
 
 			// get empty flags for this area of text
 			// empty_flags needs pos and pos-1
+			// @todo: I don't entirely trust this peice of code, please test and confirm against
+			// the normal version of this function
 			emptyFlags: EmptyOp;
 			{
 				testChars: [2]u8;

@@ -1081,13 +1081,13 @@ prefix_accel_front_and_back :: (using prog: *Prog, doc: *Document, pos: int) -> 
 		return -1;
 	}
 
-	// essentially want to maintain two cursors, for the front and back, iterating both
 	cursorFront := document_create_cursor(doc, pos);
-	cursorBack := document_create_cursor(doc, pos + prefix_size - 1);
-
-	while cursorBack.documentOffset < doc.size {
+	while cursorFront.documentOffset < (doc.size - prefix_size + 1) {
+		cursorBack := cursorFront;
+		document_cursor_jump_to_offset(*cursorBack, cursorFront.documentOffset + prefix_size - 1);
 		front := document_cursor_step_one_forward(*cursorFront);
-		back := document_cursor_step_one_forward(*cursorBack);
+		back := document_cursor_get_char(*cursorBack);
+
 		if front == prefix_front && back == prefix_back {
 			return cursorFront.documentOffset-1;
 		}

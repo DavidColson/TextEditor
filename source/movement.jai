@@ -1,6 +1,6 @@
 
 move_one_char_left :: (using panel: *Panel, args: []string) {
-	character := document_cursor_step_one_backward(*cursor.head);
+	character := document_cursor_step_one_backward(*cursor.head, true);
 
 	if character == #char "\t" {
 		cursor.virtualColumn -= chars_to_tabstop(cursor.virtualColumn);
@@ -36,7 +36,7 @@ move_one_char_left :: (using panel: *Panel, args: []string) {
 }
 
 move_one_char_right :: (using panel: *Panel, args: []string) {
-	character := document_cursor_step_one_forward(*cursor.head);
+	character := document_cursor_step_one_forward(*cursor.head, true);
 
 	if character == #char "\t" {
 		cursor.virtualColumn += chars_to_tabstop(cursor.virtualColumn);
@@ -277,7 +277,7 @@ move_word_reverse :: (using panel: *Panel, checkPosition: (u8, u8, CharCategory,
 		cursor.anchor = cursor.head;
 	}
 	prev := document_cursor_get_char(*cursor.head);
-	for < cursor.head {
+	for < :skip_returns cursor.head {
 		nextCharCategory := categorize_char(it);
 		prevCharCategory := categorize_char(prev);
 		if checkPosition(prev, it, prevCharCategory, nextCharCategory) {
@@ -285,7 +285,7 @@ move_word_reverse :: (using panel: *Panel, checkPosition: (u8, u8, CharCategory,
 				if !extendSelections then cursor.anchor = cursor.head;
 			}
 			else {
-				document_cursor_step_one_forward(*cursor.head);
+				document_cursor_step_one_forward(*cursor.head, true);
 				break;
 			}
 		}
@@ -420,7 +420,7 @@ jump_to_before_last_char :: (using panel: *Panel, args: []string) {
 	for < cursor.head {
 		// @todo: assumes the args are single char, this may not always be true
 		if args[0][0] == it {
-			document_cursor_step_one_forward(*cursor.head);
+			document_cursor_step_one_forward(*cursor.head, true);
 			break;
 		}
 	}
