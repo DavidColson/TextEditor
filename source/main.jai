@@ -463,18 +463,21 @@ next_search_result :: (using panel: *Panel, args: []string) {
 	}
 	panel.hasMatches, panel.results = match(*mainDocument, startOffset, mainDocument.size, panel.currentRegex);
 
-	if panel.hasMatches {
-		panel.cursor.anchor = panel.results[0].start;
-		panel.cursor.head = panel.results[0].end;
-		document_cursor_step_one_backward(*panel.cursor.head);
-		
-		// is the result off the edge of the screen? if so scroll so it's centered
-		matchLine := document_cursor_get_line(*panel.results[0].start);
-		startVisibleLine, endVisibleLine := panel_calculate_visible_lines(panel);
-		pageSize := endVisibleLine - startVisibleLine;
-		if matchLine < startVisibleLine || matchLine >= (endVisibleLine-1) {
-			panel_scroll_to_line(panel, matchLine - pageSize/2); 
-		}
+	// wrap around to start of document if no matches
+	if !panel.hasMatches {
+		panel.hasMatches, panel.results = match(*mainDocument, 0, mainDocument.size, panel.currentRegex);
+	}
+
+	panel.cursor.anchor = panel.results[0].start;
+	panel.cursor.head = panel.results[0].end;
+	document_cursor_step_one_backward(*panel.cursor.head);
+
+	// is the result off the edge of the screen? if so scroll so it's centered
+	matchLine := document_cursor_get_line(*panel.results[0].start);
+	startVisibleLine, endVisibleLine := panel_calculate_visible_lines(panel);
+	pageSize := endVisibleLine - startVisibleLine;
+	if matchLine < startVisibleLine || matchLine >= (endVisibleLine-1) {
+		panel_scroll_to_line(panel, matchLine - pageSize/2); 
 	}
 }
 
@@ -485,6 +488,7 @@ previous_search_result :: (using panel: *Panel, args: []string) {
 	if panel.cursor.head.documentOffset < end {
 		end = panel.cursor.head.documentOffset; 
 	}
+	needToWrap := true;
 	while true {
 		hasMatch, results := match(*mainDocument, start, end, panel.currentRegex);
 		if hasMatch {
@@ -494,9 +498,14 @@ previous_search_result :: (using panel: *Panel, args: []string) {
 
 			panel.results = results;
 			start = results[0].end.documentOffset;
+			needToWrap = false; // we found something first time around, so don't wrap
+		}
+		else if needToWrap {
+			start = end;
+			end = panel.document.size;
+			needToWrap = false; // we're starting the wrap, so don't do it again
 		}
 		else {
-			// failed to find anymore matches, so what we last saved is the previous match
 			break;
 		}
 	}
