@@ -137,12 +137,30 @@ document_open :: (path: string) {
 	doc.pieceChainAlloc = Allocator.{ proc = flat_pool_allocator_proc, data = *doc.pieceChainMemory };
 
 	doc.path = copy_string(path,,doc.documentAlloc);
-    file, success := read_entire_file(path,,doc.documentAlloc);
+
+    f, success := file_open(doc.path);
 	if !success {
 		push_notification("File open failed");
 		// @todo: better cleanup
 		return;
 	}
+
+	fileSize := file_length(f);
+	if (fileSize > (256*1024*1024)) {
+		// this is a large file, so reserve space for the file plus 30% for additions
+		init(*doc.documentMemory, cast(int)(fileSize * 1.3));
+		// @todo: better heuristic for guessing how much space you need for line endings and the piece chain
+		init(*doc.pieceChainMemory, 512 * 1024 * 1024);
+	}
+
+	file: string;
+    file, success = read_entire_file(f,,doc.documentAlloc);
+	if !success {
+		push_notification("File open failed");
+		// @todo: better cleanup
+		return;
+	}
+
 	doc.size = file.count;
 	doc.unsaved = false;
 
