@@ -212,7 +212,11 @@ main :: () {
 }
 
 write_register :: (name: u8, value: string) {
-	// copy string into local memory for safe keeping
+	if name == #char "+" {
+		os_clipboard_set_text(value);
+	}
+
+	// we write to the default yank
 	registerData := find_or_add(*registers.table, name,,registers.registerAllocator); 
 	array_reset_keeping_memory(registerData);
 
@@ -222,9 +226,14 @@ write_register :: (name: u8, value: string) {
 }
 
 read_register :: (name: u8) -> string {
-	registerData := table_find_pointer(*registers.table, name); 
-	if registerData {
-		return string.{registerData.count, registerData.data};
+	if name == #char "+" {
+		return os_clipboard_get_text();
+	}
+	else {
+		registerData := table_find_pointer(*registers.table, name); 
+		if registerData {
+			return string.{registerData.count, registerData.data};
+		}
 	}
 	return string.{};
 }
@@ -432,13 +441,12 @@ yank_selection :: (using panel: *Panel, args: []string) {
 	textStr := string.{text.count, text.data};
 	push_notification(sprint("Yanked: %", textStr));
 
-	write_register(#char "\"", textStr);
+	write_register(#char "+", textStr);
 }
 
 paste_after_selection :: (using panel: *Panel, args: []string) {
 	// read from register (either default or selected)
-	textToPaste := read_register(#char "\"");
-	push_notification(sprint("Pasted: %", textToPaste));
+	textToPaste := read_register(#char "+");
 
 	// insert into document
 	at := cursor.head;
@@ -457,7 +465,6 @@ paste_after_selection :: (using panel: *Panel, args: []string) {
 paste_before_selection :: (using panel: *Panel, args: []string) {
 	// read from register (either default or selected)
 	textToPaste := read_register(#char "\"");
-	push_notification(sprint("Pasted: %", textToPaste));
 
 	// insert into document
 	cursor.anchor = document_insert_text(document, cursor.head, textToPaste);
@@ -1045,6 +1052,7 @@ Input :: #import "Input";
 #import "Sort";
 #import "Flat_Pool";
 #import "Hash_Table";
+#import "Clipboard";
 
 // @todo: this should be moved to a relevant "platform file"
 kernel32 :: #system_library "kernel32";
