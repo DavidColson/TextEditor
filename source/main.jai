@@ -67,6 +67,14 @@ notifications : [10]Notification;
 numActiveNotifications := 0;
 notificationTime: float64 = 10;
 
+// registers
+Registers :: struct {
+	registerPool: Flat_Pool;
+	registerAllocator: Allocator;
+	table: Table(u8, [..]u8);
+}
+registers: Registers;
+
 // options
 textSize :: 15;
 tabSize :: 4;
@@ -98,6 +106,8 @@ main :: () {
     my_init_fonts();
 
 	rebuild_key_map();
+
+	registers.registerAllocator = Allocator.{ proc = flat_pool_allocator_proc, data = *registers.registerPool };
 
 	focusedPanel.rect.x = 0;
 	focusedPanel.rect.y = 0;
@@ -201,8 +211,26 @@ main :: () {
     }
 }
 
+write_register :: (name: u8, value: string) {
+	// copy string into local memory for safe keeping
+	registerData := find_or_add(*registers.table, name,,registers.registerAllocator); 
+	array_reset_keeping_memory(registerData);
+
+	array_reserve(registerData, value.count,,registers.registerAllocator);
+	memcpy(registerData.data, value.data, value.count * size_of(u8));
+	registerData.count = value.count;
+}
+
+read_register :: (name: u8) -> string {
+	registerData := table_find_pointer(*registers.table, name); 
+	if registerData {
+		return string.{registerData.count, registerData.data};
+	}
+	return string.{};
+}
 
 my_init_fonts :: () {
+	// @todo: change font size for a given dpi scale that may have just occured
     my_font = Simp.get_font_at_size("fonts", "FiraMonoNerdFontMono-Medium.ttf", textSize);
 	my_font.render_tabs = false;
 	my_font.render_new_lines = false;
@@ -380,6 +408,67 @@ delete_selection :: (using panel: *Panel, args: []string) {
 change_selection :: (using panel: *Panel, args: []string) {
 	delete_selection(panel, args);
 	enter_insert_mode_start(panel, args);
+}
+
+yank_selection :: (using panel: *Panel, args: []string) {
+	// read the selection from the document
+	// @todo: it may be useful to pull out this snippet as a generic "read range from document"
+	readCursor: DocumentCursor;
+	stopCursor: DocumentCursor;
+	if cursor.head.documentOffset < cursor.anchor.documentOffset {
+		readCursor = cursor.head;
+		stopCursor = cursor.anchor;
+	}
+	else {
+		readCursor = cursor.anchor;
+		stopCursor = cursor.head;
+	}
+
+	text: [..]u8;
+	for readCursor {
+		array_add(*text, it,,temp);
+		if readCursor.documentOffset >= stopCursor.documentOffset+1 then break;
+	}
+	textStr := string.{text.count, text.data};
+	push_notification(sprint("Yanked: %", textStr));
+
+	write_register(#char "\"", textStr);
+}
+
+paste_after_selection :: (using panel: *Panel, args: []string) {
+	// read from register (either default or selected)
+	textToPaste := read_register(#char "\"");
+	push_notification(sprint("Pasted: %", textToPaste));
+
+	// insert into document
+	at := cursor.head;
+	document_cursor_step_one_forward(*at);
+	cursor.anchor = document_insert_text(document, at, textToPaste);
+
+	// move cursor head to the right side of the pasted region
+	cursor.head = cursor.anchor;
+	if textToPaste.count > 0 {
+		for cursor.head {
+			if it_index >= textToPaste.count-2 then break;
+		}
+	}
+}
+
+paste_before_selection :: (using panel: *Panel, args: []string) {
+	// read from register (either default or selected)
+	textToPaste := read_register(#char "\"");
+	push_notification(sprint("Pasted: %", textToPaste));
+
+	// insert into document
+	cursor.anchor = document_insert_text(document, cursor.head, textToPaste);
+
+	// move cursor head to the right side of the pasted region
+	cursor.head = cursor.anchor;
+	if textToPaste.count > 0 {
+		for cursor.head {
+			if it_index >= textToPaste.count-2 then break;
+		}
+	}
 }
 
 replace_selection :: (using panel: *Panel, args: []string) {

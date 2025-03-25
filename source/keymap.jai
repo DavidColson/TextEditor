@@ -161,6 +161,15 @@ commandList :: Command.[
 	.{ "Change selection", 0, change_selection, .[
 		.{ mode=.NORMAL, keys="c"},
 	]},
+	.{ "Yank selection", 0, yank_selection, .[
+		.{ mode=.NORMAL, keys="y"},
+	]},
+	.{ "Paste after selection", 0, paste_after_selection, .[
+		.{ mode=.NORMAL, keys="p"},
+	]},
+	.{ "Paste before selection", 0, paste_before_selection, .[
+		.{ mode=.NORMAL, keys="P"},
+	]},
 	.{ "Replace selection with {char}", 0, replace_selection, .[
 		.{ mode=.NORMAL, keys="r{char}"},
 	]},
