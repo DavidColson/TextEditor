@@ -285,6 +285,8 @@ document_save :: (doc: *Document, path: string, backup := false) {
 }
 
 document_insert_text :: (doc: *Document, at: DocumentCursor, t: string) -> DocumentCursor {
+	if t.count == 0 return at;
+
 	doc.unsaved = true;
 	// actually add the new text to a buffer, updating linestarts and what not
 	text := copy_string(t,, doc.documentAlloc);
@@ -424,6 +426,7 @@ document_delete_text :: (doc: *Document, startAt: DocumentCursor, endAt: Documen
 	start := buffer_offset_to_cursor(startBuffer, startAt.node, startAt.documentOffset - startAt.nodeStartOffset);
 	end := buffer_offset_to_cursor(endBuffer, endAt.node, endAt.documentOffset - endAt.nodeStartOffset);
 	count := endAt.documentOffset - startAt.documentOffset;
+	if count == 0 return startAt;
 
 	doc.size -= endAt.documentOffset - startAt.documentOffset;
 

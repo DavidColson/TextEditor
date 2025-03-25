@@ -450,7 +450,7 @@ paste_after_selection :: (using panel: *Panel, args: []string) {
 
 	// insert into document
 	at := cursor.head;
-	document_cursor_step_one_forward(*at);
+	document_cursor_step_one_forward(*at, true);
 	cursor.anchor = document_insert_text(document, at, textToPaste);
 
 	// move cursor head to the right side of the pasted region
@@ -464,7 +464,7 @@ paste_after_selection :: (using panel: *Panel, args: []string) {
 
 paste_before_selection :: (using panel: *Panel, args: []string) {
 	// read from register (either default or selected)
-	textToPaste := read_register(#char "\"");
+	textToPaste := read_register(#char "+");
 
 	// insert into document
 	cursor.anchor = document_insert_text(document, cursor.head, textToPaste);
