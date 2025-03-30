@@ -26,6 +26,7 @@ KeyMap :: struct {
 	pendingKeyString: [..]u8;
 	pendingArgs: [..]string;
 	pendingCount: s32;
+	textInputCount: u16;
 }
 
 KeyMapNode :: struct {
@@ -138,6 +139,9 @@ commandList :: Command.[
 	// misc normal mode
 	.{ "Toggle Extend Selections", 0, toggle_extend_selections, .[
 		.{ mode=.NORMAL, keys="v"}
+	]},
+	.{ "Select register {char}", 0, select_register, .[
+		.{ mode=.NORMAL, keys="\"{char}"}
 	]},
 	.{ "Next search result", 0, next_search_result, .[
 		.{ mode=.NORMAL, keys="n"}
@@ -391,6 +395,7 @@ input_handler :: (event: Input.Event) {
 		keyStringIsText = true;
 	}
 	else if event.type == .KEYBOARD {
+		keyMap.textInputCount = event.text_input_count;
 		builder : String_Builder;
 		builder.allocator = temp;
 		init_string_builder(*builder);
@@ -471,7 +476,7 @@ input_handler :: (event: Input.Event) {
 		nodePtr = table_find_pointer(keyMap.pendingKeyNode.children, keyString);
 	}
 
-	if editorMode != .INSERT {
+	if editorMode != .INSERT && nodePtr != null {
 		for keyString {
 			array_add(*keyMap.pendingKeyString, it);
 		}
@@ -491,6 +496,12 @@ input_handler :: (event: Input.Event) {
 					// a command gets called, after we've figured out
 					// what command we're supposed to execute
 					node.cmd.execute(*focusedPanel, keyMap.pendingArgs);
+
+					// register selection has some special behaviour as it's intended to be paired with 
+					// one other action
+					if node.cmd.execute != select_register {
+						registers.selectedRegister = DEFAULT_REGISTER;
+					}
 					keyMap.pendingCount -= 1;
 				}
 			}

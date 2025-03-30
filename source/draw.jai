@@ -370,10 +370,14 @@ draw_panel :: (panel: *Panel) {
 								cursorCoordinate.col,
 								panel.cursor.head.documentOffset,
 								lineEndingText));
-								Simp.draw_prepared_text(my_font, 2, my_font.character_height + 2, Vector4.{0.8, 0.8, 0.8, 1.0});
+	Simp.draw_prepared_text(my_font, 2, my_font.character_height + 2, Vector4.{0.8, 0.8, 0.8, 1.0});
 
+	registerText := "";
+	if registers.selectedRegister != DEFAULT_REGISTER {
+		registerText = tprint("reg=%", string.{1,*registers.selectedRegister});
+	}
 	pendingKeys := string.{keyMap.pendingKeyString.count, keyMap.pendingKeyString.data};
-	width = Simp.prepare_text(my_font, tprint("%", pendingKeys));
+	width = Simp.prepare_text(my_font, tprint("% %", registerText, pendingKeys));
 	Simp.draw_prepared_text(my_font, cast(s64) (panel.rect.w - width - my_font.mono_x_advance), my_font.character_height + 2, Vector4.{0.8, 0.8, 0.8, 1.0});
 
 	// Draw command list

@@ -68,10 +68,12 @@ numActiveNotifications := 0;
 notificationTime: float64 = 10;
 
 // registers
+DEFAULT_REGISTER :: #char "+";
 Registers :: struct {
 	registerPool: Flat_Pool;
 	registerAllocator: Allocator;
 	table: Table(u8, [..]u8);
+	selectedRegister:u8 = DEFAULT_REGISTER;
 }
 registers: Registers;
 
@@ -212,7 +214,7 @@ main :: () {
 }
 
 write_register :: (name: u8, value: string) {
-	if name == #char "+" {
+	if name == DEFAULT_REGISTER {
 		os_clipboard_set_text(value);
 	}
 
@@ -226,7 +228,7 @@ write_register :: (name: u8, value: string) {
 }
 
 read_register :: (name: u8) -> string {
-	if name == #char "+" {
+	if name == DEFAULT_REGISTER {
 		return os_clipboard_get_text();
 	}
 	else {
@@ -400,6 +402,10 @@ toggle_extend_selections :: (using panel: *Panel, args: []string) {
 	extendSelections = !extendSelections;
 }
 
+select_register :: (using panel: *Panel, args: []string) { 
+	registers.selectedRegister = args[0][0];
+}
+
 delete_selection :: (using panel: *Panel, args: []string) {
 	if cursor.head.documentOffset < cursor.anchor.documentOffset {
 		end := cursor.anchor;
@@ -439,14 +445,14 @@ yank_selection :: (using panel: *Panel, args: []string) {
 		if readCursor.documentOffset >= stopCursor.documentOffset+1 then break;
 	}
 	textStr := string.{text.count, text.data};
-	push_notification(sprint("Yanked: %", textStr));
+	push_notification(sprint("Yanked into register %", string.{1,*registers.selectedRegister}));
 
-	write_register(#char "+", textStr);
+	write_register(registers.selectedRegister, textStr);
 }
 
 paste_after_selection :: (using panel: *Panel, args: []string) {
 	// read from register (either default or selected)
-	textToPaste := read_register(#char "+");
+	textToPaste := read_register(registers.selectedRegister);
 
 	// insert into document
 	at := cursor.head;
@@ -464,7 +470,7 @@ paste_after_selection :: (using panel: *Panel, args: []string) {
 
 paste_before_selection :: (using panel: *Panel, args: []string) {
 	// read from register (either default or selected)
-	textToPaste := read_register(#char "+");
+	textToPaste := read_register(registers.selectedRegister);
 
 	// insert into document
 	cursor.anchor = document_insert_text(document, cursor.head, textToPaste);
