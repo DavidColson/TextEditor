@@ -17,9 +17,11 @@ Document :: struct {
 	pieceChainHead: *PieceChainNode;
 	pieceChainTail: *PieceChainNode;
 	
+	// @todo: this should be a tree at some point
+	undoStack: [..]PieceChainSpan;
+
 	size: s64;
 	lineEndings: LineEndingMode;
-
 	path: string;
 	lastInsert: Coordinate;
 	unsaved: bool;
@@ -65,6 +67,36 @@ PieceChainNode :: struct {
 	length: s64;
 	lineFeedCount: s64;
 }
+
+PieceChainSpan :: struct {
+	first: *PieceChainNode;
+	last: *PieceChainNode;
+
+	// @todo: implement this later
+	// A boundary will have a first and last value set, which are adjacent
+	// to each other in the document, and a boundary span basically means you "removed" or "inserted"
+	// between these two nodes, it's an "empty" span in that sense
+	boundary: bool;
+}
+
+// we're essentially going to end up rewriting the insert/delete functions because we now have to update more next/prev pointers
+// than we did before
+// [x] so I think a better plan will be to implement the span helper functions first, that is
+// - append
+// - spanboundary
+// so that we can construct spans relatively easily and quickly
+
+// [ ] then create a function for creating a new undo event, which adds a new element to the undo stack
+// and returns it as an empty span
+
+// [ ] then create a swap_span function which generalizes all the prev/next pointer edits
+
+// [ ] Now rewrite the insert function to use spans. The general pattern is:
+// - New undo event (make new span)
+// - Add old nodes that you intend to remove or change, sequentially
+// - Create, configure, and add new nodes you want to add sequentially
+// - swap spans
+
 
 operator == :: (a: Coordinate, b: Coordinate) -> bool {
 	return a.line == b.line && a.col == b.col;
@@ -216,6 +248,9 @@ document_open :: (path: string) {
 	doc.addedData.lineStarts.allocator = doc.pieceChainAlloc;
 	array_add(*doc.addedData.lineStarts, 0);
 	doc.lastInsert = Coordinate.{0,0};
+
+	// setup undo stack
+	doc.undoStack.allocator = doc.pieceChainAlloc;
 
 	// create the starting node of the piece chain
 	doc.pieceChainHead = New(PieceChainNode,, doc.pieceChainAlloc);
@@ -1057,4 +1092,57 @@ node_trim_right :: (node: *PieceChainNode, buffer: *Buffer, pos: Coordinate) {
 	node.end = pos;
 	node.length = lenLeft;
 	node.lineFeedCount = buffer_line_start_count(node.start, node.end);
+}
+
+span_append :: (span: *PieceChainSpan, node: *PieceChainNode) {
+	if span.first == null {
+		span.first = node;
+	}
+	else {
+		span.last.next = node;
+		node.prev = span.last;
+	}
+	span.last = node;
+	span.boundary = false;
+}
+
+span_boundary :: (span: *PieceChainSpan, before: *PieceChainNode, after: *PieceChainNode) {
+	span.first = before;
+	span.last = after;
+	span.boundary = true;
+}
+
+new_undo_event :: (doc: *Document) -> *PieceChainSpan {
+	return array_add(*doc.undoStack);
+}
+
+swap_spans :: (src: *PieceChainSpan, dst: *PieceChainSpan) {
+	// @todo: draw this out with a diagram to convince yourself it's correct
+	// it's a bit of a handful
+
+	if src.boundary {
+		// in this case src is a gap, so we need to effectively remove
+		// a section of dst
+		if !dst.boundary {
+			src.first.next = dst.first;
+			src.last.prev = dst.last;
+			dst.first.prev = src.first;
+			dst.last.next = src.last;
+		}
+	}
+	else {
+		// in this case dst is just a gap we need to slot into
+		// and src remembers where it used to be, so we just reset those pointers
+		if dst.boundary {
+			src.first.prev.next = src.last.next;
+			src.last.next.prev = src.first.prev;
+		}
+		// this is the general case, a straight swap
+		else {
+			src.first.prev.next = dst.first;
+			src.last.next.prev = dst.last;
+			dst.first.prev = src.first.prev;
+			dst.last.next = src.last.next;
+		}
+	}
 }
