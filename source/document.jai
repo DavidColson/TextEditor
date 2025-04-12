@@ -20,19 +20,23 @@ Document :: struct {
 	// @todo: this should be a tree at some point
 	undoStack: [..]PieceChainSpan;
 
+	
 	size: s64;
 	lineEndings: LineEndingMode;
 	path: string;
-	lastInsert: Coordinate;
+	addedBufferEnd: Coordinate;
 	unsaved: bool;
+	lastDeletionOffset: s64;
 }
 
 DocumentCursor :: struct {
 	doc: *Document;
 	node: *PieceChainNode;
+	documentOffset: s64;
+	// these are both document relative
+	// they are the document coordinates at the start of the current node
 	nodeStartOffset: s64;
 	nodeStartLine: s64;
-	documentOffset: s64;
 }
 
 DocumentRange :: struct {
@@ -71,11 +75,6 @@ PieceChainNode :: struct {
 PieceChainSpan :: struct {
 	first: *PieceChainNode;
 	last: *PieceChainNode;
-
-	// @todo: implement this later
-	// A boundary will have a first and last value set, which are adjacent
-	// to each other in the document, and a boundary span basically means you "removed" or "inserted"
-	// between these two nodes, it's an "empty" span in that sense
 	boundary: bool;
 }
 
@@ -247,21 +246,30 @@ document_open :: (path: string) {
 	doc.addedData.text.data = file.data + file.count;
 	doc.addedData.lineStarts.allocator = doc.pieceChainAlloc;
 	array_add(*doc.addedData.lineStarts, 0);
-	doc.lastInsert = Coordinate.{0,0};
+	doc.addedBufferEnd = Coordinate.{0,0};
+	doc.lastDeletionOffset = -1;
 
 	// setup undo stack
 	doc.undoStack.allocator = doc.pieceChainAlloc;
 
-	// create the starting node of the piece chain
+	// create the nill head/tail nodes (means we never have to null check the prev/next ptrs)
 	doc.pieceChainHead = New(PieceChainNode,, doc.pieceChainAlloc);
-	doc.pieceChainHead.start = Coordinate.{0,0}; 
-	doc.pieceChainHead.end = Coordinate.{
+	doc.pieceChainTail = New(PieceChainNode,, doc.pieceChainAlloc);
+
+	// create the main node of the piece chain
+	node := New(PieceChainNode,, doc.pieceChainAlloc);
+	node.start = Coordinate.{0,0}; 
+	node.end = Coordinate.{
 		doc.originalData.lineStarts.count - 1,
 		doc.originalData.text.count - doc.originalData.lineStarts[doc.originalData.lineStarts.count - 1]}; 
-	doc.pieceChainHead.length = doc.originalData.text.count; 
-	doc.pieceChainHead.lineFeedCount = doc.originalData.lineStarts.count-1; 
-	doc.pieceChainHead.added = false;
-	doc.pieceChainTail = doc.pieceChainHead;
+	node.length = doc.originalData.text.count; 
+	node.lineFeedCount = doc.originalData.lineStarts.count-1; 
+	node.added = false;
+
+	doc.pieceChainHead.next = node;
+	node.prev = doc.pieceChainHead;
+	node.next = doc.pieceChainTail;
+	doc.pieceChainTail.prev = node;
 
 	// tell panel cursors to reset
 	// @todo: should be a bit more clever than this, especially when we have a few panels
@@ -337,12 +345,14 @@ document_insert_text :: (doc: *Document, at: DocumentCursor, t: string) -> Docum
 	insertBuffer: = ifx at.node.added then *doc.addedData else *doc.originalData;
 	insertPos := buffer_offset_to_cursor(insertBuffer, at.node, at.documentOffset - at.nodeStartOffset);
 
+	newspan: PieceChainSpan;
+
 	if insertPos == at.node.end || insertPos == at.node.start {
 		// case 1: insert at boundary
 
 		// bonus case, this node is the last insert node
 		// you can just add more to the mod buffer and increase the node length
-		if at.node.added == true && at.node.end == doc.lastInsert {
+		if at.node.added == true && at.node.end == doc.addedBufferEnd {
 			endOffset := doc.addedData.text.count;
 			endLine := doc.addedData.lineStarts.count - 1;
 			endColumn := endOffset - doc.addedData.lineStarts[endLine];
@@ -350,54 +360,42 @@ document_insert_text :: (doc: *Document, at: DocumentCursor, t: string) -> Docum
 			at.node.end = Coordinate.{endLine, endColumn};
 			at.node.lineFeedCount = buffer_line_start_count(at.node.start, at.node.end);
 
-			doc.lastInsert = at.node.end;
+			doc.addedBufferEnd = at.node.end;
 			return at;
 		}
 
-		// make new piece, and just put in between existing nodes
+		newCursor: DocumentCursor;
+		oldspan := new_undo_event(doc);
+
+		if insertPos == at.node.end {
+			span_boundary(oldspan, at.node, at.node.next);
+			// place the new cursor at the end of the new node
+			newCursor.nodeStartOffset = at.nodeStartOffset + at.node.length;
+			newCursor.nodeStartLine = at.nodeStartLine + at.node.lineFeedCount;
+		}
+		else {
+			span_boundary(oldspan, at.node.prev, at.node);
+			// place the new cursor at the start of the new node
+			newCursor.nodeStartOffset = at.nodeStartOffset;
+			newCursor.nodeStartLine = at.nodeStartLine;
+		}
+		
+		// make new piece
 		endOffset := doc.addedData.text.count;
 		endLine := doc.addedData.lineStarts.count - 1;
 		endColumn := endOffset - doc.addedData.lineStarts[endLine];
 		newPiece := New(PieceChainNode,, doc.pieceChainAlloc);
 		newPiece.added = true;
-		newPiece.start = doc.lastInsert;
+		newPiece.start = doc.addedBufferEnd;
 		newPiece.end = Coordinate.{endLine, endColumn};
 		newPiece.length = text.count;
 		newPiece.lineFeedCount = buffer_line_start_count(newPiece.start, newPiece.end);
+		span_append(*newspan, newPiece);
 
-		newCursor: DocumentCursor;
+		// actually make the edit to the linked list
+		swap_spans(oldspan, *newspan);
 
-		// insert into linked list
-		if insertPos == at.node.end {
-			// put at the end of at.node (the existing node)
-			newCursor.nodeStartOffset = at.nodeStartOffset + at.node.length;
-			newCursor.nodeStartLine = at.nodeStartLine + at.node.lineFeedCount;
-			newPiece.next = at.node.next;
-			newPiece.prev = at.node;
-			at.node.next = newPiece;
-			if newPiece.next != null {
-				newPiece.next.prev = newPiece;
-			}
-			else {
-				doc.pieceChainTail = newPiece;
-			}
-		}
-		else {
-			// put at the start of at.node
-			newCursor.nodeStartOffset = at.nodeStartOffset;
-			newCursor.nodeStartLine = at.nodeStartLine;
-			newPiece.prev = at.node.prev;
-			newPiece.next = at.node;
-			at.node.prev = newPiece;
-			if newPiece.prev != null {
-				newPiece.prev.next = newPiece;
-			}
-			else {
-				doc.pieceChainHead = newPiece;
-			}
-		}
-
-		doc.lastInsert = newPiece.end;
+		doc.addedBufferEnd = newPiece.end;
 
 		// we return a new cursor that is in the same document location
 		// but now points to the new node
@@ -408,46 +406,48 @@ document_insert_text :: (doc: *Document, at: DocumentCursor, t: string) -> Docum
 	}
 	else {
 		// case 2: splitting a node
+		oldspan := new_undo_event(doc);
+		span_append(oldspan, at.node);
 
 		// copy the old node and then trim left and right to get the new nodes
-		newPieceRight := New(PieceChainNode,, doc.pieceChainAlloc);
-		<<newPieceRight = <<at.node;
-		node_trim_left(newPieceRight, insertBuffer, insertPos);
-		node_trim_right(at.node, insertBuffer, insertPos);
 
-		// create a new piece with the appended text data
+		// Make a piece for the left split of the current node
+		newPieceLeft := New(PieceChainNode,, doc.pieceChainAlloc);
+		<<newPieceLeft = <<at.node;
+		node_trim_right(newPieceLeft, insertBuffer, insertPos);
+		span_append(*newspan, newPieceLeft);
+
+		// Make a new piece for the added data in the middle
 		endOffset := doc.addedData.text.count;
 		endLine := doc.addedData.lineStarts.count - 1;
 		endColumn := endOffset - doc.addedData.lineStarts[endLine];
 		newPiece := New(PieceChainNode,, doc.pieceChainAlloc);
 		newPiece.added = true;
-		newPiece.start = doc.lastInsert;
+		newPiece.start = doc.addedBufferEnd;
 		newPiece.end = Coordinate.{endLine, endColumn};
 		newPiece.length = text.count;
 		newPiece.lineFeedCount = buffer_line_start_count(newPiece.start, newPiece.end);
+		span_append(*newspan, newPiece);
+
+		// Make a new piece for the right split of the current node
+		newPieceRight := New(PieceChainNode,, doc.pieceChainAlloc);
+		<<newPieceRight = <<at.node;
+		node_trim_left(newPieceRight, insertBuffer, insertPos);
+		span_append(*newspan, newPieceRight);
+
+		// actually edit the linked list
+		swap_spans(oldspan, *newspan);
 
 		// update last insert cursor
-		doc.lastInsert = newPiece.end;
-
-		// update the chain pointers 
-		at.node.next = newPiece;
-		newPiece.prev = at.node;
-		newPiece.next = newPieceRight;
-		newPieceRight.prev = newPiece;
-		if newPieceRight.next != null {
-			newPieceRight.next.prev = newPieceRight;
-		}
-		else {
-			doc.pieceChainTail = newPieceRight;
-		}
+		doc.addedBufferEnd = newPiece.end;
 
 		// we return a new cursor that is in the same document location
 		// but now points to the new node
 		newCursor: DocumentCursor;
 		newCursor.doc = at.doc;
 		newCursor.node = newPiece;
-		newCursor.nodeStartOffset = at.nodeStartOffset + at.node.length;
-		newCursor.nodeStartLine = at.nodeStartLine + at.node.lineFeedCount; 
+		newCursor.nodeStartOffset = at.nodeStartOffset + newPieceLeft.length;
+		newCursor.nodeStartLine = at.nodeStartLine + newPieceLeft.lineFeedCount; 
 		newCursor.documentOffset = at.documentOffset;
 		return newCursor;
 	}
@@ -463,131 +463,94 @@ document_delete_text :: (doc: *Document, startAt: DocumentCursor, endAt: Documen
 	count := endAt.documentOffset - startAt.documentOffset;
 	if count == 0 return startAt;
 
-	doc.size -= endAt.documentOffset - startAt.documentOffset;
+	doc.size -= count;
 
 	newCursor: DocumentCursor;
 	newCursor.doc = doc;
 	newCursor.documentOffset = startAt.documentOffset;
 
-	remove_node_range :: (doc: *Document, first: *PieceChainNode, last: *PieceChainNode) {
-		if first.prev != null {
-			first.prev.next = last.next;
-		}
-		else {
-			if first.prev == null {
-				// this was the first node
-				doc.pieceChainHead = last.next;
-			}
-			else {
-				doc.pieceChainHead = first.prev;
-			}
-		}
 
-		if last.next != null {
-			last.next.prev = first.prev;
-		}
-		else {
-			if last.next == null {
-				doc.pieceChainTail = first.prev;
-			}
-			else {
-				doc.pieceChainTail = last.next;
-			}
+	toRemove := count;
+	removeOffsetInNode := startAt.documentOffset - startAt.nodeStartOffset;
+
+	// special case: The last deletion was at this location and we want to backward delete (backspace key)
+	if end == endAt.node.end && doc.lastDeletionOffset == endAt.documentOffset {
+		if count < endAt.node.length {
+			// we'll just reduce the size of the left node
+			endAt.node.length -= count;
+			endAt.node.end = buffer_offset_to_cursor(endBuffer, endAt.node, (endAt.documentOffset - endAt.nodeStartOffset) - count); 
+			endAt.node.lineFeedCount = buffer_line_start_count(endAt.node.start, endAt.node.end);
+
+			// endAt and startAt are the same in this case, so we leave you at the end of said node
+			newCursor.node = endAt.node;
+			newCursor.nodeStartOffset = endAt.nodeStartOffset;
+			newCursor.nodeStartLine = endAt.nodeStartLine;
+
+			doc.lastDeletionOffset = startAt.documentOffset;
+			return newCursor;
 		}
 	}
 
-	if startAt.node == endAt.node {
-		buffer : *Buffer;
-		ifx startAt.node.added then buffer = *doc.addedData else buffer = *doc.originalData;
+	// General case
+	newspan: PieceChainSpan;
+	newspan.boundary = true; // by default we insert nothing
+	oldspan := new_undo_event(doc);
 
-		if start == startAt.node.start {
-			if count == startAt.node.length {
-				// special case where we just remove the entire node
-				remove_node_range(doc, startAt.node, startAt.node);
-				if startAt.node.prev != null {
-					newCursor.node = startAt.node.prev;
-					newCursor.nodeStartOffset = startAt.nodeStartOffset - startAt.node.prev.length;
-					newCursor.nodeStartLine = startAt.nodeStartLine - startAt.node.prev.lineFeedCount;
-				}
-				else {
-					newCursor.node = doc.pieceChainHead;
-					newCursor.nodeStartOffset = 0;
-					newCursor.nodeStartLine = 0;
-				}
-				return newCursor;
-			}
-			node_trim_left(startAt.node, buffer, end);
+	node := startAt.node;
+	doc.lastDeletionOffset = startAt.documentOffset;
 
-			newCursor.node = startAt.node;
-			deletedInThisNode := buffer_cursor_to_offset(buffer, end) - buffer_cursor_to_offset(buffer, startAt.node.start);
-			linesDeletedInThisNode := buffer_line_start_count(startAt.node.start, end);
-			newCursor.nodeStartOffset = startAt.nodeStartOffset + deletedInThisNode;
-			newCursor.nodeStartLine = startAt.nodeStartLine + linesDeletedInThisNode;
-		}
-		else if end == startAt.node.end {
-			node_trim_right(startAt.node, buffer, start);
+	// Deletion starts midway through the start node
+	if removeOffsetInNode != 0 {
+		newPieceLeft := New(PieceChainNode,, doc.pieceChainAlloc);
+		<<newPieceLeft = <<node;
+		node_trim_right(newPieceLeft, startBuffer, start);
+		span_append(*newspan, newPieceLeft);
 
-			newCursor.node = startAt.node;
-			newCursor.nodeStartOffset = startAt.nodeStartOffset;
-			newCursor.nodeStartLine = startAt.nodeStartLine;
-		}
-		else {
+		newCursor.node = newPieceLeft;
+		newCursor.nodeStartOffset = startAt.nodeStartOffset;
+		newCursor.nodeStartLine = startAt.nodeStartLine;
+
+		// is the deletion entirely contained in this node? In which case you will need to split the node
+		// by making a right side piece with the remainder of the deletion
+		if removeOffsetInNode + toRemove < startAt.node.length {
 			newPieceRight := New(PieceChainNode,, doc.pieceChainAlloc);
-			<<newPieceRight = <<startAt.node;
-			node_trim_left(newPieceRight, buffer, end);
-			node_trim_right(startAt.node, buffer, start);
-
-			startAt.node.next = newPieceRight;
-			newPieceRight.prev = startAt.node;
-
-			newCursor.node = newPieceRight;
-			newCursor.nodeStartOffset = startAt.nodeStartOffset + startAt.node.length;
-			newCursor.nodeStartLine = startAt.nodeStartLine + startAt.node.lineFeedCount;
+			<<newPieceRight = <<node;
+			node_trim_left(newPieceRight, startBuffer, end);
+			span_append(*newspan, newPieceRight);
 		}
+
+		span_append(oldspan, node);
+		toRemove -= min(toRemove, node.length - removeOffsetInNode);
+		node = node.next;
 	}
 	else {
-		firstToDelete := startAt.node.next;
-		if startAt.node.start == start {
-			// delete whole start node
-			firstToDelete = startAt.node;
-
-			newCursor.nodeStartOffset = startAt.nodeStartOffset;
-			newCursor.nodeStartLine = startAt.nodeStartLine;
-		}
-		else {
-			// take some of start node
-			buffer : *Buffer;
-			ifx startAt.node.added then buffer = *doc.addedData else buffer = *doc.originalData;
-			node_trim_right(startAt.node, buffer, start);
-
-			newCursor.node = startAt.node;
-			newCursor.nodeStartOffset = startAt.nodeStartOffset;
-			newCursor.nodeStartLine = startAt.nodeStartLine;
-		}
-		lastToDelete := endAt.node.prev;
-		if endAt.node.end == end {
-			// delete whole end node
-			lastToDelete = endAt.node;
-
-			// In the event that we deleted the whole start node, the new cursor can just be the node after the end
-			if newCursor.node == null {
-				newCursor.node = endAt.node.next;
-			}
-		}
-		else {
-			// take some of end node
-			buffer : *Buffer;
-			ifx endAt.node.added then buffer = *doc.addedData else buffer = *doc.originalData;
-			node_trim_left(endAt.node, buffer, end);
-
-			if newCursor.node == null {
-				newCursor.node = endAt.node;
-			}
-		}
-		
-		// delete all nodes that are no longer needed
-		remove_node_range(doc, firstToDelete, lastToDelete);
+		// all of the start node will be removed
+		// place the cursor at the previous node which will remain untouched
+		newCursor.node = startAt.node.prev;
+		newCursor.nodeStartOffset = startAt.nodeStartOffset - startAt.node.prev.length;
+		newCursor.nodeStartLine = startAt.nodeStartLine - startAt.node.prev.lineFeedCount;
 	}
+
+	// remove all nodes until you have removed the required amount of bytes
+	while (toRemove > 0 && node != doc.pieceChainTail) {
+		buffer : *Buffer;
+		ifx node.added then buffer = *doc.addedData else buffer = *doc.originalData;
+
+		if (toRemove < node.length) {
+			// The deletion ends in this node, so split it
+			newPieceRight := New(PieceChainNode,, doc.pieceChainAlloc);
+			<<newPieceRight = <<node;
+			node_trim_left(newPieceRight, buffer, end);
+			span_append(*newspan, newPieceRight);
+		}
+		// if removelen is less than a node, the left side of the node will be trimmed and removed
+		toRemove -= min(toRemove, node.length);
+		span_append(oldspan, node);
+		node = node.next;
+	}
+
+	// actually perform the edit to the chain
+	swap_spans(oldspan, *newspan);
 
 	return newCursor;
 }
@@ -1117,9 +1080,6 @@ new_undo_event :: (doc: *Document) -> *PieceChainSpan {
 }
 
 swap_spans :: (src: *PieceChainSpan, dst: *PieceChainSpan) {
-	// @todo: draw this out with a diagram to convince yourself it's correct
-	// it's a bit of a handful
-
 	if src.boundary {
 		// in this case src is a gap, so we need to effectively remove
 		// a section of dst
