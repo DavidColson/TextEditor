@@ -19,6 +19,7 @@ Document :: struct {
 	
 	// @todo: this should be a tree at some point
 	undoStack: [..]PieceChainSpan;
+	redoStack: [..]PieceChainSpan;
 
 	
 	size: s64;
@@ -76,6 +77,8 @@ PieceChainSpan :: struct {
 	first: *PieceChainNode;
 	last: *PieceChainNode;
 	boundary: bool;
+	documentOffset: s64;
+	documentSize: s64;
 }
 
 // we're essentially going to end up rewriting the insert/delete functions because we now have to update more next/prev pointers
@@ -239,6 +242,7 @@ document_open :: (path: string) {
 		}
 	}
 	else if crCount > 0 {
+		// @todo: fail to open the file rather than crashing, and give a push notification
 		assert(false, "Cannot cope with cr line endings, this file is bad news");
 	}
 
@@ -347,6 +351,8 @@ document_insert_text :: (doc: *Document, at: DocumentCursor, t: string) -> Docum
 
 	newspan: PieceChainSpan;
 
+	array_reset_keeping_memory(*doc.redoStack);
+
 	if insertPos == at.node.end || insertPos == at.node.start {
 		// case 1: insert at boundary
 
@@ -365,7 +371,7 @@ document_insert_text :: (doc: *Document, at: DocumentCursor, t: string) -> Docum
 		}
 
 		newCursor: DocumentCursor;
-		oldspan := new_undo_event(doc);
+		oldspan := new_undo_event(doc, doc.size-text.count, at.documentOffset);
 
 		if insertPos == at.node.end {
 			span_boundary(oldspan, at.node, at.node.next);
@@ -406,7 +412,7 @@ document_insert_text :: (doc: *Document, at: DocumentCursor, t: string) -> Docum
 	}
 	else {
 		// case 2: splitting a node
-		oldspan := new_undo_event(doc);
+		oldspan := new_undo_event(doc, doc.size-text.count, at.documentOffset);
 		span_append(oldspan, at.node);
 
 		// copy the old node and then trim left and right to get the new nodes
@@ -469,6 +475,7 @@ document_delete_text :: (doc: *Document, startAt: DocumentCursor, endAt: Documen
 	newCursor.doc = doc;
 	newCursor.documentOffset = startAt.documentOffset;
 
+	array_reset_keeping_memory(*doc.redoStack);
 
 	toRemove := count;
 	removeOffsetInNode := startAt.documentOffset - startAt.nodeStartOffset;
@@ -494,7 +501,7 @@ document_delete_text :: (doc: *Document, startAt: DocumentCursor, endAt: Documen
 	// General case
 	newspan: PieceChainSpan;
 	newspan.boundary = true; // by default we insert nothing
-	oldspan := new_undo_event(doc);
+	oldspan := new_undo_event(doc, doc.size+count, startAt.documentOffset);
 
 	node := startAt.node;
 	doc.lastDeletionOffset = startAt.documentOffset;
@@ -553,6 +560,32 @@ document_delete_text :: (doc: *Document, startAt: DocumentCursor, endAt: Documen
 	swap_spans(oldspan, *newspan);
 
 	return newCursor;
+}
+
+document_undo :: (doc: *Document, cursor: DocumentCursor) -> DocumentCursor {
+	if doc.undoStack.count == 0 {
+		push_notification("Undo history empty");
+		return cursor;
+	}
+	span := pop(*doc.undoStack);
+	cursorOffset := span.documentOffset;
+	restore_span(doc, *span);
+	array_add(*doc.redoStack, span);
+
+	return document_create_cursor(doc, cursorOffset); 
+}
+
+document_redo :: (doc: *Document, cursor: DocumentCursor) -> DocumentCursor  {
+	if doc.redoStack.count == 0 {
+		push_notification("Redo history empty");
+		return cursor;
+	}
+	span := pop(*doc.redoStack);
+	cursorOffset := span.documentOffset;
+	restore_span(doc, *span);
+	array_add(*doc.undoStack, span);
+
+	return document_create_cursor(doc, cursorOffset); 
 }
 
 document_get_line_content :: (doc: *Document, lineNum: s64) -> string {
@@ -845,8 +878,6 @@ document_cursor_get_char :: (cursor: *DocumentCursor) -> u8 {
 		buffer: = ifx cursor.node.next.added then *cursor.doc.addedData else *cursor.doc.originalData;
 		bufferOffset := buffer_cursor_to_offset(buffer, cursor.node.next.start);
 		char := buffer.text[bufferOffset];
-		// if we iterated to a carraige return, we'd skip over it, so matching that behaviour
-		// with a small hack that assumes newline always comes next
 		return char;
 	}
 
@@ -868,19 +899,6 @@ flip_cursors :: (cursorA: *DocumentCursor, cursorB: *DocumentCursor) {
 	temp := <<cursorA;
 	<<cursorA = <<cursorB;
 	<<cursorB = temp;
-}
-
-document_get_line_length :: (doc: *Document, lineNum: s64, excludeEnding: bool = true) -> s64 {
-	lineContent := document_get_line_content(doc, lineNum,, temp);
-	if excludeEnding {
-		if lineContent[lineContent.count-1] == #char "\n" {
-			lineContent.count = lineContent.count - 1;
-		}
-		if lineContent[lineContent.count-1] == #char "\r" {
-			lineContent.count = lineContent.count - 1;
-		}
-	}
-	return max(lineContent.count, 0);
 }
 
 document_normalize_line_endings :: (doc: *Document, desiredEndings: LineEndingMode) {
@@ -1075,14 +1093,16 @@ span_boundary :: (span: *PieceChainSpan, before: *PieceChainNode, after: *PieceC
 	span.boundary = true;
 }
 
-new_undo_event :: (doc: *Document) -> *PieceChainSpan {
-	return array_add(*doc.undoStack);
+new_undo_event :: (doc: *Document, docSize: s64, docOffset: s64) -> *PieceChainSpan {
+	span := array_add(*doc.undoStack);
+	span.documentSize = docSize;
+	span.documentOffset = docOffset;
+	return span;
 }
 
 swap_spans :: (src: *PieceChainSpan, dst: *PieceChainSpan) {
 	if src.boundary {
-		// in this case src is a gap, so we need to effectively remove
-		// a section of dst
+		// in this case src is a gap, so we're just inserting dst in between the gap
 		if !dst.boundary {
 			src.first.next = dst.first;
 			src.last.prev = dst.last;
@@ -1091,8 +1111,8 @@ swap_spans :: (src: *PieceChainSpan, dst: *PieceChainSpan) {
 		}
 	}
 	else {
-		// in this case dst is just a gap we need to slot into
-		// and src remembers where it used to be, so we just reset those pointers
+		// in this case dst is just a gap, so you need to remove
+		// the whole span from src.first to src.last
 		if dst.boundary {
 			src.first.prev.next = src.last.next;
 			src.last.next.prev = src.first.prev;
@@ -1105,4 +1125,66 @@ swap_spans :: (src: *PieceChainSpan, dst: *PieceChainSpan) {
 			dst.last.next = src.last.next;
 		}
 	}
+}
+
+restore_span :: (doc: *Document, span: *PieceChainSpan) {
+	// the given span is something that's been pulled from the undo stack
+	// and represents a section of the linked list which thinks it's linked into the real one
+	// but it's actually not
+
+	// the goal here is to grab the prev and next nodes which this span points to, and tell those nodes
+	// to point to this span, effectively swapping it in
+
+	// our edits will edit the main linked list, and the span in question will mutate into it's inverse
+
+	if span.boundary {
+		// this means the span is really an "absence" of nodes, so we want to remove the span that exists
+		// between "first" and "last"
+
+		// these are the nodes we want to remove
+		first := span.first.next;
+		last := span.last.prev;
+
+		// remove from first to last
+		span.first.next = span.last;
+		span.last.prev = span.first;
+
+		// store what we just removed
+		span.first = first;
+		span.last = last;
+		span.boundary = false;
+	}
+	else {
+		first := span.first.prev;
+		last := span.last.next;
+
+		// is this span in between two nodes that are directly connected? I.e. this is a boundary
+		// and we must insert inbetween this boundary
+		if first.next == last {
+			first.next = span.first;
+			last.prev = span.last;
+
+			// store what we just removed
+			span.first = first;
+			span.last = last;
+			span.boundary = true;
+		}
+		// general case, we need to swap one range with another
+		else {
+			first = first.next;
+			last = last.prev;
+
+			first.prev.next = span.first;
+			last.next.prev = span.last;
+
+			// store what we just removed
+			span.first = first;
+			span.last = last;
+			span.boundary = false;
+		}
+	}
+
+	currentSize := doc.size;
+	doc.size = span.documentSize;
+	span.documentSize = currentSize;
 }

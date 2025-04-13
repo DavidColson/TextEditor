@@ -183,6 +183,12 @@ commandList :: Command.[
 	.{ "New line above selection", 0, new_line_above, .[
 		.{ mode=.NORMAL, keys="O"},
 	]},
+	.{ "Undo", 0, undo, .[
+		.{ mode=.NORMAL, keys="u"},
+	]},
+	.{ "Redo", 0, redo, .[
+		.{ mode=.NORMAL, keys="U"},
+	]},
 
 	// insert mode stuff
 	.{ "Delete left char", .HIDDEN, insert_mode_delete_left_char, .[

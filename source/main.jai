@@ -525,6 +525,16 @@ new_line_above :: (using panel: *Panel, args: []string) {
 	enter_insert_mode_start(panel, args);
 }
 
+undo :: (using panel: *Panel, args: []string) {
+	cursor.head = document_undo(document, cursor.head);
+	cursor.anchor = cursor.head;
+}
+
+redo :: (using panel: *Panel, args: []string) {
+	cursor.head = document_redo(document, cursor.head);
+	cursor.anchor = cursor.head;
+}
+
 // search
 
 enter_search_mode :: (using panel: *Panel, args: []string) {
