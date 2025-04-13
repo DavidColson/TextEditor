@@ -243,91 +243,93 @@ draw_panel :: (panel: *Panel) {
 	color.z = 1;
 	color.w = 1;
 
-	documentLines := document_get_num_lines(panel.document);
-	textRegionX := 0;
-	textRegionY := headerHeight;
-	if lineNumbers {
-		nDigits := tprint("%", documentLines).count;
-		// @monospace
-		textRegionX = my_font.mono_x_advance * (nDigits + 2); // extra 2 for padding
-	}
-
-	startVisibleLines : s64;
-	endVisibleLines : s64;
-	visibleLines: [..]string;
-	visibleLines.allocator = temp;
-
-	startVisibleLines = clamp(-scrollPos / my_font.character_height, 0, documentLines - 1);
-	endVisibleLines = clamp(startVisibleLines + cast(s64)heightForCode / my_font.character_height, 0, documentLines - 1);
-
-	cursorLine := document_cursor_get_line(*panel.cursor.head);
-
-	// Draw line numbers
-	lineY := textRegionY + my_font.character_height;
-	for startVisibleLines..endVisibleLines {
-		width := Simp.prepare_text(my_font, tprint("%", it+1));
-		// @monospace doesn't work for non-monospace numbers
-		Simp.draw_prepared_text(my_font, (textRegionX - width - my_font.mono_x_advance), lineY, Vector4.{0.5, 0.5, 0.5, 1.0});
-		lineY += my_font.character_height;
-	}
-
-	// collect together the actual lines of text we need to render
-	// @todo: refactor to use document cursors to walk through text rather than get_line_content for every line
-	linesOnScreen: [..]string;
-	linesOnScreen.allocator = temp;
-	for startVisibleLines..endVisibleLines {
-		array_add(*linesOnScreen, document_get_line_content(panel.document, xx it));
-	}
-
-	// draw the cursor selection
-	if editorMode != .SEARCH && cursorLine >= startVisibleLines && cursorLine <= endVisibleLines {
-		Simp.set_shader_for_color();
-		if panel.cursor.head.documentOffset != panel.cursor.anchor.documentOffset {
-			draw_cursor_range(textRegionX, textRegionY, panel.cursor.head, panel.cursor.anchor, linesOnScreen, startVisibleLines, true);
+	if panel.document {
+		documentLines := document_get_num_lines(panel.document);
+		textRegionX := 0;
+		textRegionY := headerHeight;
+		if lineNumbers {
+			nDigits := tprint("%", documentLines).count;
+			// @monospace
+			textRegionX = my_font.mono_x_advance * (nDigits + 2); // extra 2 for padding
 		}
-	}
 
-	// draw search results
-	if editorMode == .SEARCH {
-		for panel.results {
-			draw_cursor_range(textRegionX, textRegionY, it.start, it.end, linesOnScreen, startVisibleLines);
+		startVisibleLines : s64;
+		endVisibleLines : s64;
+		visibleLines: [..]string;
+		visibleLines.allocator = temp;
+
+		startVisibleLines = clamp(-scrollPos / my_font.character_height, 0, documentLines - 1);
+		endVisibleLines = clamp(startVisibleLines + cast(s64)heightForCode / my_font.character_height, 0, documentLines - 1);
+
+		cursorLine := document_cursor_get_line(*panel.cursor.head);
+
+		// Draw line numbers
+		lineY := textRegionY + my_font.character_height;
+		for startVisibleLines..endVisibleLines {
+			width := Simp.prepare_text(my_font, tprint("%", it+1));
+			// @monospace doesn't work for non-monospace numbers
+			Simp.draw_prepared_text(my_font, (textRegionX - width - my_font.mono_x_advance), lineY, Vector4.{0.5, 0.5, 0.5, 1.0});
+			lineY += my_font.character_height;
 		}
-	}
 
-	// Draw the actual code glyphs, with custom rendering
-	Simp.draw_code_prepare(my_font,xx textRegionX,xx textRegionY, xx my_font.character_height);
-	lineY = textRegionY + my_font.character_height;
-	for line: linesOnScreen {
-		Simp.draw_code_line(line);
-	}
-	Simp.draw_code_end();
-
-	// Draw cursor
-	if editorMode != .SEARCH && cursorLine >= startVisibleLines && cursorLine <= endVisibleLines {
-		Simp.set_shader_for_color();
-		cursorChar := document_cursor_get_char(*panel.cursor.head);
-		cursorCharWidth := calculate_string_length_pixels(my_font, cast(string) u8.[cursorChar]);
-
-		cursorColumn := panel.cursor.head.documentOffset - document_get_line_start(panel.document, cursorLine);
-		line := linesOnScreen[cursorLine - startVisibleLines];
-		line.count = cursorColumn;
-		cursorX := calculate_string_length_pixels(my_font, line);
-
-		cursorRect: Rect;
-		cursorRect.x = cast(float)(textRegionX + cursorX);
-		cursorRect.y = cast(float)(textRegionY - my_font.typical_descender + my_font.character_height * (cursorLine-startVisibleLines));
-		cursorRect.w = cast(float)cursorCharWidth;
-		cursorRect.h = cast(float)my_font.character_height;
-
-		color: Vector4 = .{0.8, 0.8, 0.8, 1.0};
-		if editorMode == .INSERT {
-			color = .{1.0, 1.0, 1.0, 1.0};
+		// collect together the actual lines of text we need to render
+		// @todo: refactor to use document cursors to walk through text rather than get_line_content for every line
+		linesOnScreen: [..]string;
+		linesOnScreen.allocator = temp;
+		for startVisibleLines..endVisibleLines {
+			array_add(*linesOnScreen, document_get_line_content(panel.document, xx it));
 		}
-		draw_rect(cursorRect, color);
 
-		if cursorChar != 0 {
-			Simp.prepare_text(my_font, tprint("%", cast(string) u8.[cursorChar]));
-			Simp.draw_prepared_text(my_font, xx cursorRect.x, xx cursorRect.y + my_font.typical_descender + my_font.character_height, Vector4.{0.1, 0.1, 0.1, 1.0});
+		// draw the cursor selection
+		if editorMode != .SEARCH && cursorLine >= startVisibleLines && cursorLine <= endVisibleLines {
+			Simp.set_shader_for_color();
+			if panel.cursor.head.documentOffset != panel.cursor.anchor.documentOffset {
+				draw_cursor_range(textRegionX, textRegionY, panel.cursor.head, panel.cursor.anchor, linesOnScreen, startVisibleLines, true);
+			}
+		}
+
+		// draw search results
+		if editorMode == .SEARCH {
+			for panel.results {
+				draw_cursor_range(textRegionX, textRegionY, it.start, it.end, linesOnScreen, startVisibleLines);
+			}
+		}
+
+		// Draw the actual code glyphs, with custom rendering
+		Simp.draw_code_prepare(my_font,xx textRegionX,xx textRegionY, xx my_font.character_height);
+		lineY = textRegionY + my_font.character_height;
+		for line: linesOnScreen {
+			Simp.draw_code_line(line);
+		}
+		Simp.draw_code_end();
+
+		// Draw cursor
+		if editorMode != .SEARCH && cursorLine >= startVisibleLines && cursorLine <= endVisibleLines {
+			Simp.set_shader_for_color();
+			cursorChar := document_cursor_get_char(*panel.cursor.head);
+			cursorCharWidth := calculate_string_length_pixels(my_font, cast(string) u8.[cursorChar]);
+
+			cursorColumn := panel.cursor.head.documentOffset - document_get_line_start(panel.document, cursorLine);
+			line := linesOnScreen[cursorLine - startVisibleLines];
+			line.count = cursorColumn;
+			cursorX := calculate_string_length_pixels(my_font, line);
+
+			cursorRect: Rect;
+			cursorRect.x = cast(float)(textRegionX + cursorX);
+			cursorRect.y = cast(float)(textRegionY - my_font.typical_descender + my_font.character_height * (cursorLine-startVisibleLines));
+			cursorRect.w = cast(float)cursorCharWidth;
+			cursorRect.h = cast(float)my_font.character_height;
+
+			color: Vector4 = .{0.8, 0.8, 0.8, 1.0};
+			if editorMode == .INSERT {
+				color = .{1.0, 1.0, 1.0, 1.0};
+			}
+			draw_rect(cursorRect, color);
+
+			if cursorChar != 0 {
+				Simp.prepare_text(my_font, tprint("%", cast(string) u8.[cursorChar]));
+				Simp.draw_prepared_text(my_font, xx cursorRect.x, xx cursorRect.y + my_font.typical_descender + my_font.character_height, Vector4.{0.1, 0.1, 0.1, 1.0});
+			}
 		}
 	}
 
@@ -350,34 +352,41 @@ draw_panel :: (panel: *Panel) {
 		modeText = "SRCH";
 	}
 
-	lineEndingText := "[Mixed line endings, will be normalized to CRLF on save]";
-	if panel.document.lineEndings == .LF {
-		lineEndingText = "LF";
-	}
-	else if panel.document.lineEndings == .CRLF {
-		lineEndingText = "CRLF";
-	}
-	else if panel.document.lineEndings == .MIXED_MAJORITY_LF {
-		lineEndingText = "[Mixed line endings, will be normalized to LF on save]";
-	}
+	if panel.document {
+		lineEndingText := "[Mixed line endings, will be normalized to CRLF on save]";
+		if panel.document.lineEndings == .LF {
+			lineEndingText = "LF";
+		}
+		else if panel.document.lineEndings == .CRLF {
+			lineEndingText = "CRLF";
+		}
+		else if panel.document.lineEndings == .MIXED_MAJORITY_LF {
+			lineEndingText = "[Mixed line endings, will be normalized to LF on save]";
+		}
 
-	cursorCoordinate := document_cursor_get_coordinate(*panel.cursor.head);
-	width := Simp.prepare_text(my_font, tprint("% | %0% - %:%(%) %", 
-								modeText,
-								panel.document.path,
-								ifx panel.document.unsaved then "[UNSAVED]" else "",
-								cursorCoordinate.line+1,
-								cursorCoordinate.col,
-								panel.cursor.head.documentOffset,
-								lineEndingText));
-	Simp.draw_prepared_text(my_font, 2, my_font.character_height + 2, Vector4.{0.8, 0.8, 0.8, 1.0});
+		cursorCoordinate := document_cursor_get_coordinate(*panel.cursor.head);
+		width := Simp.prepare_text(my_font, tprint("% | %0% - %:%(%) %", 
+									modeText,
+									panel.document.path,
+									ifx panel.document.unsaved then "[UNSAVED]" else "",
+									cursorCoordinate.line+1,
+									cursorCoordinate.col,
+									panel.cursor.head.documentOffset,
+									lineEndingText));
+		Simp.draw_prepared_text(my_font, 2, my_font.character_height + 2, Vector4.{0.8, 0.8, 0.8, 1.0});
+	}
+	else {
+		width := Simp.prepare_text(my_font, tprint("% | NO DOCUMENT LOADED", modeText));
+		Simp.draw_prepared_text(my_font, 2, my_font.character_height + 2, Vector4.{0.8, 0.8, 0.8, 1.0});
+	}
 
 	registerText := "";
 	if registers.selectedRegister != DEFAULT_REGISTER {
 		registerText = tprint("reg=%", string.{1,*registers.selectedRegister});
 	}
+
 	pendingKeys := string.{keyMap.pendingKeyString.count, keyMap.pendingKeyString.data};
-	width = Simp.prepare_text(my_font, tprint("% %", registerText, pendingKeys));
+	width := Simp.prepare_text(my_font, tprint("% %", registerText, pendingKeys));
 	Simp.draw_prepared_text(my_font, cast(s64) (panel.rect.w - width - my_font.mono_x_advance), my_font.character_height + 2, Vector4.{0.8, 0.8, 0.8, 1.0});
 
 	// Draw command list

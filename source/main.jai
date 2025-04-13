@@ -82,6 +82,10 @@ textSize :: 15;
 tabSize :: 4;
 lineNumbers :: true;
 
+Arguments :: struct {
+	// file: string = ""; @"File to open"
+}
+
 main :: () {
     #if OS == .WINDOWS {
         Windows :: #import "Windows";
@@ -91,6 +95,11 @@ main :: () {
         Windows.timeBeginPeriod(1);
     }
 
+	success, args, isSet, filesToOpen := parse_arguments(Arguments);
+	if !success {
+		return;
+	}
+
     WANTED_MSAA :: 8;
     // On Linux, we need to pass the MSAA value to create_window
     window = create_window(windowWidth, windowHeight, "TextEditor", wanted_msaa = WANTED_MSAA);
@@ -98,7 +107,6 @@ main :: () {
     // On other operating systems, the MSAA value needs to be passed to *_create_context, so we
     // need to have an extra step here if you want MSAA.
     msaa := Simp.prepare_window(window, wanted_msaa = WANTED_MSAA);
-    log("Wanted MSAA: %\nChosen MSAA: %", WANTED_MSAA, msaa);
 
     // Actual render size in pixels can be different from the window dimensions we specified above (for example on high-resolution displays on macOS/iOS).
     windowWidth, windowHeight = Simp.get_render_dimensions(window);
@@ -115,9 +123,19 @@ main :: () {
 	focusedPanel.rect.y = 0;
 	focusedPanel.rect.w = xx windowWidth;
 	focusedPanel.rect.h = xx windowHeight;
-	focusedPanel.document = *mainDocument;
 
-	document_open("C:/Dev/TextEditor/source/main.jai");
+	// document_open("C:/Dev/TextEditor/source/main.jai");
+	if filesToOpen.count > 0 {
+		document_open(filesToOpen[0]);
+
+		// set the opened document into the primary panel
+		focusedPanel.document = *mainDocument;
+		focusedPanel.cursor = .{};
+		focusedPanel.cursor.head.doc = focusedPanel.document;
+		focusedPanel.cursor.head.node = mainDocument.pieceChainHead;
+		focusedPanel.cursor.anchor.doc = focusedPanel.document;
+		focusedPanel.cursor.anchor.node = mainDocument.pieceChainHead;
+	}
 
 	lastTime := seconds_since_init();
     want_screenshot := false;
@@ -1073,6 +1091,7 @@ Input :: #import "Input";
 #import "Flat_Pool";
 #import "Hash_Table";
 #import "Clipboard";
+#import "Command_Line";
 
 // @todo: this should be moved to a relevant "platform file"
 kernel32 :: #system_library "kernel32";
