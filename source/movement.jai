@@ -173,9 +173,9 @@ goto_document_end :: (using panel: *Panel, args: []string) {
 }
 
 goto_line_end :: (using panel: *Panel, args: []string) { 
-	for cursor.head {
+	for :skip_returns cursor.head {
 		if it == #char "\n" {
-			document_cursor_step_one_backward(*cursor.head);
+			document_cursor_step_one_backward(*cursor.head, true);
 			break;
 		}
 	}
@@ -186,9 +186,9 @@ goto_line_end :: (using panel: *Panel, args: []string) {
 }
 
 goto_line_start :: (using panel: *Panel, args: []string) { 
-	for < cursor.head {
+	for < :skip_returns cursor.head {
 		if it == #char "\n" {
-			document_cursor_step_one_forward(*cursor.head);
+			document_cursor_step_one_forward(*cursor.head, true);
 			break;
 		}
 	}
