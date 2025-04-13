@@ -260,7 +260,9 @@ read_register :: (name: u8) -> string {
 
 my_init_fonts :: () {
 	// @todo: change font size for a given dpi scale that may have just occured
-    my_font = Simp.get_font_at_size("fonts", "FiraMonoNerdFontMono-Medium.ttf", textSize);
+	// @todo: when doing a release packaged build, this path needs to change
+	path := tprint("%../../fonts/", path_strip_filename(get_path_of_running_executable()));
+    my_font = Simp.get_font_at_size(path, "FiraMonoNerdFontMono-Medium.ttf", textSize);
 	my_font.render_tabs = false;
 	my_font.render_new_lines = false;
     assert(my_font != null);
