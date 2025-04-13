@@ -79,6 +79,7 @@ PieceChainSpan :: struct {
 	boundary: bool;
 	documentOffset: s64;
 	documentSize: s64;
+	size: s64;
 }
 
 // we're essentially going to end up rewriting the insert/delete functions because we now have to update more next/prev pointers
@@ -365,13 +366,16 @@ document_insert_text :: (doc: *Document, at: DocumentCursor, t: string) -> Docum
 			at.node.length = at.node.length + text.count;
 			at.node.end = Coordinate.{endLine, endColumn};
 			at.node.lineFeedCount = buffer_line_start_count(at.node.start, at.node.end);
-
 			doc.addedBufferEnd = at.node.end;
+
+			lastundo := *doc.undoStack[doc.undoStack.count-1];
+			lastundo.size += text.count;
+			lastundo.documentSize += text.count;
 			return at;
 		}
 
 		newCursor: DocumentCursor;
-		oldspan := new_undo_event(doc, doc.size-text.count, at.documentOffset);
+		oldspan := new_undo_event(doc, doc.size-text.count, at.documentOffset, text.count);
 
 		if insertPos == at.node.end {
 			span_boundary(oldspan, at.node, at.node.next);
@@ -412,7 +416,7 @@ document_insert_text :: (doc: *Document, at: DocumentCursor, t: string) -> Docum
 	}
 	else {
 		// case 2: splitting a node
-		oldspan := new_undo_event(doc, doc.size-text.count, at.documentOffset);
+		oldspan := new_undo_event(doc, doc.size-text.count, at.documentOffset, text.count);
 		span_append(oldspan, at.node);
 
 		// copy the old node and then trim left and right to get the new nodes
@@ -494,6 +498,10 @@ document_delete_text :: (doc: *Document, startAt: DocumentCursor, endAt: Documen
 			newCursor.nodeStartLine = endAt.nodeStartLine;
 
 			doc.lastDeletionOffset = startAt.documentOffset;
+
+			lastundo := *doc.undoStack[doc.undoStack.count-1];
+			lastundo.size -= count;
+			lastundo.documentSize -= count;
 			return newCursor;
 		}
 	}
@@ -501,7 +509,7 @@ document_delete_text :: (doc: *Document, startAt: DocumentCursor, endAt: Documen
 	// General case
 	newspan: PieceChainSpan;
 	newspan.boundary = true; // by default we insert nothing
-	oldspan := new_undo_event(doc, doc.size+count, startAt.documentOffset);
+	oldspan := new_undo_event(doc, doc.size+count, startAt.documentOffset, -count);
 
 	node := startAt.node;
 	doc.lastDeletionOffset = startAt.documentOffset;
@@ -1004,6 +1012,84 @@ document_debug_print_piece_chain :: (doc: *Document) {
 	print(builder_to_string(*builder,,temp));
 }
 
+document_debug_print_undos :: (doc: *Document) {
+	builder: String_Builder;
+	builder.allocator = temp;
+
+	redostack: [..]PieceChainSpan;
+	redostack.allocator = temp;
+
+	for < doc.undoStack {
+		print_to_builder(*builder, "\n----- Change #% -----\n", it_index);
+		span := it;
+
+		changeOpenBracket:u8 = #char "[";
+		changeCloseBracket:u8 = #char "]";
+
+		// this span is a deletion, so we'll perform the undo, then
+		// print the text, which will show us the deleted text
+		if span.size < 0 {
+			restore_span(doc, *span);
+			array_add(*redostack, span);
+			changeOpenBracket = #char "]";
+			changeCloseBracket = #char "[";
+		}
+
+		cursor := document_create_cursor(doc, span.documentOffset);
+
+		// iterate backward to get to the start of the line, and then go back one more line
+		paddingLines := 2;
+		paddingCount := 0;
+		for < cursor {
+			if it == #char "\n" {
+				paddingLines -= 1;
+				if paddingLines == 0 break;
+			}
+			paddingCount += 1;
+		}
+
+		// iterate forward building up the text to display
+		paddingLines = 3;
+		text: [..]u8;
+		spanStart := span.documentOffset - cursor.documentOffset - 1;
+		for cursor {
+			array_add(*text, it,,temp);
+
+			if it_index == spanStart {
+				array_add(*text, changeOpenBracket ,,temp);
+			}
+
+			if it_index == spanStart+abs(span.size) {
+				array_add(*text, changeCloseBracket ,,temp);
+			}
+
+			if it_index > (paddingCount+abs(span.size)) {
+				if it == #char "\n" {
+					paddingLines-=1;
+				}
+				if paddingLines == 0 break;
+			}
+		}
+
+		// this span is an addition, so we've printed the document 
+		// BEFORE doing the undo, so we can see the added text
+		if span.size > 0 {
+			restore_span(doc, *span);
+			array_add(*redostack, span);
+		}
+
+		append(*builder, string.{text.count, text.data});
+		append(*builder, "\n");
+	}
+
+	// put the document back to what it's supposed to be
+	for < redostack {
+		restore_span(doc, *it);
+	}
+
+	print(builder_to_string(*builder,,temp));
+}
+
 #scope_file
 
 // Calculate a buffer cursor for a given offset _within_ the given node,
@@ -1093,10 +1179,11 @@ span_boundary :: (span: *PieceChainSpan, before: *PieceChainNode, after: *PieceC
 	span.boundary = true;
 }
 
-new_undo_event :: (doc: *Document, docSize: s64, docOffset: s64) -> *PieceChainSpan {
+new_undo_event :: (doc: *Document, docSize: s64, docOffset: s64, size: s64) -> *PieceChainSpan {
 	span := array_add(*doc.undoStack);
 	span.documentSize = docSize;
 	span.documentOffset = docOffset;
+	span.size = size;
 	return span;
 }
 

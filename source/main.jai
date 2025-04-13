@@ -535,6 +535,10 @@ redo :: (using panel: *Panel, args: []string) {
 	cursor.anchor = cursor.head;
 }
 
+visualize_undos :: (using panel: *Panel, args: []string) {
+	document_debug_print_undos(document);
+}
+
 // search
 
 enter_search_mode :: (using panel: *Panel, args: []string) {

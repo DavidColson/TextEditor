@@ -189,6 +189,7 @@ commandList :: Command.[
 	.{ "Redo", 0, redo, .[
 		.{ mode=.NORMAL, keys="U"},
 	]},
+	.{ "Visualize Undos", 0, visualize_undos, .[]},
 
 	// insert mode stuff
 	.{ "Delete left char", .HIDDEN, insert_mode_delete_left_char, .[
