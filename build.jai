@@ -1,6 +1,12 @@
 #import "Basic";
 #import "Compiler";
 #import "File";
+Compiler :: #import "Compiler";
+
+#if OS == .WINDOWS {
+    Windows_Resources :: #import "Windows_Resources";
+    Ico_File :: #import "Ico_File";
+}
 
 BUILD_DEBUG_DIR :: "run/debug";
 BUILD_OPTIMIZED_DIR :: "run/optimized";
@@ -10,15 +16,18 @@ Build :: ()
 {
     w := compiler_create_workspace();
 
-	// todo, create build output when it does not exist
-
+	// @todo, create build output when it does not exist
     target_options := get_build_options(w);
     args := target_options.compile_time_command_line;
     
     set_working_directory(#filepath);
-    build_optimized := false;
-    build_release := false;
+	target_options.output_executable_name = "TextEditor";
+	set_build_options(target_options, w);
+	set_build_options_dc(.{do_output=false});
     
+	// @todo: config which produces a shipping packaged build
+	build_optimized := false;
+	build_release := false;
     for arg: args
     {
     	if arg ==
@@ -30,20 +39,40 @@ Build :: ()
     	}
     }
     
-    target_options.output_executable_name = "TextEditor";
-	set_build_options(target_options, w);
-    
     // There are 3 target types in this program :
     // 	- Debug : Not optimized and has debug info
     // 	- Optimized : Optimized and has debug info
     // 	- Release : Very optimized and doesn't have debug info
+	Compiler.compiler_begin_intercept(w);
     if build_release then BuildRelease(w);
     else if build_optimized then BuildOptimized(w);
     else BuildDebug(w);
     
     add_build_file("source/main.jai", w);
     
-    set_build_options_dc(.{do_output=false});
+	// wait for compilation to finish so we can edit the exe
+	while true {
+		message := Compiler.compiler_wait_for_message();
+		if message.kind == .COMPLETE break;
+	}
+	Compiler.compiler_end_intercept(w);
+
+	// Edit the exe and do any other bits we need
+	#if OS == .WINDOWS {
+		build_opts := get_build_options(w);
+		exe_name := sprint("%/%.exe", build_opts.output_path, target_options.output_executable_name);
+		defer free(exe_name);
+
+		// ico_data := Ico_File.create_ico_file_from_bitmap_filename("apple.png");
+		// defer free(ico_data);
+		// Windows_Resources.set_icon_by_data(exe_name, ico_data);
+
+		manifest_options: Windows_Resources.Manifest_Options;
+		success := Windows_Resources.add_manifest_to_executable(exe_name, manifest_options);
+		if !success {
+            log_error("ERROR: Couldn't add manifest to executable '%'\n", exe_name);
+        }
+	}
 }
 
 BuildDebug :: (w: Workspace)
