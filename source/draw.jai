@@ -12,7 +12,7 @@ draw_one_frame :: () {
 
 	// draw notifications
 	// @todo: styling variable here
-	notificationY := my_font.character_height + 20 ;
+	notificationY := my_font.character_height + 20 * dpiScale;
 	it := numActiveNotifications;
 	while it > 0 {
 		notif := notifications[it-1];
@@ -23,10 +23,10 @@ draw_one_frame :: () {
 		notifRect:Rect;
 		// @todo: styling variable
 		// @todo: make the notifications bigger and in bold
-		textPadding := 5;
+		textPadding := 5 * dpiScale;
 		notifRect.w = cast(float) width + textPadding * 2;
-		notifRect.h = cast(float) my_font.character_height + 4;
-		notifRect.x = cast(float) windowWidth - (width + textPadding + 20);
+		notifRect.h = cast(float) my_font.character_height + 4 * dpiScale;
+		notifRect.x = cast(float) windowWidth - (width + textPadding + 20 * dpiScale);
 		notifRect.y = cast(float) notificationY + (numActiveNotifications-it) * notifRect.h;
 
 		fadeOutTime := cast(float) notificationTime*0.3;
@@ -49,16 +49,16 @@ draw_rect :: (rect: Rect, color: Vector4) {
 
 draw_filesystem_navigator :: (panelRect: Rect, navigator: *FilesystemNavigator) {
 	// @todo pull out to general style settings
-	entryPadding := 5;
+	entryPadding := 5 * dpiScale;
 	entryHeight := my_font.character_height + entryPadding * 2;
 
 	// @todo, this is duplicating below, pull it out
-	headerPadding := 8;
+	headerPadding := 8 * dpiScale;
 	headerHeight := my_font.character_height + headerPadding;
 
 	navigatorRect:Rect;
 	navigatorRect.w = panelRect.w / 2;
-	navigatorRect.h = cast(float) entryHeight * (navigator.numToDisplay + 1);
+	navigatorRect.h = cast(float) entryHeight * (navigator.numToDisplay + 1) + 4 * dpiScale;
 	navigatorRect.x = panelRect.x + (panelRect.w - navigatorRect.w) / 2;
 	navigatorRect.y = panelRect.y + headerHeight;
 
@@ -66,14 +66,14 @@ draw_filesystem_navigator :: (panelRect: Rect, navigator: *FilesystemNavigator) 
 	draw_rect(navigatorRect, Vector4.{0.4, 0.4, 0.4, 1.0});
 
 	inputRect: Rect;
-	inputRect, navigatorRect = cut_bottom(navigatorRect, xx entryHeight);
-	inputRect = shrink(inputRect, 4);
+	inputRect, navigatorRect = cut_bottom(navigatorRect, xx entryHeight + 4 * dpiScale);
+	inputRect = shrink(inputRect, 4 * dpiScale);
 	draw_rect(inputRect, Vector4.{0.5, 0.5, 0.5, 1.0});
 
 	curPathRect: Rect;
-	curPathRect = shrink(inputRect, 2);
-	textY := inputRect.y + entryHeight - 10;
-	textX := curPathRect.x + 2;
+	curPathRect = shrink(inputRect, 2 * dpiScale);
+	textY := inputRect.y + entryHeight - 10 * dpiScale;
+	textX := curPathRect.x + 2 * dpiScale;
 
 	if navigator.pendingAction {
 		if navigator.saveMode {
@@ -87,14 +87,14 @@ draw_filesystem_navigator :: (panelRect: Rect, navigator: *FilesystemNavigator) 
 	else {
 		// draw current path as blocks
 		for navigator.currentPath {
-			width := Simp.prepare_text(my_font, it);
+			width := Simp.prepare_text(my_font, it) + 4 * dpiScale;
 			blockRect: Rect;
 			blockRect, curPathRect = cut_left(curPathRect, xx width, 2);
 			Simp.set_shader_for_color();
 			draw_rect(blockRect, Vector4.{0.4, 0.4, 0.4, 1.0});
 
-			Simp.draw_prepared_text(my_font, xx blockRect.x, xx textY, Vector4.{0.8, 0.8, 0.8, 1.0});
-			textX = blockRect.x + blockRect.w + 2;
+			Simp.draw_prepared_text(my_font, xx (blockRect.x + 2 * dpiScale), xx textY, Vector4.{0.8, 0.8, 0.8, 1.0});
+			textX = blockRect.x + blockRect.w + cast(int) (4 * dpiScale);
 		}
 
 		// draw input filter text
@@ -115,7 +115,7 @@ draw_filesystem_navigator :: (panelRect: Rect, navigator: *FilesystemNavigator) 
 
 		width := Simp.prepare_text(my_font, item.name);
 		textX = entryRect.x + entryPadding;
-		textY = entryRect.y + entryHeight - 8;
+		textY = entryRect.y + entryHeight - 8 * dpiScale;
 		Simp.draw_prepared_text(my_font, xx textX, xx textY, Vector4.{0.8, 0.8, 0.8, 1.0});
 		entryRect.y += entryHeight;
 	}
@@ -145,11 +145,11 @@ draw_filesystem_navigator :: (panelRect: Rect, navigator: *FilesystemNavigator) 
 
 draw_command_picker :: (panelRect: Rect, picker: *CommandPicker) {
 	// @todo pull out to general style settings
-	commandEntryPadding := 5;
+	commandEntryPadding := 5 * dpiScale;
 	commandEntryHeight := my_font.character_height + commandEntryPadding * 2;
 
 	// @todo, this is duplicating below, pull it out
-	headerPadding := 8;
+	headerPadding := 8 * dpiScale;
 	headerHeight := my_font.character_height + headerPadding;
 
 	commandsRect:Rect;
@@ -163,12 +163,12 @@ draw_command_picker :: (panelRect: Rect, picker: *CommandPicker) {
 
 	inputRect: Rect;
 	inputRect, commandsRect = cut_bottom(commandsRect, xx commandEntryHeight);
-	inputRect = shrink(inputRect, 3);
+	inputRect = shrink(inputRect, 3 * dpiScale);
 	draw_rect(inputRect, Vector4.{0.5, 0.5, 0.5, 1.0});
 
 	Simp.prepare_text(my_font, input_field_get_text(*picker.input));
 	textX := inputRect.x + commandEntryPadding;
-	textY := inputRect.y + commandEntryHeight - 10;
+	textY := inputRect.y + commandEntryHeight - 10 * dpiScale;
 	Simp.draw_prepared_text(my_font, xx textX, xx textY, Vector4.{0.8, 0.8, 0.8, 1.0});
 
 	entryRect := cut_bottom(commandsRect, xx commandEntryHeight);
@@ -185,7 +185,7 @@ draw_command_picker :: (panelRect: Rect, picker: *CommandPicker) {
 		width := Simp.prepare_text(my_font, command.name);
 
 		textX = entryRect.x + commandEntryPadding;
-		textY = entryRect.y + commandEntryHeight - 8;
+		textY = entryRect.y + commandEntryHeight - 8 * dpiScale;
 		Simp.draw_prepared_text(my_font, xx textX, xx textY, Vector4.{0.8, 0.8, 0.8, 1.0});
 		entryRect.y += commandEntryHeight;
 	}
@@ -230,8 +230,8 @@ draw_cursor_range :: (textAreaX: s64, textAreaY: s64, cursor1: DocumentCursor, c
 }
 
 draw_panel :: (panel: *Panel) {
-
-	headerPadding := 8;
+	// @todo: global styling here
+	headerPadding := cast(int) (8 * dpiScale);
 	headerHeight := my_font.character_height + headerPadding;
 
 	// Draw actual code + line numbers
@@ -373,11 +373,11 @@ draw_panel :: (panel: *Panel) {
 									cursorCoordinate.col,
 									panel.cursor.head.documentOffset,
 									lineEndingText));
-		Simp.draw_prepared_text(my_font, 2, my_font.character_height + 2, Vector4.{0.8, 0.8, 0.8, 1.0});
+		Simp.draw_prepared_text(my_font, cast(int) (2 * dpiScale), my_font.character_height + cast(int) (2 * dpiScale), Vector4.{0.8, 0.8, 0.8, 1.0});
 	}
 	else {
 		width := Simp.prepare_text(my_font, tprint("% | NO DOCUMENT LOADED", modeText));
-		Simp.draw_prepared_text(my_font, 2, my_font.character_height + 2, Vector4.{0.8, 0.8, 0.8, 1.0});
+		Simp.draw_prepared_text(my_font, cast(int) (2 * dpiScale), my_font.character_height + cast(int) (2 * dpiScale), Vector4.{0.8, 0.8, 0.8, 1.0});
 	}
 
 	registerText := "";
@@ -387,7 +387,7 @@ draw_panel :: (panel: *Panel) {
 
 	pendingKeys := string.{keyMap.pendingKeyString.count, keyMap.pendingKeyString.data};
 	width := Simp.prepare_text(my_font, tprint("% %", registerText, pendingKeys));
-	Simp.draw_prepared_text(my_font, cast(s64) (panel.rect.w - width - my_font.mono_x_advance), my_font.character_height + 2, Vector4.{0.8, 0.8, 0.8, 1.0});
+	Simp.draw_prepared_text(my_font, cast(s64) (panel.rect.w - width - my_font.mono_x_advance), my_font.character_height + cast(int) (2 * dpiScale), Vector4.{0.8, 0.8, 0.8, 1.0});
 
 	// Draw command list
 	if editorMode == .COMMAND_PICKER {
@@ -404,8 +404,8 @@ draw_panel :: (panel: *Panel) {
 
 		// search bar itself
 		// @todo: styling params
-		searchBarTextPadding := 3;
-		searchBarInputBoxPadding := 4;
+		searchBarTextPadding := 3 * dpiScale;
+		searchBarInputBoxPadding := 4 * dpiScale;
 
 		searchBarRect: Rect;
 		searchBarRect.w = cast(float) panel.rect.w;

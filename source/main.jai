@@ -60,6 +60,7 @@ scrollPos := 0;
 window: Window_Type;
 windowWidth  : s32 = 1920;
 windowHeight : s32 = 1080;
+dpiScale := 1.0;
 pendingQuit := false;
 backupSaveTimer:float64 = 300;
 
@@ -169,6 +170,12 @@ main :: () {
 			input_handler(it);
 		}
 
+		newDpiScale := platform_get_dpi_scale(window);
+		if newDpiScale != dpiScale {
+			dpiScale = newDpiScale;
+			my_init_fonts();
+		}
+
 		// @todo: don't re-render if nothing's changed
 		draw_one_frame();
 
@@ -259,10 +266,13 @@ read_register :: (name: u8) -> string {
 }
 
 my_init_fonts :: () {
-	// @todo: change font size for a given dpi scale that may have just occured
 	// @todo: when doing a release packaged build, this path needs to change
+
+	// @todo: when we re-init fonts cause the size changed, we aren't releasing old fonts
+	// something to clean up at some point
+
 	path := tprint("%../../fonts/", path_strip_filename(get_path_of_running_executable()));
-    my_font = Simp.get_font_at_size(path, "FiraMonoNerdFontMono-Medium.ttf", textSize);
+    my_font = Simp.get_font_at_size(path, "FiraMonoNerdFontMono-Medium.ttf", cast(int) (textSize * dpiScale));
 	my_font.render_tabs = false;
 	my_font.render_new_lines = false;
     assert(my_font != null);
@@ -931,7 +941,15 @@ convert_cursors_to_coordinate_range :: (cursor1: DocumentCursor, cursor2: Docume
 	return rangeStart, rangeEnd;
 }
 
-// @todo: this is windows only, move to windows file
+// WINDOWS
+// @todo: These are all windows functions, need to be moved to platform file
+kernel32 :: #system_library "kernel32";
+user32   :: #system_library "user32";
+#import "Windows";
+#import "Windows_Utf8";
+GetLogicalDriveStringsW :: (nBufferLength: DWORD, lpBuffer: *u16) -> DWORD #foreign kernel32;
+GetDpiForWindow :: (hWnd: HWND) -> u32 #foreign user32;
+
 platform_enumerate_logical_drives :: () -> [] string {
     drives: [..] string;
 
@@ -960,6 +978,14 @@ platform_is_path_directory :: (path: string) -> bool {
 	}
 	return false;
 }
+
+platform_get_dpi_scale :: (window: Window_Type) -> float {
+	dpi := cast(float) GetDpiForWindow(window);
+	return dpi / 96.0;
+}
+
+// END WINDOWS
+
 
 // fuzzy searching
 fuzzy_search :: (stringToSearch: string, filter: string) -> s32 {
@@ -1114,12 +1140,6 @@ Input :: #import "Input";
 #import "Hash_Table";
 #import "Clipboard";
 #import "Command_Line";
-
-// @todo: this should be moved to a relevant "platform file"
-kernel32 :: #system_library "kernel32";
-#import "Windows";
-#import "Windows_Utf8";
-GetLogicalDriveStringsW :: (nBufferLength: DWORD, lpBuffer: *u16) -> DWORD #foreign kernel32;
 
 #load "rect.jai";
 #load "command_picker.jai";
