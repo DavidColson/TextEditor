@@ -192,8 +192,11 @@ commandList :: Command.[
 	.{ "Visualize Undos", 0, visualize_undos, .[]},
 
 	// insert mode stuff
-	.{ "Delete left char", .HIDDEN, insert_mode_delete_left_char, .[
+	.{ "Backward Delete Char", .HIDDEN, insert_mode_backward_delete_char, .[
 		.{ mode=.INSERT, keys="<backspace>"}
+	]},
+	.{ "Forward Delete Char", .HIDDEN, insert_mode_forward_delete_char, .[
+		.{ mode=.INSERT, keys="<delete>"}
 	]},
 	.{ "Insert line break", .HIDDEN, insert_mode_line_break, .[
 		.{ mode=.INSERT, keys="<enter>"}
@@ -331,6 +334,9 @@ rebuild_key_map :: ()  {
 				else if begins_with(keys, "<tab>") {
 					advance(*keys, 5); 
 				}
+				else if begins_with(keys, "<delete>") {
+					advance(*keys, 8); 
+				}
 				else {
 					advance(*keys, 1); // take just the one letter key
 				}
@@ -449,6 +455,9 @@ input_handler :: (event: Input.Event) {
 		}
 		else if event.key_pressed && event.key_code == .PAGE_DOWN {
 			append(*builder, "<pagedown>");
+		}
+		else if event.key_pressed && event.key_code == .DELETE {
+			append(*builder, "<delete>");
 		}
 		else if event.key_pressed && event.key_code >= 33 && event.key_code <= 96 && event.modifier_flags.packed {
 			// Note we only take characters as events here if there are modifiers on, otherwise we let the text

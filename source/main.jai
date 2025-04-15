@@ -749,7 +749,7 @@ insert_tab_character :: (using panel: *Panel, args: []string) {
 	insert_mode_insert_string(textToInsert);
 }
 
-insert_mode_delete_left_char :: (using panel: *Panel, args: []string) {
+insert_mode_backward_delete_char :: (using panel: *Panel, args: []string) {
 	distanceToAnchor := focusedPanel.cursor.anchor.documentOffset - focusedPanel.cursor.head.documentOffset;
 
 	stepCursor := cursor.head;
@@ -772,6 +772,22 @@ insert_mode_delete_left_char :: (using panel: *Panel, args: []string) {
 	// move anchor as appropriate
 	if focusedPanel.cursor.head.documentOffset > focusedPanel.cursor.anchor.documentOffset {
 		document_cursor_step_one_forward(*focusedPanel.cursor.anchor, true);
+	}
+}
+
+insert_mode_forward_delete_char :: (using panel: *Panel, args: []string) {
+	distanceToAnchor := focusedPanel.cursor.anchor.documentOffset - focusedPanel.cursor.head.documentOffset;
+
+	stepCursor := cursor.head;
+	document_cursor_step_one_forward(*stepCursor, true);
+	cursor.head = document_delete_text(document, cursor.head, stepCursor);
+
+	// if the anchor is ahead of us, it should move back one
+	if distanceToAnchor > 0 {
+	 	document_cursor_step_one_backward(*focusedPanel.cursor.anchor, true);
+	}
+	else if distanceToAnchor == 0 {
+		focusedPanel.cursor.anchor = focusedPanel.cursor.head;
 	}
 }
 
