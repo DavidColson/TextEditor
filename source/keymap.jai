@@ -204,7 +204,8 @@ commandList :: Command.[
 
 
 	// filesystem navigator
-	.{ "Open Filesystem Navigator", 0, open_file, .[
+	.{ "Open Filesystem Navigator", 0, open_file, .[]},
+	.{ "Open Filesystem Navigator At Working Directory", 0, open_file_in_working_dir, .[
 		.{ mode=.NORMAL, keys="ctrl+o"}
 	]},
 	.{ "Path Delete", .HIDDEN | .FILESYSTEM_NAVIGATOR_ONLY, filesystem_nav_delete_path, .[

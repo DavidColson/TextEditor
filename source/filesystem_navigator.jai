@@ -17,14 +17,22 @@ FilesystemNavigator :: struct {
 	}
 }
 
-filesystem_nav_open :: (state: *FilesystemNavigator, saveMode := false) {
+filesystem_nav_open :: (state: *FilesystemNavigator, saveMode := false, initialLocation := "") {
 	editorMode = .FILESYSTEM_NAVIGATOR;
-	filesystem_nav_refresh_directory_list(state);
 
 	state.input.onEditCallback = filesystem_nav_input_field_on_edit;
 	state.input.userData = state;
 	state.saveMode = saveMode;
 	focusedInputField = *state.input;
+
+	path := split(initialLocation, "\\",,temp);
+	if initialLocation.count > 0 {
+		for path {
+			pathSection := copy_string(it,,get_allocator(state));
+			array_add(*state.currentPath, pathSection,, get_allocator(state));
+		}
+	}
+	filesystem_nav_refresh_directory_list(state);
 }
 
 filesystem_nav_reset :: (state: *FilesystemNavigator) {

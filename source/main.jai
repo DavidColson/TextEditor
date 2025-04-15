@@ -217,7 +217,7 @@ main :: () {
 				builder.allocator = temp;
 				init_string_builder(*builder);
 
-				append(*builder, get_working_directory());
+				append(*builder, path_strip_filename(get_path_of_running_executable()));
 				append(*builder, "\\backups\\");
 				append(*builder, path_filename(mainDocument.path));
 
@@ -307,6 +307,10 @@ quit :: (panel: *Panel, args: []string) {
 
 open_file :: (panel: *Panel, args: []string) {
 	filesystem_nav_open(*panel.filesystemNav);
+}
+
+open_file_in_working_dir :: (panel: *Panel, args: []string) {
+	filesystem_nav_open(*panel.filesystemNav, false, get_working_directory());
 }
 
 save_file :: (panel: *Panel, args: []string) {
