@@ -18,6 +18,8 @@ Document :: struct {
 	pieceChainTail: *PieceChainNode;
 	
 	// @todo: this should be a tree at some point
+	// @todo: undo stack items should know whether
+	// they are saved to disk, to update the unsaved status of the file
 	undoStack: [..]PieceChainSpan;
 	redoStack: [..]PieceChainSpan;
 
@@ -156,7 +158,11 @@ operator >= :: (a: Coordinate, b: Coordinate) -> bool {
 }
 
 
-document_free :: (doc: *Document) {
+document_close :: (doc: *Document) {
+	// @todo: when reloading files you actually don't need to do this
+	// cleanup the reset when doing a reload vs a new file
+	array_unordered_remove_by_value(*watchedFiles, doc.path);
+
 	fini(*doc.documentMemory);
 	fini(*doc.pieceChainMemory);
 	initializer_of(Document)(doc);
@@ -165,13 +171,19 @@ document_free :: (doc: *Document) {
 document_open :: (path: string) {
 	// @todo hack until we have multi buffer support
 	doc := *mainDocument;
-	document_free(doc);
+	document_close(doc);
 
 	doc.documentMemory.alignment = 1;
 	doc.documentAlloc = Allocator.{ proc = flat_pool_allocator_proc, data = *doc.documentMemory };
 	doc.pieceChainAlloc = Allocator.{ proc = flat_pool_allocator_proc, data = *doc.pieceChainMemory };
 
-	doc.path = copy_string(path,,doc.documentAlloc);
+	if is_absolute_path(path) {
+		doc.path = copy_string(path,,doc.documentAlloc);
+	}
+	else {
+		doc.path = copy_string(get_absolute_path(path),,doc.documentAlloc);
+	}
+	path_overwrite_separators(doc.path, #char "/");
 
     f, success := file_open(doc.path);
 	if !success {
@@ -195,6 +207,7 @@ document_open :: (path: string) {
 		// @todo: better cleanup
 		return;
 	}
+	file_close(*f);
 
 	doc.size = file.count;
 	doc.unsaved = false;
@@ -276,13 +289,11 @@ document_open :: (path: string) {
 	node.next = doc.pieceChainTail;
 	doc.pieceChainTail.prev = node;
 
-	// tell panel cursors to reset
-	// @todo: should be a bit more clever than this, especially when we have a few panels
-	focusedPanel.cursor = .{};
-	focusedPanel.cursor.head.doc = focusedPanel.document;
-	focusedPanel.cursor.head.node = mainDocument.pieceChainHead;
-	focusedPanel.cursor.anchor.doc = focusedPanel.document;
-	focusedPanel.cursor.anchor.node = mainDocument.pieceChainHead;
+	// add to file watcher
+	parentPath := path_strip_filename(doc.path);
+	if parentPath.count > 1 && parentPath[parentPath.count-1] == #char "/" then parentPath.count -= 1;
+	add_directories(*watcher, parentPath);
+	array_add_if_unique(*watchedFiles, doc.path);
 
 	push_notification("Document Opened");
 }

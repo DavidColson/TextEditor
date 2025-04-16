@@ -55,6 +55,8 @@ editorMode := EditorMode.NORMAL;
 extendSelections := false;
 focusedPanel : Panel;
 mainDocument : Document;
+watcher: File_Watcher(void);
+watchedFiles: [..]string;
 focusedInputField: *InputField = null;
 scrollPos := 0;
 window: Window_Type;
@@ -101,17 +103,11 @@ main :: () {
 		return;
 	}
 
+	// create window
     WANTED_MSAA :: 8;
-    // On Linux, we need to pass the MSAA value to create_window
     window = create_window(windowWidth, windowHeight, "TextEditor", wanted_msaa = WANTED_MSAA);
-
-    // On other operating systems, the MSAA value needs to be passed to *_create_context, so we
-    // need to have an extra step here if you want MSAA.
     msaa := Simp.prepare_window(window, wanted_msaa = WANTED_MSAA);
-
-    // Actual render size in pixels can be different from the window dimensions we specified above (for example on high-resolution displays on macOS/iOS).
     windowWidth, windowHeight = Simp.get_render_dimensions(window);
-
     Simp.set_render_target(window, .LEFT_HANDED);
 
     my_init_fonts();
@@ -120,12 +116,15 @@ main :: () {
 
 	registers.registerAllocator = Allocator.{ proc = flat_pool_allocator_proc, data = *registers.registerPool };
 
+	if !init(*watcher, file_change_callback, watch_recursively = false) {
+        push_notification("Could not initialize the file watcher. Files won't be reloaded. This is likely a bug.");
+    }
+
 	focusedPanel.rect.x = 0;
 	focusedPanel.rect.y = 0;
 	focusedPanel.rect.w = xx windowWidth;
 	focusedPanel.rect.h = xx windowHeight;
 
-	// document_open("C:/Dev/TextEditor/source/main.jai");
 	if filesToOpen.count > 0 {
 		document_open(filesToOpen[0]);
 
@@ -169,6 +168,8 @@ main :: () {
             if it.type == .QUIT then pendingQuit = true;
 			input_handler(it);
 		}
+
+		process_changes(*watcher);
 
 		newDpiScale := platform_get_dpi_scale(window);
 		if newDpiScale != dpiScale {
@@ -236,6 +237,26 @@ main :: () {
         sleep_milliseconds(cast(s32) (16 - delta/1000));
         reset_temporary_storage();
     }
+}
+
+file_change_callback :: (watcher: *File_Watcher(void), change: *File_Change, userdata: *void) {
+	found := array_find(watchedFiles, change.full_path);
+	if found {
+		if change.events & .MODIFIED {
+			// reload file
+			if mainDocument.unsaved == false {
+				document_open(change.full_path);
+			}
+			else {
+				// @todo: when we have nicer UI this should give a popup or something more explicit
+				mainDocument.unsaved = true;
+				push_notification("File on disk changed, but you have unsaved edits");
+			}
+		}
+		if change.events & .REMOVED {
+			mainDocument.unsaved = true;
+		}
+	}
 }
 
 write_register :: (name: u8, value: string) {
@@ -1140,6 +1161,7 @@ Input :: #import "Input";
 #import "Hash_Table";
 #import "Clipboard";
 #import "Command_Line";
+#import "File_Watcher";
 
 #load "rect.jai";
 #load "command_picker.jai";
