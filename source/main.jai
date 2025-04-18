@@ -18,6 +18,7 @@ Cursor :: struct {
 Panel :: struct {
 	document: *Document;
 	rect: Rect;
+	scrollPos := 0;
 
 	// cursors
 	cursor: Cursor;
@@ -50,15 +51,12 @@ Notification :: struct {
 EDITOR_MODE_NUM :: #run enum_highest_value(EditorMode) + 1;
 
 // globals
-// @todo: should put this in a global editor state struct
 editorMode := EditorMode.NORMAL;
 extendSelections := false;
 focusedPanel : Panel;
-mainDocument : Document;
 watcher: File_Watcher(void);
 watchedFiles: [..]string;
 focusedInputField: *InputField = null;
-scrollPos := 0;
 window: Window_Type;
 windowWidth  : s32 = 1920;
 windowHeight : s32 = 1080;
@@ -126,15 +124,7 @@ main :: () {
 	focusedPanel.rect.h = xx windowHeight;
 
 	if filesToOpen.count > 0 {
-		document_open(filesToOpen[0]);
-
-		// set the opened document into the primary panel
-		focusedPanel.document = *mainDocument;
-		focusedPanel.cursor = .{};
-		focusedPanel.cursor.head.doc = focusedPanel.document;
-		focusedPanel.cursor.head.node = mainDocument.pieceChainHead;
-		focusedPanel.cursor.anchor.doc = focusedPanel.document;
-		focusedPanel.cursor.anchor.node = mainDocument.pieceChainHead;
+		panel_set_active_document(*focusedPanel, document_open(filesToOpen[0]));
 	}
 
 	lastTime := seconds_since_init();
@@ -180,25 +170,7 @@ main :: () {
 		// @todo: don't re-render if nothing's changed
 		draw_one_frame();
 
-		// @todo: smooth lerp animations on this
-		// have a rawscroll value, and then a lerped value that we lerp toward every frame
-		scrollPos += Input.mouse_delta_z;
-		numLines := document_get_num_lines(*mainDocument);
-		scrollPos = clamp(scrollPos, -(my_font.character_height * numLines) + my_font.character_height * 5, 0);
-
-		// keep the cursor on the screen when we scroll
-		if abs(Input.mouse_delta_z) > 0 {
-			startVisibleLine, endVisibleLine := panel_calculate_visible_lines(*focusedPanel);
-			cursorLine := document_cursor_get_line(*focusedPanel.cursor.head);
-			if cursorLine < startVisibleLine {
-				move_to_line_visual(*focusedPanel, cursorLine, startVisibleLine);
-				focusedPanel.cursor.anchor = focusedPanel.cursor.head;
-			}
-			else if cursorLine > endVisibleLine {
-				move_to_line_visual(*focusedPanel, cursorLine, endVisibleLine-1);
-				focusedPanel.cursor.anchor = focusedPanel.cursor.head;
-			}
-		}
+		panel_scroll_with_mouse(*focusedPanel, Input.mouse_delta_z);
 
 		// update notifications
 		nNotificationsToRemove := 0;
@@ -220,16 +192,18 @@ main :: () {
 		// update backups timer
 		backupSaveTimer -= delta;
 		if backupSaveTimer <= 0 {
-			if mainDocument.unsaved {
-				builder : String_Builder;
-				builder.allocator = temp;
-				init_string_builder(*builder);
+			for * open_documents {
+				if it.unsaved {
+					builder : String_Builder;
+					builder.allocator = temp;
+					init_string_builder(*builder);
 
-				append(*builder, path_strip_filename(get_path_of_running_executable()));
-				append(*builder, "\\backups\\");
-				append(*builder, path_filename(mainDocument.path));
+					append(*builder, path_strip_filename(get_path_of_running_executable()));
+					append(*builder, "\\backups\\");
+					append(*builder, path_filename(it.path));
 
-				document_save(*mainDocument, builder_to_string(*builder,,temp), true);
+					document_save(it, builder_to_string(*builder,,temp), true);
+				}
 			}
 			backupSaveTimer = 300;
 		}
@@ -242,19 +216,20 @@ main :: () {
 file_change_callback :: (watcher: *File_Watcher(void), change: *File_Change, userdata: *void) {
 	found := array_find(watchedFiles, change.full_path);
 	if found {
+		success, doc := document_get_by_path(change.full_path);
 		if change.events & .MODIFIED {
 			// reload file
-			if mainDocument.unsaved == false {
-				document_open(change.full_path);
+			if doc.unsaved == false {
+				document_load_from_disk(doc);
 			}
 			else {
 				// @todo: when we have nicer UI this should give a popup or something more explicit
-				mainDocument.unsaved = true;
+				doc.unsaved = true;
 				push_notification("File on disk changed, but you have unsaved edits");
 			}
 		}
 		if change.events & .REMOVED {
-			mainDocument.unsaved = true;
+			doc.unsaved = true;
 		}
 	}
 }
@@ -287,7 +262,7 @@ read_register :: (name: u8) -> string {
 }
 
 my_init_fonts :: () {
-	// @todo: when doing a release packaged build, this path needs to change
+	// @todo: embed the default font into the exe with #run
 
 	// @todo: when we re-init fonts cause the size changed, we aren't releasing old fonts
 	// something to clean up at some point
@@ -379,7 +354,7 @@ enter_normal_mode :: (panel: *Panel, args: []string) {
 	}
 	else if editorMode == .SEARCH {
 		// @todo: may want to consider a "search_reset" function
-		scrollPos = panel.previousScrollState; 
+		panel.scrollPos = panel.previousScrollState; 
 		input_field_reset_keeping_memory(*panel.searchInput);
 		panel.searchInput.onEditCallback = null;
 		panel.searchInput.userData = null;
@@ -632,11 +607,11 @@ next_search_result :: (using panel: *Panel, args: []string) {
 	if panel.cursor.anchor.documentOffset > startOffset {
 		startOffset = panel.cursor.anchor.documentOffset; 
 	}
-	panel.hasMatches, panel.results = match(*mainDocument, startOffset, mainDocument.size, panel.currentRegex);
+	panel.hasMatches, panel.results = match(panel.document, startOffset, panel.document.size, panel.currentRegex);
 
 	// wrap around to start of document if no matches
 	if !panel.hasMatches {
-		panel.hasMatches, panel.results = match(*mainDocument, 0, mainDocument.size, panel.currentRegex);
+		panel.hasMatches, panel.results = match(panel.document, 0, panel.document.size, panel.currentRegex);
 	}
 
 	panel.cursor.anchor = panel.results[0].start;
@@ -661,7 +636,7 @@ previous_search_result :: (using panel: *Panel, args: []string) {
 	}
 	needToWrap := true;
 	while true {
-		hasMatch, results := match(*mainDocument, start, end, panel.currentRegex);
+		hasMatch, results := match(panel.document, start, end, panel.currentRegex);
 		if hasMatch {
 			if panel.results.count {
 				array_reset(*panel.results);
@@ -717,7 +692,7 @@ document_search_on_edit :: (userData: *void, input: string) {
 		if panel.cursor.anchor.documentOffset > startOffset {
 			startOffset = panel.cursor.anchor.documentOffset; 
 		}
-		panel.hasMatches, panel.results = match(*mainDocument, startOffset, mainDocument.size, panel.currentRegex);
+		panel.hasMatches, panel.results = match(panel.document, startOffset, panel.document.size, panel.currentRegex);
 
 		// is the result off the edge of the screen? if so scroll so it's centered
 		if panel.hasMatches {
@@ -877,10 +852,41 @@ half_page_down :: (using panel: *Panel, args: []string) {
 	panel_scroll_to_line(panel, startVisibleLine + pageSize/2);
 }
 
+// panel functions @todo, move to it's own file
+
+panel_set_active_document :: (panel: *Panel, doc: *Document) {
+	panel.document = doc;
+	panel.cursor = .{};
+	panel.cursor.head = document_create_cursor(panel.document);
+	panel.cursor.anchor = document_create_cursor(panel.document);
+}
+
+panel_scroll_with_mouse :: (panel: *Panel, mouseDelta: int) {
+	// @todo: smooth lerp animations on this
+	// have a rawscroll value, and then a lerped value that we lerp toward every frame
+	panel.scrollPos += mouseDelta;
+	numLines := document_get_num_lines(panel.document);
+	panel.scrollPos = clamp(panel.scrollPos, -(my_font.character_height * numLines) + my_font.character_height * 5, 0);
+
+	// keep the cursor on the screen when we scroll
+	if abs(Input.mouse_delta_z) > 0 {
+		startVisibleLine, endVisibleLine := panel_calculate_visible_lines(panel);
+		cursorLine := document_cursor_get_line(*panel.cursor.head);
+		if cursorLine < startVisibleLine {
+			move_to_line_visual(panel, cursorLine, startVisibleLine);
+			panel.cursor.anchor = panel.cursor.head;
+		}
+		else if cursorLine > endVisibleLine {
+			move_to_line_visual(panel, cursorLine, endVisibleLine-1);
+			panel.cursor.anchor = panel.cursor.head;
+		}
+	}
+}
+
 // targetLine will be the top edge of the panel, such that target line = 0 will leave you scrolled
 // up as high as you can go. Will allow you to scroll off the end as far as a couple lines are still visible
 panel_scroll_to_line :: (panel: *Panel, targetLine: s64) {
-	startVisibleLine := -scrollPos / my_font.character_height;
+	startVisibleLine := -panel.scrollPos / my_font.character_height;
 	numLinesDocument := document_get_num_lines(panel.document);
 
 	// @todo: these need to be parameterized styling values for the UI
@@ -890,18 +896,17 @@ panel_scroll_to_line :: (panel: *Panel, targetLine: s64) {
 	maxScroll := cast(s64) (numLinesDocument * my_font.character_height + heightForCode - 2); 
 
 	delta := targetLine - startVisibleLine;
-	scrollPos -= my_font.character_height * delta;
-	scrollPos = clamp(scrollPos, -maxScroll, 0);
+	panel.scrollPos -= my_font.character_height * delta;
+	panel.scrollPos = clamp(panel.scrollPos, -maxScroll, 0);
 }
 
-// panel functions @todo, move to it's own file
 panel_calculate_visible_lines :: (panel: *Panel, clamped := false) -> s64, s64 {
 	numLines := document_get_num_lines(panel.document);
 	// @todo: these need to be parameterized styling values for the UI
 	headerPadding := 8;
 	headerHeight := my_font.character_height + headerPadding;
 	heightForCode := panel.rect.h - headerHeight;
-	startVisibleLines := clamp(-scrollPos / my_font.character_height, 0, numLines - 1);
+	startVisibleLines := clamp(-panel.scrollPos / my_font.character_height, 0, numLines - 1);
 	endVisibleLinesUnclamped := startVisibleLines + cast(s64)heightForCode / my_font.character_height;
 	endVisibleLines := clamp(endVisibleLinesUnclamped, 0, numLines - 1);
 
@@ -1162,6 +1167,7 @@ Input :: #import "Input";
 #import "Clipboard";
 #import "Command_Line";
 #import "File_Watcher";
+#import "Bucket_Array";
 
 #load "rect.jai";
 #load "command_picker.jai";

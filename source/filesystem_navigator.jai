@@ -97,7 +97,8 @@ filesystem_nav_action_item :: (using panel: *Panel, args: []string) {
 		}
 		else {
 			// @todo: the action may be more than just open, could be delete or rename
-			document_open(make_path_from_strings(state.currentPath,,temp));
+			doc := document_open(make_path_from_strings(state.currentPath,,temp));
+			panel_set_active_document(panel, doc);
 			editorMode = .NORMAL;
 			filesystem_nav_reset(state);
 		}

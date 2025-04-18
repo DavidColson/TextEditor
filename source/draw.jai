@@ -258,7 +258,7 @@ draw_panel :: (panel: *Panel) {
 		visibleLines: [..]string;
 		visibleLines.allocator = temp;
 
-		startVisibleLines = clamp(-scrollPos / my_font.character_height, 0, documentLines - 1);
+		startVisibleLines = clamp(-panel.scrollPos / my_font.character_height, 0, documentLines - 1);
 		endVisibleLines = clamp(startVisibleLines + cast(s64)heightForCode / my_font.character_height, 0, documentLines - 1);
 
 		cursorLine := document_cursor_get_line(*panel.cursor.head);

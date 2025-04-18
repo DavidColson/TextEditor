@@ -23,7 +23,7 @@ Document :: struct {
 	undoStack: [..]PieceChainSpan;
 	redoStack: [..]PieceChainSpan;
 
-	
+	locator: Bucket_Locator;
 	size: s64;
 	lineEndings: LineEndingMode;
 	path: string;
@@ -84,113 +84,61 @@ PieceChainSpan :: struct {
 	size: s64;
 }
 
-// we're essentially going to end up rewriting the insert/delete functions because we now have to update more next/prev pointers
-// than we did before
-// [x] so I think a better plan will be to implement the span helper functions first, that is
-// - append
-// - spanboundary
-// so that we can construct spans relatively easily and quickly
+open_documents: Bucket_Array(Document, 128); // might want more when we load full projects in?
+open_document_table: Table(string, Bucket_Locator);
 
-// [ ] then create a function for creating a new undo event, which adds a new element to the undo stack
-// and returns it as an empty span
-
-// [ ] then create a swap_span function which generalizes all the prev/next pointer edits
-
-// [ ] Now rewrite the insert function to use spans. The general pattern is:
-// - New undo event (make new span)
-// - Add old nodes that you intend to remove or change, sequentially
-// - Create, configure, and add new nodes you want to add sequentially
-// - swap spans
-
-
-operator == :: (a: Coordinate, b: Coordinate) -> bool {
-	return a.line == b.line && a.col == b.col;
-}
-
-operator < :: (a: Coordinate, b: Coordinate) -> bool {
-	if a.line == b.line {
-		if a.col < b.col {
-			return true; // a is before b
-		}
-		else {
-			return false; // b is before a
-		}
-	}
-	else if a.line < b.line {
-		return true; // a is before b
-	}
-	else {
-		return false; // b is before a
-	}
-}
-operator <= :: (a: Coordinate, b: Coordinate) -> bool {
-	if a == b {
-		return true;
-	} 
-	else {
-		return a < b;
-	}
-}
-
-operator > :: (a: Coordinate, b: Coordinate) -> bool {
-	if a.line == b.line {
-		if a.col > b.col {
-			return true; // a is after b
-		}
-		else {
-			return false; // b is after a
-		}
-	}
-	else if a.line > b.line {
-		return true; // a is after b
-	}
-	else {
-		return false; // b is after a
-	}
-}
-operator >= :: (a: Coordinate, b: Coordinate) -> bool {
-	if a == b {
-		return true;
-	} 
-	else {
-		return a > b;
-	}
-}
-
-
-document_close :: (doc: *Document) {
-	// @todo: when reloading files you actually don't need to do this
-	// cleanup the reset when doing a reload vs a new file
-	array_unordered_remove_by_value(*watchedFiles, doc.path);
-
-	fini(*doc.documentMemory);
-	fini(*doc.pieceChainMemory);
-	initializer_of(Document)(doc);
-}
-
-document_open :: (path: string) {
-	// @todo hack until we have multi buffer support
-	doc := *mainDocument;
-	document_close(doc);
+document_open :: (path: string) -> *Document {
+	doc, locator := find_and_occupy_empty_slot(*open_documents);
 
 	doc.documentMemory.alignment = 1;
 	doc.documentAlloc = Allocator.{ proc = flat_pool_allocator_proc, data = *doc.documentMemory };
 	doc.pieceChainAlloc = Allocator.{ proc = flat_pool_allocator_proc, data = *doc.pieceChainMemory };
 
 	if is_absolute_path(path) {
-		doc.path = copy_string(path,,doc.documentAlloc);
+		doc.path = copy_string(path);
 	}
 	else {
-		doc.path = copy_string(get_absolute_path(path),,doc.documentAlloc);
+		doc.path = copy_string(get_absolute_path(path));
 	}
 	path_overwrite_separators(doc.path, #char "/");
 
-    f, success := file_open(doc.path);
+	doc.locator = locator;
+	table_add(*open_document_table, doc.path, doc.locator); 
+
+	document_load_from_disk(doc);
+
+	// add to file watcher
+	parentPath := path_strip_filename(doc.path);
+	if parentPath.count > 1 && parentPath[parentPath.count-1] == #char "/" then parentPath.count -= 1;
+	add_directories(*watcher, parentPath);
+	array_add_if_unique(*watchedFiles, doc.path);
+
+	push_notification("Document Opened");
+	return doc;
+}
+
+document_load_from_disk :: (doc: *Document) {
+	// if this fails, we have not reset any memory yet, so the existing document will persist in memory
+	f, success := file_open(doc.path);
 	if !success {
 		push_notification("File open failed");
-		// @todo: better cleanup
 		return;
 	}
+
+	// if the file read fails, we must leave the document in a valid state with no content, so intialize it as such
+	doc.pieceChainHead = New(PieceChainNode,, doc.pieceChainAlloc);
+	doc.pieceChainTail = New(PieceChainNode,, doc.pieceChainAlloc);
+	doc.pieceChainHead.next = doc.pieceChainTail;
+	doc.pieceChainTail.prev = doc.pieceChainHead;
+	doc.size = 0;
+	doc.unsaved = false;
+	doc.lastDeletionOffset = 0;
+	array_reset(*doc.undoStack);
+	array_reset(*doc.redoStack);
+	array_reset(*doc.originalData.lineStarts);
+	array_reset(*doc.addedData.lineStarts);
+	reset(*doc.documentMemory, overwrite_memory=true);
+	reset(*doc.pieceChainMemory, overwrite_memory=true);
 
 	fileSize := file_length(f);
 	if (fileSize > (256*1024*1024)) {
@@ -200,11 +148,11 @@ document_open :: (path: string) {
 		init(*doc.pieceChainMemory, 512 * 1024 * 1024);
 	}
 
+	// now actually read in the file data
 	file: string;
     file, success = read_entire_file(f,,doc.documentAlloc);
 	if !success {
-		push_notification("File open failed");
-		// @todo: better cleanup
+		push_notification("File read failed");
 		return;
 	}
 	file_close(*f);
@@ -256,8 +204,7 @@ document_open :: (path: string) {
 		}
 	}
 	else if crCount > 0 {
-		// @todo: fail to open the file rather than crashing, and give a push notification
-		assert(false, "Cannot cope with cr line endings, this file is bad news");
+		push_notification("File has CR line endings, undefined behaviour will occur");
 	}
 
 	// setup added data buffer
@@ -269,6 +216,7 @@ document_open :: (path: string) {
 
 	// setup undo stack
 	doc.undoStack.allocator = doc.pieceChainAlloc;
+	doc.redoStack.allocator = doc.pieceChainAlloc;
 
 	// create the nill head/tail nodes (means we never have to null check the prev/next ptrs)
 	doc.pieceChainHead = New(PieceChainNode,, doc.pieceChainAlloc);
@@ -284,18 +232,25 @@ document_open :: (path: string) {
 	node.lineFeedCount = doc.originalData.lineStarts.count-1; 
 	node.added = false;
 
+	// place the main node into the linked list
 	doc.pieceChainHead.next = node;
 	node.prev = doc.pieceChainHead;
 	node.next = doc.pieceChainTail;
 	doc.pieceChainTail.prev = node;
+}
 
-	// add to file watcher
-	parentPath := path_strip_filename(doc.path);
-	if parentPath.count > 1 && parentPath[parentPath.count-1] == #char "/" then parentPath.count -= 1;
-	add_directories(*watcher, parentPath);
-	array_add_if_unique(*watchedFiles, doc.path);
+document_close :: (doc: *Document) {
+	array_unordered_remove_by_value(*watchedFiles, doc.path);
 
-	push_notification("Document Opened");
+	table_remove(*open_document_table, doc.path);
+	locator := doc.locator;
+
+	free(doc.path);
+	fini(*doc.documentMemory);
+	fini(*doc.pieceChainMemory);
+	initializer_of(Document)(doc);
+
+	bucket_array_remove(*open_documents, locator);
 }
 
 document_save :: (doc: *Document, path: string, backup := false) {
@@ -341,6 +296,17 @@ document_save :: (doc: *Document, path: string, backup := false) {
 	else {
 		push_notification("Backup Saved");
 	}
+}
+
+document_get_by_path :: (path: string) -> bool, *Document {
+	locator, success := table_find(*open_document_table, path);
+	if success {
+		bucket := open_documents.all_buckets[locator.bucket_index];
+		assert(bucket.occupied[locator.slot_index] == true);
+		result := *bucket.data[locator.slot_index];
+		return true, result;
+	}
+	return false, null;
 }
 
 document_insert_text :: (doc: *Document, at: DocumentCursor, t: string) -> DocumentCursor {
@@ -1100,6 +1066,61 @@ document_debug_print_undos :: (doc: *Document) {
 
 	print(builder_to_string(*builder,,temp));
 }
+
+operator == :: (a: Coordinate, b: Coordinate) -> bool {
+	return a.line == b.line && a.col == b.col;
+}
+
+operator < :: (a: Coordinate, b: Coordinate) -> bool {
+	if a.line == b.line {
+		if a.col < b.col {
+			return true; // a is before b
+		}
+		else {
+			return false; // b is before a
+		}
+	}
+	else if a.line < b.line {
+		return true; // a is before b
+	}
+	else {
+		return false; // b is before a
+	}
+}
+operator <= :: (a: Coordinate, b: Coordinate) -> bool {
+	if a == b {
+		return true;
+	} 
+	else {
+		return a < b;
+	}
+}
+
+operator > :: (a: Coordinate, b: Coordinate) -> bool {
+	if a.line == b.line {
+		if a.col > b.col {
+			return true; // a is after b
+		}
+		else {
+			return false; // b is after a
+		}
+	}
+	else if a.line > b.line {
+		return true; // a is after b
+	}
+	else {
+		return false; // b is after a
+	}
+}
+operator >= :: (a: Coordinate, b: Coordinate) -> bool {
+	if a == b {
+		return true;
+	} 
+	else {
+		return a > b;
+	}
+}
+
 
 #scope_file
 
