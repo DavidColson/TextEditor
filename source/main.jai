@@ -840,7 +840,8 @@ dialog_select_next :: (using panel: *Panel, args: []string) {
 			command_picker_select_next(panel, args);
 		case .FILESYSTEM_NAVIGATOR;
 			filesystem_nav_select_next(panel, args);
-		case .FILE_FINDER; return;
+		case .FILE_FINDER;
+			file_finder_select_next(panel);
 		case .SEARCH; return;
 	}
 }
@@ -853,6 +854,7 @@ dialog_select_previous :: (using panel: *Panel, args: []string) {
 		case .FILESYSTEM_NAVIGATOR;
 			filesystem_nav_select_previous(panel, args);
 		case .FILE_FINDER;
+			file_finder_select_previous(panel);
 		case .SEARCH; return;
 	}
 }
@@ -865,6 +867,7 @@ dialog_action_item :: (using panel: *Panel, args: []string) {
 		case .FILESYSTEM_NAVIGATOR;
 			filesystem_nav_action_item(panel, args);
 		case .FILE_FINDER;
+			file_finder_select_file(panel);
 		case .SEARCH;
 			confirm_document_search(panel, args);
 	}
@@ -934,7 +937,7 @@ panel_set_active_document :: (panel: *Panel, doc: *Document) {
 
 panel_reset_dialogs :: (panel: *Panel) {
 	if panel.activeDialog == {
-		case .FILE_FINDER;
+		case .FILE_FINDER; file_finder_reset(panel);
 		case .FILESYSTEM_NAVIGATOR; filesystem_nav_reset(panel);
 		case .COMMAND_PICKER; command_picker_reset(panel);
 		case .SEARCH; end_document_search(panel);

@@ -11,6 +11,7 @@ CommandPicker :: struct {
 	}
 	filteredCommandList: [..]CommandEntry;
 	selectedCommand:s32;
+	numToDisplay:s64; // number of items with positive sortkeys
 	input: InputField;
 }
 
@@ -25,6 +26,7 @@ command_picker_open :: (using panel: *Panel, args: []string) {
 			entry := array_add(*commandPicker.filteredCommandList);
 			entry.command = *command;
 			entry.sortKey = 10;
+			commandPicker.numToDisplay += 1;
 		}
 	}
 
@@ -35,6 +37,7 @@ command_picker_open :: (using panel: *Panel, args: []string) {
 command_picker_input_field_on_edit :: (userData: *void, input: string) {
 	state: *CommandPicker = cast(*CommandPicker) userData;
 
+	state.numToDisplay = 0;
     push_allocator(flat_pool_allocator_proc, *state.memory);
 
 	array_reset_keeping_memory(*state.filteredCommandList);
@@ -45,6 +48,9 @@ command_picker_input_field_on_edit :: (userData: *void, input: string) {
 			entry := array_add(*state.filteredCommandList);
 			entry.command = *command;
 			entry.sortKey = score;
+			if entry.sortKey > 0 {
+				state.numToDisplay += 1;
+			}
 		}
 	}
 
@@ -62,6 +68,7 @@ command_picker_input_field_on_edit :: (userData: *void, input: string) {
 command_picker_reset :: (panel: *Panel) {
 	using panel.commandPicker;
 	selectedCommand = 0;
+	numToDisplay = 0;
 	array_reset(*filteredCommandList);
 	#if BUILD_TYPE == BuildType.DEBUG {
 		reset(*memory, overwrite_memory=true);
@@ -86,14 +93,14 @@ command_picker_execute_command :: (using panel: *Panel, args: []string) {
 command_picker_select_next :: (using panel: *Panel, args: []string) {
 	state := *commandPicker;
 
-	maxCommand := state.filteredCommandList.count - 1;
-	state.selectedCommand = clamp(state.selectedCommand+1, 0, xx maxCommand);
+	maxItems := state.numToDisplay - 1;
+	state.selectedCommand = clamp(state.selectedCommand+1, 0, xx maxItems);
 }
 
 command_picker_select_previous :: (using panel: *Panel, args: []string) {
 	state := *commandPicker;
 
-	maxCommand := state.filteredCommandList.count - 1;
-	state.selectedCommand = clamp(state.selectedCommand-1, 0, xx maxCommand);
+	maxItems := state.numToDisplay - 1;
+	state.selectedCommand = clamp(state.selectedCommand-1, 0, xx maxItems);
 }
 

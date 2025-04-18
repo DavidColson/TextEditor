@@ -154,7 +154,7 @@ draw_command_picker :: (panelRect: Rect, picker: *CommandPicker) {
 
 	commandsRect:Rect;
 	commandsRect.w = panelRect.w / 2;
-	commandsRect.h = cast(float) commandEntryHeight * (picker.filteredCommandList.count + 1);
+	commandsRect.h = cast(float) commandEntryHeight * (picker.numToDisplay + 1);
 	commandsRect.x = panelRect.x + (panelRect.w - commandsRect.w) / 2;
 	commandsRect.y = panelRect.y + headerHeight;
 
@@ -188,6 +188,58 @@ draw_command_picker :: (panelRect: Rect, picker: *CommandPicker) {
 		textY = entryRect.y + commandEntryHeight - 8 * dpiScale;
 		Simp.draw_prepared_text(my_font, xx textX, xx textY, Vector4.{0.8, 0.8, 0.8, 1.0});
 		entryRect.y += commandEntryHeight;
+	}
+}
+
+// @todo: this is extremely similar to the command picker drawing code above
+// once we have a nice new UI system, consider how we can share the code a bit more
+
+draw_file_finder :: (panelRect: Rect, finder: *FileFinder) {
+	// @todo pull out to general style settings
+	fileEntryPadding := 5 * dpiScale;
+	fileEntryHeight := my_font.character_height + fileEntryPadding * 2;
+
+	// @todo, this is duplicating below, pull it out
+	headerPadding := 8 * dpiScale;
+	headerHeight := my_font.character_height + headerPadding;
+
+	// @todo: height should be number of files that have a valid score!!
+	dialogRect:Rect;
+	dialogRect.w = panelRect.w / 2;
+	dialogRect.h = cast(float) fileEntryHeight * (finder.numToDisplay + 1);
+	dialogRect.x = panelRect.x + (panelRect.w - dialogRect.w) / 2;
+	dialogRect.y = panelRect.y + headerHeight;
+
+	Simp.set_shader_for_color();
+	draw_rect(dialogRect, Vector4.{0.4, 0.4, 0.4, 1.0});
+
+	inputRect: Rect;
+	inputRect, dialogRect = cut_bottom(dialogRect, xx fileEntryHeight);
+	inputRect = shrink(inputRect, 3 * dpiScale);
+	draw_rect(inputRect, Vector4.{0.5, 0.5, 0.5, 1.0});
+
+	Simp.prepare_text(my_font, input_field_get_text(*finder.input));
+	textX := inputRect.x + fileEntryPadding;
+	textY := inputRect.y + fileEntryHeight - 10 * dpiScale;
+	Simp.draw_prepared_text(my_font, xx textX, xx textY, Vector4.{0.8, 0.8, 0.8, 1.0});
+
+	entryRect := cut_bottom(dialogRect, xx fileEntryHeight);
+	for entry, i: finder.fileList  {
+		if entry.sortKey == 0 continue;
+
+		if i == finder.selectedEntry {
+			cmdID := finder.selectedEntry+1;
+			Simp.set_shader_for_color();
+			draw_rect(entryRect, Vector4.{0.5, 0.5, 0.5, 1.0});
+		}
+
+		filePath := entry.doc.path;
+		width := Simp.prepare_text(my_font, path_filename(filePath));
+
+		textX = entryRect.x + fileEntryPadding;
+		textY = entryRect.y + fileEntryHeight - 8 * dpiScale;
+		Simp.draw_prepared_text(my_font, xx textX, xx textY, Vector4.{0.8, 0.8, 0.8, 1.0});
+		entryRect.y += fileEntryHeight;
 	}
 }
 
@@ -386,11 +438,13 @@ draw_panel :: (panel: *Panel) {
 	width := Simp.prepare_text(my_font, tprint("% %", registerText, pendingKeys));
 	Simp.draw_prepared_text(my_font, cast(s64) (panel.rect.w - width - my_font.mono_x_advance), my_font.character_height + cast(int) (2 * dpiScale), Vector4.{0.8, 0.8, 0.8, 1.0});
 
-	// Draw command list
+	// Draw dialogs
 	if panel.activeDialog == .COMMAND_PICKER {
 		draw_command_picker(panel.rect, *panel.commandPicker);
 	}
-
+	if panel.activeDialog == .FILE_FINDER {
+		draw_file_finder(panel.rect, *panel.fileFinder);
+	}
 	if panel.activeDialog == .FILESYSTEM_NAVIGATOR {
 		draw_filesystem_navigator(panel.rect, *panel.filesystemNav);
 	}

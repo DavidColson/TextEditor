@@ -88,6 +88,14 @@ open_documents: Bucket_Array(Document, 128); // might want more when we load ful
 open_document_table: Table(string, Bucket_Locator);
 
 document_open :: (path: string) -> *Document {
+	// check if this file is already open
+	existinglocator, success := table_find(*open_document_table, path);
+	if success {
+		bucket := open_documents.all_buckets[existinglocator.bucket_index];
+		assert(bucket.occupied[existinglocator.slot_index] == true);
+		return *bucket.data[existinglocator.slot_index];
+	}
+
 	doc, locator := find_and_occupy_empty_slot(*open_documents);
 
 	doc.documentMemory.alignment = 1;
