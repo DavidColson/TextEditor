@@ -70,6 +70,7 @@ windowHeight : s32 = 1080;
 dpiScale := 1.0;
 pendingQuit := false;
 backupSaveTimer:float64 = 300;
+requestRedraw := true;
 
 notifications : [10]Notification;
 numActiveNotifications := 0;
@@ -91,7 +92,6 @@ tabSize :: 4;
 lineNumbers :: true;
 
 Arguments :: struct {
-	// file: string = ""; @"File to open"
 }
 
 main :: () {
@@ -135,11 +135,16 @@ main :: () {
 		panel_set_active_document(*focusedPanel, document_open(filesToOpen[0]));
 	}
 
+	platform_set_backup_timer(window, do_backup_callback);
+
 	lastTime := seconds_since_init();
     want_screenshot := false;
     while !pendingQuit {
+		if !requestRedraw platform_wait_message();
+		requestRedraw = false;
+
 		now := seconds_since_init();
-		delta : float64 = now - lastTime;
+		delta : float64 = min(now - lastTime, 0.016);
 		lastTime = now;
 
         Input.update_window_events();
@@ -196,29 +201,30 @@ main :: () {
 			memcpy(notifications.data, notifications.data+nNotificationsToRemove, nNotificationsToRemove*size_of(Notification));
 			numActiveNotifications -= nNotificationsToRemove;
 		}
-
-		// update backups timer
-		backupSaveTimer -= delta;
-		if backupSaveTimer <= 0 {
-			for * open_documents {
-				if it.unsaved {
-					builder : String_Builder;
-					builder.allocator = temp;
-					init_string_builder(*builder);
-
-					append(*builder, path_strip_filename(get_path_of_running_executable()));
-					append(*builder, "\\backups\\");
-					append(*builder, path_filename(it.path));
-
-					document_save(it, builder_to_string(*builder,,temp), true);
-				}
-			}
-			backupSaveTimer = 300;
+		if numActiveNotifications > 0 {
+			requestRedraw = true;
 		}
 
+		// @todo: may want to support 120hz or higher? 
         sleep_milliseconds(cast(s32) (16 - delta/1000));
         reset_temporary_storage();
     }
+}
+
+do_backup_callback :: () {
+	for * open_documents {
+		if it.unsaved {
+			builder : String_Builder;
+			builder.allocator = temp;
+			init_string_builder(*builder);
+
+			append(*builder, path_strip_filename(get_path_of_running_executable()));
+			append(*builder, "\\backups\\");
+			append(*builder, path_filename(it.path));
+
+			document_save(it, builder_to_string(*builder,,temp), true);
+		}
+	}
 }
 
 file_change_callback :: (watcher: *File_Watcher(void), change: *File_Change, userdata: *void) {
@@ -1059,6 +1065,8 @@ user32   :: #system_library "user32";
 #import "Windows_Utf8";
 GetLogicalDriveStringsW :: (nBufferLength: DWORD, lpBuffer: *u16) -> DWORD #foreign kernel32;
 GetDpiForWindow :: (hWnd: HWND) -> u32 #foreign user32;
+WaitMessage :: () -> s32 #foreign user32;
+SetTimer  :: (hWnd: HWND, nIDEvent: u64, uElapse: u32, lpTimerFunc: *void) -> s32 #foreign user32;
 
 platform_enumerate_logical_drives :: () -> [] string {
     drives: [..] string;
@@ -1069,7 +1077,7 @@ platform_enumerate_logical_drives :: () -> [] string {
     drive_wstr := drives_buf.data;
     for drives_buf {
         if it == 0 { // split on null terminator
-            drive, success := wide_to_utf8_new(drive_wstr,, allocator = temp);
+            drive, success := wide_to_utf8(drive_wstr,, allocator = temp);
             if !drive || !success break;
             drive.count -= 1;  // cut off separator
             array_add(*drives, drive);
@@ -1082,7 +1090,7 @@ platform_enumerate_logical_drives :: () -> [] string {
 
 platform_is_path_directory :: (path: string) -> bool {
     push_allocator(temp);
-	attrib := GetFileAttributesW(utf8_to_wide_new(path));
+	attrib := GetFileAttributesW(utf8_to_wide(path));
 	if attrib & FILE_ATTRIBUTE_DIRECTORY {
 		return true;
 	}
@@ -1092,6 +1100,23 @@ platform_is_path_directory :: (path: string) -> bool {
 platform_get_dpi_scale :: (window: Window_Type) -> float {
 	dpi := cast(float) GetDpiForWindow(window);
 	return dpi / 96.0;
+}
+
+platform_wait_message :: inline () {
+	WaitMessage();
+}
+
+platform_set_backup_timer :: (window: Window_Type, callback: BackupTimerCallback) {
+	backupTimerCallback = callback;
+	SetTimer(window, 0, 1000*60*5, cast(*void)_windows_timer_callback);
+}
+
+BackupTimerCallback :: #type ();
+backupTimerCallback: BackupTimerCallback;
+_windows_timer_callback :: (hwnd: HWND, message: u32, timerId: u32, dwTime: DWORD) #c_call {
+	push_context {
+		backupTimerCallback();
+	}
 }
 
 // END WINDOWS
@@ -1137,6 +1162,7 @@ push_notification :: (message: string) {
 		memcpy(notifications.data, notifications.data+1, size_of(Notification));
 		notifications[9] = Notification.{message, 20}; 
 	}
+	requestRedraw = true;
 }
 
 
