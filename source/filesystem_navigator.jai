@@ -18,12 +18,9 @@ FilesystemNavigator :: struct {
 }
 
 filesystem_nav_open :: (state: *FilesystemNavigator, saveMode := false, initialLocation := "") {
-	editorMode = .FILESYSTEM_NAVIGATOR;
-
 	state.input.onEditCallback = filesystem_nav_input_field_on_edit;
 	state.input.userData = state;
 	state.saveMode = saveMode;
-	focusedInputField = *state.input;
 
 	path := split(initialLocation, "\\",,temp);
 	if initialLocation.count > 0 {
@@ -33,22 +30,24 @@ filesystem_nav_open :: (state: *FilesystemNavigator, saveMode := false, initialL
 		}
 	}
 	filesystem_nav_refresh_directory_list(state);
+	editorMode = .DIALOG;
 }
 
-filesystem_nav_reset :: (state: *FilesystemNavigator) {
-	state.saveMode = false;
-	state.numToDisplay = 0;
-	state.pendingAction = false;
-	array_reset(*state.currentPath);
-	array_reset(*state.itemList);
+filesystem_nav_reset :: (using panel: *Panel) {
+	using panel.filesystemNav;
+	saveMode = false;
+	numToDisplay = 0;
+	pendingAction = false;
+	array_reset(*currentPath);
+	array_reset(*itemList);
 	#if BUILD_TYPE == BuildType.DEBUG {
-		reset(*state.memory, overwrite_memory=true);
+		reset(*memory, overwrite_memory=true);
 	} else {
-		reset(*state.memory, overwrite_memory=false);
+		reset(*memory, overwrite_memory=false);
 	}
 	// input field manages it's own memory
-	input_field_reset_keeping_memory(*state.input);
-	focusedInputField = null;
+	input_field_reset_keeping_memory(*input);
+	panel.activeDialog = .NONE;
 }
 
 filesystem_nav_input_field_on_edit :: (userData: *void, input: string) {
@@ -60,18 +59,6 @@ filesystem_nav_input_field_on_edit :: (userData: *void, input: string) {
 		input_field_reset_keeping_memory(*state.input);
 	}
 	filesystem_nav_filter_directory_list(state);
-}
-
-filesystem_nav_delete_path :: (using panel: *Panel, args: []string) {
-	state := *filesystemNav;
-
-	if state.currentPath.count > 0 && state.input.text.count == 0 {
-		state.currentPath.count -= 1;
-		filesystem_nav_refresh_directory_list(state);
-		return;
-	}
-
-	input_field_backspace_char(panel, args);
 }
 
 filesystem_nav_select_next :: (using panel: *Panel, args: []string) {
@@ -93,14 +80,14 @@ filesystem_nav_action_item :: (using panel: *Panel, args: []string) {
 		if state.saveMode {
 			document_save(panel.document, make_path_from_strings(state.currentPath,,temp));
 			editorMode = .NORMAL;
-			filesystem_nav_reset(state);
+			filesystem_nav_reset(panel);
 		}
 		else {
 			// @todo: the action may be more than just open, could be delete or rename
 			doc := document_open(make_path_from_strings(state.currentPath,,temp));
 			panel_set_active_document(panel, doc);
 			editorMode = .NORMAL;
-			filesystem_nav_reset(state);
+			filesystem_nav_reset(panel);
 		}
 	}
 	else {
@@ -111,7 +98,7 @@ filesystem_nav_action_item :: (using panel: *Panel, args: []string) {
 			array_add(*state.currentPath, fileName,, get_allocator(state));
 			document_save(panel.document, make_path_from_strings(state.currentPath,,temp));
 			editorMode = .NORMAL;
-			filesystem_nav_reset(state);
+			filesystem_nav_reset(panel);
 		}
 		else {
 			// normal case, add path element to list and refresh

@@ -7,8 +7,6 @@ KeyMappingDesc :: struct {
 CommandFlags :: enum_flags u8 {
 	HIDDEN;
 	REPEATABLE;
-	COMMAND_PICKER_ONLY;
-	FILESYSTEM_NAVIGATOR_ONLY;
 }
 
 Command :: struct {
@@ -150,12 +148,9 @@ commandList :: Command.[
 		.{ mode=.NORMAL, keys="N"}
 	]},
 
-	// search mode
-	.{ "Search Document", 0, enter_search_mode, .[
+	// search
+	.{ "Search Document", 0, start_document_search, .[
 		.{ mode=.NORMAL, keys="/"}
-	]},
-	.{ "Confirm Search", 0, confirm_search, .[
-		.{ mode=.SEARCH, keys="<enter>"}
 	]},
 
 	// changes
@@ -205,52 +200,27 @@ commandList :: Command.[
 		.{ mode=.INSERT, keys="<tab>"}
 	]},
 
-
-	// filesystem navigator
 	.{ "Open Filesystem Navigator", 0, open_file, .[]},
 	.{ "Open Filesystem Navigator At Working Directory", 0, open_file_in_working_dir, .[
 		.{ mode=.NORMAL, keys="ctrl+o"}
 	]},
-	.{ "Path Delete", .HIDDEN | .FILESYSTEM_NAVIGATOR_ONLY, filesystem_nav_delete_path, .[
-		.{ mode=.FILESYSTEM_NAVIGATOR, keys="<backspace>"}
-	]},
-	.{ "Select Next", .HIDDEN | .FILESYSTEM_NAVIGATOR_ONLY, filesystem_nav_select_next, .[
-		.{ mode=.FILESYSTEM_NAVIGATOR, keys="<down>"}
-	]},
-	.{ "Select Previous", .HIDDEN | .FILESYSTEM_NAVIGATOR_ONLY, filesystem_nav_select_previous, .[
-		.{ mode=.FILESYSTEM_NAVIGATOR, keys="<up>"}
-	]},
-	.{ "Action Item", .HIDDEN | .FILESYSTEM_NAVIGATOR_ONLY, filesystem_nav_action_item, .[
-		.{ mode=.FILESYSTEM_NAVIGATOR, keys="<enter>"}
-	]},
-	.{ "Delete Item", .HIDDEN | .FILESYSTEM_NAVIGATOR_ONLY, filesystem_nav_delete_item, .[
-		.{ mode=.FILESYSTEM_NAVIGATOR, keys="d"}
-	]},
-	.{ "Rename/Move Item", .HIDDEN | .FILESYSTEM_NAVIGATOR_ONLY, filesystem_nav_rename_move_item, .[
-		.{ mode=.FILESYSTEM_NAVIGATOR, keys="r"}
-	]},
-
-	// Command Picker
 	.{ "Open Command Picker", .HIDDEN, command_picker_open, .[
 		.{ mode=.NORMAL, keys=":"}
 	]},
-	.{ "Execute Command", .HIDDEN | .COMMAND_PICKER_ONLY, command_picker_execute_command, .[
-		.{ mode=.COMMAND_PICKER, keys="<enter>"}
-	]},
-	.{ "Select Next", .HIDDEN | .COMMAND_PICKER_ONLY, command_picker_select_next, .[
-		.{ mode=.COMMAND_PICKER, keys="<down>"}
-	]},
-	.{ "Select Previous", .HIDDEN | .COMMAND_PICKER_ONLY, command_picker_select_previous, .[
-		.{ mode=.COMMAND_PICKER, keys="<up>"}
-	]},
 
-	// input fields
-	.{ "Delete left char", .HIDDEN, input_field_backspace_char, .[
-		.{ mode=.NORMAL, keys="<backspace>"},
-		.{ mode=.SEARCH, keys="<backspace>"},
-		.{ mode=.COMMAND_PICKER, keys="<backspace>"},
+	// Dialogs
+	.{ "Dialog Select Next", .HIDDEN, dialog_select_next, .[
+		.{ mode=.DIALOG, keys="<down>"}
 	]},
-
+	.{ "Dialog Select Previous", .HIDDEN, dialog_select_previous, .[
+		.{ mode=.DIALOG, keys="<up>"}
+	]},
+	.{ "Dialog Action Item", .HIDDEN, dialog_action_item, .[
+		.{ mode=.DIALOG, keys="<enter>"}
+	]},
+	.{ "Dialog Backward Delete", .HIDDEN, dialog_backward_delete, .[
+		.{ mode=.DIALOG, keys="<backspace>"}
+	]},
 
 	.{ "Enter Insert Mode Start Of Selection", 0, enter_insert_mode_start, .[
 		.{ mode=.NORMAL, keys="i"}
@@ -267,9 +237,7 @@ commandList :: Command.[
 	.{ "Enter Normal Mode", 0, enter_normal_mode, .[
 		.{ mode=.NORMAL, keys="<escape>"},
 		.{ mode=.INSERT, keys="<escape>"},
-		.{ mode=.SEARCH, keys="<escape>"},
-		.{ mode=.COMMAND_PICKER, keys="<escape>"},
-		.{ mode=.FILESYSTEM_NAVIGATOR, keys="<escape>"},
+		.{ mode=.DIALOG, keys="<escape>"},
 	]},
 
 	// misc commands
@@ -392,11 +360,11 @@ input_handler :: (event: Input.Event) {
 	if event.type == .TEXT_INPUT {
 		char: Utf8_Char = convert_utf32_to_utf8(event.utf32);
 
-		// if there are no pending key sequences give the text input to a currently focused input field
+		// if there are no pending key sequences give the text input to a currently focused dialog
 		// otherwise normal insert mode can have it
 		if keyMap.pendingKeyNode == *keyMap.root[editorMode] {
-			if focusedInputField {
-				input_field_handle_text_input(focusedInputField, char);
+			if focusedPanel.activeDialog != .NONE {
+				dialog_handle_text_input(*focusedPanel, char);
 				return;
 			}
 			else if editorMode == .INSERT {
@@ -502,25 +470,19 @@ input_handler :: (event: Input.Event) {
 	if nodePtr {
 		node := <<nodePtr;
 		if node.cmd && keyMap.pendingArgs.count == node.nArgs {
-			block:= false;
-			if editorMode != .COMMAND_PICKER && node.cmd.flags & .COMMAND_PICKER_ONLY block = true;
-			if editorMode != .FILESYSTEM_NAVIGATOR && node.cmd.flags & .FILESYSTEM_NAVIGATOR_ONLY block = true;
+			if keyMap.pendingCount == 0 then keyMap.pendingCount = 1;
+			while keyMap.pendingCount > 0 {
+				// for anyone debugging, here's where the actual magic happens,
+				// a command gets called, after we've figured out
+				// what command we're supposed to execute
+				node.cmd.execute(*focusedPanel, keyMap.pendingArgs);
 
-			if !block {
-				if keyMap.pendingCount == 0 then keyMap.pendingCount = 1;
-				while keyMap.pendingCount > 0 {
-					// for anyone debugging, here's where the actual magic happens,
-					// a command gets called, after we've figured out
-					// what command we're supposed to execute
-					node.cmd.execute(*focusedPanel, keyMap.pendingArgs);
-
-					// register selection has some special behaviour as it's intended to be paired with 
-					// one other action
-					if node.cmd.execute != select_register {
-						registers.selectedRegister = DEFAULT_REGISTER;
-					}
-					keyMap.pendingCount -= 1;
+				// register selection has some special behaviour as it's intended to be paired with 
+				// one other action
+				if node.cmd.execute != select_register {
+					registers.selectedRegister = DEFAULT_REGISTER;
 				}
+				keyMap.pendingCount -= 1;
 			}
 
 			keyMap.pendingKeyNode = *keyMap.root[editorMode];

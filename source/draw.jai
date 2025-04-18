@@ -281,7 +281,7 @@ draw_panel :: (panel: *Panel) {
 		}
 
 		// draw the cursor selection
-		if editorMode != .SEARCH && cursorLine >= startVisibleLines && cursorLine <= endVisibleLines {
+		if panel.activeDialog != .SEARCH && cursorLine >= startVisibleLines && cursorLine <= endVisibleLines {
 			Simp.set_shader_for_color();
 			if panel.cursor.head.documentOffset != panel.cursor.anchor.documentOffset {
 				draw_cursor_range(textRegionX, textRegionY, panel.cursor.head, panel.cursor.anchor, linesOnScreen, startVisibleLines, true);
@@ -289,7 +289,7 @@ draw_panel :: (panel: *Panel) {
 		}
 
 		// draw search results
-		if editorMode == .SEARCH {
+		if panel.activeDialog == .SEARCH {
 			for panel.results {
 				draw_cursor_range(textRegionX, textRegionY, it.start, it.end, linesOnScreen, startVisibleLines);
 			}
@@ -304,7 +304,7 @@ draw_panel :: (panel: *Panel) {
 		Simp.draw_code_end();
 
 		// Draw cursor
-		if editorMode != .SEARCH && cursorLine >= startVisibleLines && cursorLine <= endVisibleLines {
+		if panel.activeDialog != .SEARCH && cursorLine >= startVisibleLines && cursorLine <= endVisibleLines {
 			Simp.set_shader_for_color();
 			cursorChar := document_cursor_get_char(*panel.cursor.head);
 			cursorCharWidth := calculate_string_length_pixels(my_font, cast(string) u8.[cursorChar]);
@@ -348,9 +348,6 @@ draw_panel :: (panel: *Panel) {
 	else if editorMode == .INSERT {
 		modeText = "INS";
 	}
-	else if editorMode == .SEARCH {
-		modeText = "SRCH";
-	}
 
 	if panel.document {
 		lineEndingText := "[Mixed line endings, will be normalized to CRLF on save]";
@@ -390,16 +387,16 @@ draw_panel :: (panel: *Panel) {
 	Simp.draw_prepared_text(my_font, cast(s64) (panel.rect.w - width - my_font.mono_x_advance), my_font.character_height + cast(int) (2 * dpiScale), Vector4.{0.8, 0.8, 0.8, 1.0});
 
 	// Draw command list
-	if editorMode == .COMMAND_PICKER {
+	if panel.activeDialog == .COMMAND_PICKER {
 		draw_command_picker(panel.rect, *panel.commandPicker);
 	}
 
-	if editorMode == .FILESYSTEM_NAVIGATOR {
+	if panel.activeDialog == .FILESYSTEM_NAVIGATOR {
 		draw_filesystem_navigator(panel.rect, *panel.filesystemNav);
 	}
 
 	// Draw search bar
-	if editorMode == .SEARCH {
+	if panel.activeDialog == .SEARCH {
 		Simp.set_shader_for_color();
 
 		// search bar itself

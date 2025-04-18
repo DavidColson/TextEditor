@@ -15,7 +15,8 @@ CommandPicker :: struct {
 }
 
 command_picker_open :: (using panel: *Panel, args: []string) {
-	editorMode = .COMMAND_PICKER;
+	panel.activeDialog = .COMMAND_PICKER;
+	editorMode = .DIALOG;
 
     push_allocator(flat_pool_allocator_proc, *commandPicker.memory);
 
@@ -29,7 +30,6 @@ command_picker_open :: (using panel: *Panel, args: []string) {
 
 	commandPicker.input.onEditCallback = command_picker_input_field_on_edit;
 	commandPicker.input.userData = *commandPicker;
-	focusedInputField = *commandPicker.input;
 }
 
 command_picker_input_field_on_edit :: (userData: *void, input: string) {
@@ -59,26 +59,28 @@ command_picker_input_field_on_edit :: (userData: *void, input: string) {
 	state.selectedCommand = clamp(state.selectedCommand-1, 0, xx maxCommand);
 }
 
-command_picker_reset :: (state: *CommandPicker) {
-	state.selectedCommand = 0;
-	array_reset(*state.filteredCommandList);
+command_picker_reset :: (panel: *Panel) {
+	using panel.commandPicker;
+	selectedCommand = 0;
+	array_reset(*filteredCommandList);
 	#if BUILD_TYPE == BuildType.DEBUG {
-		reset(*state.memory, overwrite_memory=true);
+		reset(*memory, overwrite_memory=true);
 	} else {
-		reset(*state.memory, overwrite_memory=false);
+		reset(*memory, overwrite_memory=false);
 	}
 	// input field manages it's own memory
-	input_field_reset_keeping_memory(*state.input);
-	focusedInputField = null;
+	input_field_reset_keeping_memory(*input);
+	panel.activeDialog = .NONE;
 }
 
 command_picker_execute_command :: (using panel: *Panel, args: []string) {
 	state := *commandPicker;
 
 	cmd := state.filteredCommandList[state.selectedCommand].command; 
-	editorMode = .NORMAL;
 	cmd.execute(panel, string.[]); // @todo: command picker can't give arguments yet? Needs this ability
-	command_picker_reset(state);
+	command_picker_reset(panel);
+	editorMode = .NORMAL;
+	panel.activeDialog = .NONE;
 }
 
 command_picker_select_next :: (using panel: *Panel, args: []string) {

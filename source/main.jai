@@ -23,11 +23,13 @@ Panel :: struct {
 	// cursors
 	cursor: Cursor;
 
-	// widgets
+	// Dialogs
+	activeDialog: DialogType;
 	commandPicker: CommandPicker;
 	filesystemNav: FilesystemNavigator;
+	fileFinder: FileFinder;
 
-	// search state
+	// search state (this is too a dialog, may want to group it up)
 	searchInput: InputField;
 	currentRegex: Regexp;
 	hasMatches := false;
@@ -35,12 +37,18 @@ Panel :: struct {
 	results: []DocumentRange;
 }
 
+DialogType :: enum u8 {
+	NONE;
+	COMMAND_PICKER;
+	FILESYSTEM_NAVIGATOR;
+	FILE_FINDER;
+	SEARCH;
+}
+
 EditorMode :: enum u8 {
 	NORMAL;
 	INSERT;
-	SEARCH;
-	COMMAND_PICKER;
-	FILESYSTEM_NAVIGATOR;
+	DIALOG;
 }
 
 Notification :: struct {
@@ -56,7 +64,6 @@ extendSelections := false;
 focusedPanel : Panel;
 watcher: File_Watcher(void);
 watchedFiles: [..]string;
-focusedInputField: *InputField = null;
 window: Window_Type;
 windowWidth  : s32 = 1920;
 windowHeight : s32 = 1080;
@@ -122,6 +129,7 @@ main :: () {
 	focusedPanel.rect.y = 0;
 	focusedPanel.rect.w = xx windowWidth;
 	focusedPanel.rect.h = xx windowHeight;
+	focusedPanel.activeDialog = .NONE;
 
 	if filesToOpen.count > 0 {
 		panel_set_active_document(*focusedPanel, document_open(filesToOpen[0]));
@@ -162,7 +170,7 @@ main :: () {
 		process_changes(*watcher);
 
 		newDpiScale := platform_get_dpi_scale(window);
-		if newDpiScale != dpiScale {
+		if newDpiScale != dpiScale && newDpiScale != 0.0 {
 			dpiScale = newDpiScale;
 			my_init_fonts();
 		}
@@ -312,10 +320,12 @@ quit :: (panel: *Panel, args: []string) {
 }
 
 open_file :: (panel: *Panel, args: []string) {
+	panel.activeDialog = .FILESYSTEM_NAVIGATOR;
 	filesystem_nav_open(*panel.filesystemNav);
 }
 
 open_file_in_working_dir :: (panel: *Panel, args: []string) {
+	panel.activeDialog = .FILESYSTEM_NAVIGATOR;
 	filesystem_nav_open(*panel.filesystemNav, false, get_working_directory());
 }
 
@@ -324,6 +334,7 @@ save_file :: (panel: *Panel, args: []string) {
 }
 
 save_file_as :: (panel: *Panel, args: []string) {
+	panel.activeDialog = .FILESYSTEM_NAVIGATOR;
 	filesystem_nav_open(*panel.filesystemNav, true);
 }
 
@@ -346,37 +357,16 @@ normalize_line_endings_crlf :: (panel: *Panel, args: []string) {
 }
 
 enter_normal_mode :: (panel: *Panel, args: []string) {
-	if editorMode == .FILESYSTEM_NAVIGATOR {
-		filesystem_nav_reset(*panel.filesystemNav);
-	}
-	else if editorMode == .COMMAND_PICKER {
-		command_picker_reset(*panel.commandPicker);
-	}
-	else if editorMode == .SEARCH {
-		// @todo: may want to consider a "search_reset" function
-		panel.scrollPos = panel.previousScrollState; 
-		input_field_reset_keeping_memory(*panel.searchInput);
-		panel.searchInput.onEditCallback = null;
-		panel.searchInput.userData = null;
-		if panel.results.count {
-			array_reset(*panel.results);
-		}
-	}
+	panel_reset_dialogs(panel);
 	editorMode = .NORMAL;
 	extendSelections = false;
-	focusedInputField = null;
 }
 
 enter_insert_mode_start :: (using panel: *Panel, args: []string) {
 	if cursor.head.documentOffset > cursor.anchor.documentOffset {
 		flip_cursors(*cursor.head, *cursor.anchor);
 	}
-	if editorMode == .FILESYSTEM_NAVIGATOR {
-		filesystem_nav_reset(*panel.filesystemNav);
-	}
-	else if editorMode == .COMMAND_PICKER {
-		command_picker_reset(*panel.commandPicker);
-	}
+	panel_reset_dialogs(panel);
 	editorMode = .INSERT;
 }
 
@@ -385,12 +375,7 @@ enter_insert_mode_end :: (using panel: *Panel, args: []string) {
 		flip_cursors(*cursor.head, *cursor.anchor);
 	}
 	document_cursor_step_one_forward(*focusedPanel.cursor.head, true);
-	if editorMode == .FILESYSTEM_NAVIGATOR {
-		filesystem_nav_reset(*panel.filesystemNav);
-	}
-	else if editorMode == .COMMAND_PICKER {
-		command_picker_reset(*panel.commandPicker);
-	}
+	panel_reset_dialogs(panel);
 	editorMode = .INSERT;
 }
 
@@ -406,12 +391,7 @@ enter_insert_mode_line_start :: (using panel: *Panel, args: []string) {
 	}
 	cursor.anchor = cursor.head;
 
-	if editorMode == .FILESYSTEM_NAVIGATOR {
-		filesystem_nav_reset(*panel.filesystemNav);
-	}
-	else if editorMode == .COMMAND_PICKER {
-		command_picker_reset(*panel.commandPicker);
-	}
+	panel_reset_dialogs(panel);
 	editorMode = .INSERT;
 }
 
@@ -419,12 +399,7 @@ enter_insert_mode_line_end :: (using panel: *Panel, args: []string) {
 	extendSelections = false;
 	goto_line_end(panel, args);
 
-	if editorMode == .FILESYSTEM_NAVIGATOR {
-		filesystem_nav_reset(*panel.filesystemNav);
-	}
-	else if editorMode == .COMMAND_PICKER {
-		command_picker_reset(*panel.commandPicker);
-	}
+	panel_reset_dialogs(panel);
 	editorMode = .INSERT;
 }
 
@@ -571,24 +546,28 @@ visualize_undos :: (using panel: *Panel, args: []string) {
 
 // search
 
-enter_search_mode :: (using panel: *Panel, args: []string) {
+start_document_search :: (using panel: *Panel, args: []string) {
 	// show search bar
-	editorMode = .SEARCH;
+	editorMode = .DIALOG;
+	panel.activeDialog = .SEARCH;
 	panel.searchInput.onEditCallback = document_search_on_edit;
 	panel.searchInput.userData = cast(*void) panel;
 	panel.previousScrollState = scrollPos;
-	focusedInputField = *panel.searchInput;
 }
 
-confirm_search :: (using panel: *Panel, args: []string) {
+confirm_document_search :: (using panel: *Panel, args: []string) {
 	// set real cursor to the match that was found, setup stepping
 	if panel.hasMatches {
 		panel.cursor.anchor = panel.results[0].start;
 		panel.cursor.head = panel.results[0].end;
 		document_cursor_step_one_backward(*panel.cursor.head);
 	}
-	focusedInputField = null;
 	editorMode = .NORMAL;
+	panel_reset_dialogs(panel);
+}
+
+end_document_search :: (using panel: *Panel) { 
+	panel.scrollPos = panel.previousScrollState; 
 	input_field_reset_keeping_memory(*panel.searchInput);
 	panel.searchInput.onEditCallback = null;
 	panel.searchInput.userData = null;
@@ -852,6 +831,98 @@ half_page_down :: (using panel: *Panel, args: []string) {
 	panel_scroll_to_line(panel, startVisibleLine + pageSize/2);
 }
 
+// Dialog handlers
+
+dialog_select_next :: (using panel: *Panel, args: []string) {
+	if activeDialog == {
+		case .NONE; return;
+		case .COMMAND_PICKER;
+			command_picker_select_next(panel, args);
+		case .FILESYSTEM_NAVIGATOR;
+			filesystem_nav_select_next(panel, args);
+		case .FILE_FINDER; return;
+		case .SEARCH; return;
+	}
+}
+
+dialog_select_previous :: (using panel: *Panel, args: []string) {
+	if activeDialog == {
+		case .NONE; return;
+		case .COMMAND_PICKER;
+			command_picker_select_previous(panel, args);
+		case .FILESYSTEM_NAVIGATOR;
+			filesystem_nav_select_previous(panel, args);
+		case .FILE_FINDER;
+		case .SEARCH; return;
+	}
+}
+
+dialog_action_item :: (using panel: *Panel, args: []string) {
+	if activeDialog == {
+		case .NONE; return;
+		case .COMMAND_PICKER;
+			command_picker_execute_command(panel, args);
+		case .FILESYSTEM_NAVIGATOR;
+			filesystem_nav_action_item(panel, args);
+		case .FILE_FINDER;
+		case .SEARCH;
+			confirm_document_search(panel, args);
+	}
+}
+
+
+dialog_backward_delete :: (using panel: *Panel, args: []string) {
+	inputField := *commandPicker.input;
+	if activeDialog == {
+		case .FILE_FINDER; inputField = *fileFinder.input;
+		case .FILESYSTEM_NAVIGATOR; inputField = *filesystemNav.input;
+		case .COMMAND_PICKER; inputField = *commandPicker.input;
+		case .SEARCH; inputField = *searchInput;
+	}
+
+	if activeDialog == {
+		case .FILESYSTEM_NAVIGATOR; 
+			state := *filesystemNav;
+			if state.currentPath.count > 0 && state.input.text.count == 0 {
+				state.currentPath.count -= 1;
+				filesystem_nav_refresh_directory_list(state);
+				return;
+			}
+			#through;
+		case .COMMAND_PICKER; #through;
+		case .SEARCH; #through;
+		case .FILE_FINDER;
+			inputField.text.count -= 1;
+			inputField.cursor -= 1;
+			if inputField.text.count <= 0 {
+				inputField.text.count = 0;
+			}
+			if inputField.onEditCallback {
+				inputField.onEditCallback(inputField.userData, string.{inputField.text.count, inputField.text.data});
+			}
+		case .NONE; return;
+	}
+}
+
+dialog_handle_text_input :: (using panel: *Panel, char: Utf8_Char) {
+	inputField := *commandPicker.input;
+	if activeDialog == {
+		case .FILE_FINDER; inputField = *fileFinder.input;
+		case .FILESYSTEM_NAVIGATOR; inputField = *filesystemNav.input;
+		case .COMMAND_PICKER; inputField = *commandPicker.input;
+		case .SEARCH; inputField = *searchInput;
+	}
+
+	for 0..char.count-1 {
+		array_add(*inputField.text, char.bytes[it]);
+		inputField.cursor += 1;
+	}
+	if inputField.onEditCallback {
+		inputField.onEditCallback(inputField.userData, string.{inputField.text.count, inputField.text.data});
+	}
+}
+
+
 // panel functions @todo, move to it's own file
 
 panel_set_active_document :: (panel: *Panel, doc: *Document) {
@@ -859,6 +930,16 @@ panel_set_active_document :: (panel: *Panel, doc: *Document) {
 	panel.cursor = .{};
 	panel.cursor.head = document_create_cursor(panel.document);
 	panel.cursor.anchor = document_create_cursor(panel.document);
+}
+
+panel_reset_dialogs :: (panel: *Panel) {
+	if panel.activeDialog == {
+		case .FILE_FINDER;
+		case .FILESYSTEM_NAVIGATOR; filesystem_nav_reset(panel);
+		case .COMMAND_PICKER; command_picker_reset(panel);
+		case .SEARCH; end_document_search(panel);
+	}
+	panel.activeDialog = .NONE;
 }
 
 panel_scroll_with_mouse :: (panel: *Panel, mouseDelta: int) {
@@ -1105,29 +1186,6 @@ InputField :: struct {
 	userData: *void;
 }
 
-input_field_handle_text_input :: (inputField: *InputField, char: Utf8_Char) {
-	for 0..char.count-1 {
-		array_add(*inputField.text, char.bytes[it]);
-		inputField.cursor += 1;
-	}
-	if inputField.onEditCallback {
-		inputField.onEditCallback(inputField.userData, string.{focusedInputField.text.count, focusedInputField.text.data});
-	}
-}
-
-input_field_backspace_char :: (using panel: *Panel, args: []string) {
-	if focusedInputField {
-		focusedInputField.text.count -= 1;
-		focusedInputField.cursor -= 1;
-		if focusedInputField.text.count <= 0 {
-			focusedInputField.text.count = 0;
-		}
-		if focusedInputField.onEditCallback {
-			focusedInputField.onEditCallback(focusedInputField.userData, string.{focusedInputField.text.count, focusedInputField.text.data});
-		}
-	}
-}
-
 input_field_reset :: (inputField: *InputField) {
 	array_reset(*inputField.text);
 	inputField.cursor = 0;
@@ -1172,6 +1230,7 @@ Input :: #import "Input";
 #load "rect.jai";
 #load "command_picker.jai";
 #load "filesystem_navigator.jai";
+#load "file_finder.jai";
 #load "draw.jai";
 #load "keymap.jai";
 #load "document.jai";
