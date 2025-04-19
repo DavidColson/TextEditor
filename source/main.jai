@@ -150,6 +150,8 @@ main :: () {
                 windowWidth  = it.width;
                 windowHeight = it.height;
 
+				renderer_resize_backbuffer();
+
 				focusedPanel.rect.x = 0;
 				focusedPanel.rect.y = 0;
 				focusedPanel.rect.w = xx windowWidth;
