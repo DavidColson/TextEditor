@@ -1034,7 +1034,7 @@ visualize_undos :: (using panel: *Panel, args: []string) {
 
 toggle_render_line_endings :: (panel: *Panel, args: []string) {
 	my_font.render_new_lines = !my_font.render_new_lines;
-	Simp.force_regenerate_glyph_table(my_font);
+	// Simp.force_regenerate_glyph_table(my_font);
 }
 
 normalize_line_endings_lf :: (panel: *Panel, args: []string) {

@@ -107,13 +107,9 @@ main :: () {
 	}
 
 	// create window
-    WANTED_MSAA :: 8;
-    window = create_window(windowWidth, windowHeight, "TextEditor", wanted_msaa = WANTED_MSAA);
-    msaa := Simp.prepare_window(window, wanted_msaa = WANTED_MSAA);
-    windowWidth, windowHeight = Simp.get_render_dimensions(window);
-    Simp.set_render_target(window, .LEFT_HANDED);
-
-    my_init_fonts();
+    window = create_window(windowWidth, windowHeight, "TextEditor");
+	init_renderer(window);
+	my_init_fonts();
 
 	rebuild_key_map();
 
@@ -148,8 +144,6 @@ main :: () {
         Input.update_window_events();
 
         for Input.get_window_resizes() {
-            Simp.update_window(it.window);  // Simp will do nothing if it doesn't care about this window.
-
             if it.window == window {
                 should_reinit := (it.width != windowWidth) || (it.height != windowHeight);
 
@@ -178,8 +172,7 @@ main :: () {
 			my_init_fonts();
 		}
 
-		// @todo: don't re-render if nothing's changed
-		draw_one_frame();
+		frame();
 
 		panel_scroll_with_mouse(*focusedPanel, Input.mouse_delta_z);
 
@@ -207,6 +200,36 @@ main :: () {
         sleep_milliseconds(cast(s32) (16 - delta/1000));
         reset_temporary_storage();
     }
+}
+
+frame :: () {
+	panel := *focusedPanel;
+	panelRect := panel.rect;
+
+	ui_box(panelRect.x, panelRect.y, panelRect.w, em(1.2)); 
+	ui_box(panelRect.x, panelRect.y + em(1.2), panelRect.w, panelRect.h - em(1.2)); 
+
+	// write some code to actually render the above, with custom opengl etc
+
+	// then next step will be to convert "panel" into a box itself
+	// and specify that the panel has children, which are the two boxes
+	// then we create the basic layout algorithm, adding whatever parameters to the panel
+	// such that we can replicate the above layout dynamically
+
+	// after this you will want to introduce text rendering
+	// place inside the header box another box which renders text, with some padding
+	// maybe even multiple pieces of text aligned to different sides
+
+	// Now introduce custom draw functions for boxes, and you will use this to draw code
+	// in the second box
+
+	// Following this you can introduce scrolling as a feature for boxes for the code window
+
+	// after this we will explore the picker/finder widgets
+
+	draw_ui();
+
+	render_frame();
 }
 
 do_backup_callback :: () {
@@ -275,15 +298,9 @@ read_register :: (name: u8) -> string {
 
 my_init_fonts :: () {
 	// @todo: embed the default font into the exe with #run
-
-	// @todo: when we re-init fonts cause the size changed, we aren't releasing old fonts
-	// something to clean up at some point
-
-	path := tprint("%../../fonts/", path_strip_filename(get_path_of_running_executable()));
-    my_font = Simp.get_font_at_size(path, "FiraMonoNerdFontMono-Medium.ttf", cast(int) (textSize * dpiScale));
-	my_font.render_tabs = false;
-	my_font.render_new_lines = false;
-    assert(my_font != null);
+	my_font = New(Dynamic_Font);
+	my_font.character_height = 10;
+	my_font.mono_x_advance = 10;
 }
 
 // color stuff
@@ -469,13 +486,17 @@ Utf8_Char :: struct {
     count: s32;
 }
 
-my_font: *Simp.Dynamic_Font;
+// @todo: temporary stub until we replace it with our custom renderer 
+Dynamic_Font :: struct {
+    character_height:       int = 10;
+	mono_x_advance:			int = 10;
+	render_new_lines: bool = false;
+	render_tabs: bool = false;
+}
+my_font: *Dynamic_Font;
 
-Simp  :: #import "Simp";
 Input :: #import "Input";
-
 #import "Window_Creation";
-
 #import "Basic";
 #import "Math";
 #import "System";
@@ -495,11 +516,12 @@ Input :: #import "Input";
 #load "command_picker.jai";
 #load "filesystem_navigator.jai";
 #load "file_finder.jai";
-#load "draw.jai";
 #load "keymap.jai";
 #load "document.jai";
 #load "commands.jai";
 #load "panel.jai";
+#load "ui.jai";
+#load "renderer.jai";
 #load "uniform/module.jai";
 
 #if OS == .WINDOWS {
