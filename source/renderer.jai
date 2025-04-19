@@ -17,6 +17,7 @@ renderState: RendererState;
 
 Instance :: struct {
 	rect: Rect;
+	color: Vector4;
 }
 
 init_renderer :: (_window: Window_Type) {
@@ -32,9 +33,9 @@ init_renderer :: (_window: Window_Type) {
 	glViewport(0, 0, xx windowWidth, xx windowHeight);
 
 	numInstances = 0;
-	instances[numInstances] = .{Rect.{ 5.0, 5.0, 100.0, 100.0}}; numInstances += 1;
-	instances[numInstances] = .{Rect.{ 100.0, 100.0, 200.0, 100.0}}; numInstances += 1;
-	instances[numInstances] = .{Rect.{ 10.0,  400.0, 50.0, 50.0}}; numInstances += 1;
+	instances[numInstances] = .{rect=.{ 5.0, 5.0, 100.0, 100.0}, color=.{0.1,0.1,0.1,1.0}}; numInstances += 1;
+	instances[numInstances] = .{rect=.{ 100.0, 100.0, 200.0, 100.0}, color=.{0.1,0.1,0.1,1.0}}; numInstances += 1;
+	instances[numInstances] = .{rect=.{ 10.0,  400.0, 50.0, 50.0}, color=.{0.1,0.1,0.1,1.0}}; numInstances += 1;
 
 	// make vertex shader
 	{
@@ -70,9 +71,17 @@ init_renderer :: (_window: Window_Type) {
 		glBindBuffer(GL_ARRAY_BUFFER, instanceVbo);
 		glBufferData(GL_ARRAY_BUFFER, size_of(Instance) * numInstances, instances.data, GL_STATIC_DRAW);
 
+		T :: Instance;
+		stride : u32 = size_of(T);
+		offset: *T: null;
+
 		glEnableVertexAttribArray(0);
-		glVertexAttribPointer(0, 4, GL_FLOAT, xx false, 4 * size_of(float), xx 0);
+		glVertexAttribPointer(0, 4, GL_FLOAT, xx false, stride, xx *offset.rect);
 		glVertexAttribDivisor(0, 1); // update the attribute once per instance
+
+		glEnableVertexAttribArray(1);
+		glVertexAttribPointer(1, 4, GL_FLOAT, xx false, stride, xx *offset.color);
+		glVertexAttribDivisor(1, 1);
 	}
 
 }
@@ -117,8 +126,11 @@ report_shader_errors :: (shader: GLuint) {
 VERTEX_SHADER :: #string END
 #version 330 core
 layout (location = 0) in vec4 rect;
+layout (location = 1) in vec4 inColor;
 
 uniform vec2 resolution;
+
+out vec4 color;
 
 void main()
 {
@@ -138,6 +150,7 @@ void main()
 	pos.y = 1.0 - (screenPos.y / resolution.y) * 2.0;
 
     gl_Position = vec4(pos, 0.0, 1.0);
+	color = inColor; 
 }
 END
 
@@ -145,8 +158,10 @@ FRAGMENT_SHADER :: #string END
 #version 330 core
 out vec4 FragColor;
 
+in vec4 color;
+
 void main()
 {
-    FragColor = vec4(1.0f, 0.5f, 0.2f, 1.0f);
+    FragColor = color;
 } 
 END
