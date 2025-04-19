@@ -1,25 +1,120 @@
 
 RendererState :: struct {
 	window: Window_Type;
+
+	instanceVbo: GLuint;
+	vao: GLuint;
+	vertexShader: GLuint;
+	fragmentShader: GLuint;
+	program: GLuint;
+
+    MAX_INSTANCES :: 2400;
+    instances: [MAX_INSTANCES] Instance;
+	numInstances: s32;
 }
 renderState: RendererState;
 
-init_renderer :: (window: Window_Type) {
-	renderState.window = window;
+Instance :: struct {
+	rect: Rect;
+}
+
+init_renderer :: (_window: Window_Type) {
+	using renderState;
+	window = _window;
 
 	// all initialization
 	gl_create_context(window, 3, 3);
 
-	// shaders, programs etc
+	gl_load(*gl);
+	gl_enable_debug_output(break_on_error = true);
+
+	numInstances = 0;
+	instances[numInstances] = .{Rect.{ 0.1, 0.1, 0.5, 0.5}}; numInstances += 1;
+	instances[numInstances] = .{Rect.{ 0.8, 0.8, 0.1, 0.1}}; numInstances += 1;
+	instances[numInstances] = .{Rect.{ 0.5,  0.5, 0.3, 0.3}}; numInstances += 1;
+
+	// make vertex shader
+	{
+		shaderSource := VERTEX_SHADER.data;
+		vertexShader = glCreateShader(GL_VERTEX_SHADER);
+		glShaderSource(vertexShader, 1, *shaderSource, null);
+		glCompileShader(vertexShader);
+	}
+	// make fragment shader
+	{
+		shaderSource := FRAGMENT_SHADER.data;
+		fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
+		glShaderSource(fragmentShader, 1,  *shaderSource, null);
+		glCompileShader(fragmentShader);
+	}
+	// make program
+	{
+		program = glCreateProgram();
+		glAttachShader(program, vertexShader);
+		glAttachShader(program, fragmentShader);
+		glLinkProgram(program);
+	}
+	// setup the VAO
+	{
+		glGenVertexArrays(1, *vao);
+		glGenBuffers(1, *instanceVbo);
+		glBindVertexArray(vao);
+
+		glBindBuffer(GL_ARRAY_BUFFER, instanceVbo);
+		glBufferData(GL_ARRAY_BUFFER, size_of(Instance) * numInstances, instances.data, GL_STATIC_DRAW);
+
+		glEnableVertexAttribArray(0);
+		glVertexAttribPointer(0, 4, GL_FLOAT, xx false, 4 * size_of(float), xx 0);
+		glVertexAttribDivisor(0, 1); // update the attribute once per instance
+	}
+
 }
 
 render_frame :: () {
+	using renderState;
+
 	c,_ := hex_to_color_vec4("282c34");
     glClearColor(c.x, c.y, c.z, 0.0);
 
 	glClear(GL_COLOR_BUFFER_BIT);
 
-	platform_swap_buffers(renderState.window);
+	glUseProgram(program);
+	glBindVertexArray(vao);
+	glDrawArraysInstanced(GL_TRIANGLES, 0, 6, 3);
+
+	platform_swap_buffers(window);
 }
 
 #import "GL";
+
+#scope_file
+
+VERTEX_SHADER :: #string END
+#version 330 core
+layout (location = 0) in vec4 rect;
+
+void main()
+{
+	vec2 quadVerts[6] = vec2[](
+        vec2(-0.5, -0.5),
+        vec2( 0.5, -0.5),
+        vec2( 0.5,  0.5),
+        vec2(-0.5, -0.5),
+        vec2( 0.5,  0.5),
+        vec2(-0.5,  0.5)
+    );
+
+	vec2 pos = quadVerts[gl_VertexID] * rect.zw + rect.xy;
+    gl_Position = vec4(pos, 0.0, 1.0);
+}
+END
+
+FRAGMENT_SHADER :: #string END
+#version 330 core
+out vec4 FragColor;
+
+void main()
+{
+    FragColor = vec4(1.0f, 0.5f, 0.2f, 1.0f);
+} 
+END
