@@ -8,6 +8,7 @@ RendererState :: struct {
 	fragmentShader: GLuint;
 	program: GLuint;
 	resolutionUniformLocation: GLint;
+	whiteDefaultTex: GLuint;
 
     MAX_INSTANCES :: 2400;
     instances: [MAX_INSTANCES] Instance;
@@ -44,11 +45,22 @@ init_renderer :: (_window: Window_Type) {
 	glViewport(0, 0, xx windowWidth, xx windowHeight);
 
 	numInstances = 0;
-	instances[numInstances] = .{dstRect=.{ 5.0, 5.0, 100.0, 100.0}, srcRect=.{50.0, 0.0, 50.0, 89.0}, color=.{0.1,0.1,0.1,1.0}};
+	instances[numInstances] = .{
+		dstRect=.{ 5.0, 5.0, 100.0, 100.0},
+		srcRect=.{50.0, 0.0, 50.0, 89.0},
+		color=.{0.8,0.1,0.1,1.0}
+	};
 	numInstances += 1;
-	instances[numInstances] = .{dstRect=.{ 100.0, 100.0, 200.0, 100.0}, srcRect=.{0.0, 0.0, 100.0, 89.0}, color=.{0.1,0.1,0.1,1.0}};
+	instances[numInstances] = .{
+		dstRect=.{ 100.0, 100.0, 200.0, 100.0},
+		srcRect=.{0.0, 0.0, 100.0, 89.0},
+		color=.{0.1,0.1,0.1,1.0}};
 	numInstances += 1;
-	instances[numInstances] = .{dstRect=.{ 10.0,  400.0, 50.0, 50.0}, srcRect=.{0.0, 0.0, 100.0, 89.0}, color=.{0.1,0.1,0.1,1.0}};
+	instances[numInstances] = .{
+		dstRect=.{ 10.0,  400.0, 50.0, 50.0},
+		srcRect=.{0.0, 0.0, 100.0, 89.0},
+		color=.{0.1,0.1,0.1,1.0}
+	};
 	numInstances += 1;
 
 	// make vertex shader
@@ -115,6 +127,20 @@ init_renderer :: (_window: Window_Type) {
 		testBitmap = load_bitmap(tprint("%../../fonts/house-solid.png", path_strip_filename(get_path_of_running_executable())));
 	}
 
+	// create default white texture
+	{
+		glGenTextures(1, *whiteDefaultTex);
+		glBindTexture(GL_TEXTURE_2D, whiteDefaultTex);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S,     GL_REPEAT);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T,     GL_REPEAT);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		whiteData: []u8 = .[0xFF, 0xFF, 0xFF, 0xFF];
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, whiteData.data);
+		glGenerateMipmap(GL_TEXTURE_2D);
+		glBindTexture(GL_TEXTURE_2D, 0);
+	}
+
 	// blending setup
 	{
 		glEnable(GL_BLEND);
@@ -130,7 +156,7 @@ render_frame :: () {
 
 	glClear(GL_COLOR_BUFFER_BIT);
 
-	glBindTexture(GL_TEXTURE_2D, testBitmap.texHandle);
+	glBindTexture(GL_TEXTURE_2D, whiteDefaultTex);
 
 	glUseProgram(program);
 
@@ -163,6 +189,7 @@ load_bitmap :: (path: string) -> Bitmap {
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, xx w, xx h, 0, GL_RGBA, GL_UNSIGNED_BYTE, bitmap.data.data);
 	glGenerateMipmap(GL_TEXTURE_2D);
+	glBindTexture(GL_TEXTURE_2D, 0);
 
 	return bitmap;
 }
