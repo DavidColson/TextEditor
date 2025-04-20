@@ -12,12 +12,23 @@ RendererState :: struct {
     MAX_INSTANCES :: 2400;
     instances: [MAX_INSTANCES] Instance;
 	numInstances: s32;
+
+	testBitmap: Bitmap;
 }
 renderState: RendererState;
 
 Instance :: struct {
-	rect: Rect;
+	dstRect: Rect;
+	srcRect: Rect;
 	color: Vector4;
+}
+
+Bitmap :: struct {
+	width: s32;
+	height: s32;
+
+	data: []u8;
+	texHandle: GLuint;
 }
 
 init_renderer :: (_window: Window_Type) {
@@ -33,9 +44,12 @@ init_renderer :: (_window: Window_Type) {
 	glViewport(0, 0, xx windowWidth, xx windowHeight);
 
 	numInstances = 0;
-	instances[numInstances] = .{rect=.{ 5.0, 5.0, 100.0, 100.0}, color=.{0.1,0.1,0.1,1.0}}; numInstances += 1;
-	instances[numInstances] = .{rect=.{ 100.0, 100.0, 200.0, 100.0}, color=.{0.1,0.1,0.1,1.0}}; numInstances += 1;
-	instances[numInstances] = .{rect=.{ 10.0,  400.0, 50.0, 50.0}, color=.{0.1,0.1,0.1,1.0}}; numInstances += 1;
+	instances[numInstances] = .{dstRect=.{ 5.0, 5.0, 100.0, 100.0}, srcRect=.{50.0, 0.0, 50.0, 89.0}, color=.{0.1,0.1,0.1,1.0}};
+	numInstances += 1;
+	instances[numInstances] = .{dstRect=.{ 100.0, 100.0, 200.0, 100.0}, srcRect=.{0.0, 0.0, 100.0, 89.0}, color=.{0.1,0.1,0.1,1.0}};
+	numInstances += 1;
+	instances[numInstances] = .{dstRect=.{ 10.0,  400.0, 50.0, 50.0}, srcRect=.{0.0, 0.0, 100.0, 89.0}, color=.{0.1,0.1,0.1,1.0}};
+	numInstances += 1;
 
 	// make vertex shader
 	{
@@ -44,6 +58,8 @@ init_renderer :: (_window: Window_Type) {
 		glShaderSource(vertexShader, 1, *shaderSource, null);
 		glCompileShader(vertexShader);
 		report_shader_errors(vertexShader);
+
+        DumpGLErrors("vertex shader");
 	}
 	// make fragment shader
 	{
@@ -52,6 +68,8 @@ init_renderer :: (_window: Window_Type) {
 		glShaderSource(fragmentShader, 1,  *shaderSource, null);
 		glCompileShader(fragmentShader);
 		report_shader_errors(vertexShader);
+
+        DumpGLErrors("fragment shader");
 	}
 	// make program
 	{
@@ -61,6 +79,8 @@ init_renderer :: (_window: Window_Type) {
 		glLinkProgram(program);
 
 		resolutionUniformLocation = glGetUniformLocation(program, "resolution");
+
+        DumpGLErrors("program");
 	}
 	// setup the VAO
 	{
@@ -76,14 +96,30 @@ init_renderer :: (_window: Window_Type) {
 		offset: *T: null;
 
 		glEnableVertexAttribArray(0);
-		glVertexAttribPointer(0, 4, GL_FLOAT, xx false, stride, xx *offset.rect);
+		glVertexAttribPointer(0, 4, GL_FLOAT, xx false, stride, xx *offset.dstRect);
 		glVertexAttribDivisor(0, 1); // update the attribute once per instance
 
 		glEnableVertexAttribArray(1);
-		glVertexAttribPointer(1, 4, GL_FLOAT, xx false, stride, xx *offset.color);
+		glVertexAttribPointer(1, 4, GL_FLOAT, xx false, stride, xx *offset.srcRect);
 		glVertexAttribDivisor(1, 1);
+
+		glEnableVertexAttribArray(2);
+		glVertexAttribPointer(2, 4, GL_FLOAT, xx false, stride, xx *offset.color);
+		glVertexAttribDivisor(2, 1);
+
+		DumpGLErrors("vao");
 	}
 
+	// test texture loading
+	{
+		testBitmap = load_bitmap(tprint("%../../fonts/house-solid.png", path_strip_filename(get_path_of_running_executable())));
+	}
+
+	// blending setup
+	{
+		glEnable(GL_BLEND);
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);  
+	}
 }
 
 render_frame :: () {
@@ -94,11 +130,14 @@ render_frame :: () {
 
 	glClear(GL_COLOR_BUFFER_BIT);
 
+	glBindTexture(GL_TEXTURE_2D, testBitmap.texHandle);
+
 	glUseProgram(program);
 
 	resolutionUniformLocation = glGetUniformLocation(program, "resolution");
 	glUniform2f(resolutionUniformLocation, xx windowWidth, xx windowHeight);
 	glBindVertexArray(vao);
+
 	glDrawArraysInstanced(GL_TRIANGLES, 0, 6, 3);
 
 	platform_swap_buffers(window);
@@ -108,7 +147,28 @@ renderer_resize_backbuffer :: () {
 	glViewport(0, 0, xx windowWidth, xx windowHeight);
 }
 
-#import "GL";
+load_bitmap :: (path: string) -> Bitmap {
+	bitmap: Bitmap;
+	w, h, channels: s32;
+	bitmap.data.data = stbi_load(temp_c_string(path), *w, *h, *channels, 0); 
+	bitmap.data.count = channels * w * h; 
+	bitmap.width = w;
+	bitmap.height = h;
+
+	glGenTextures(1, *bitmap.texHandle);
+	glBindTexture(GL_TEXTURE_2D, bitmap.texHandle);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S,     GL_CLAMP_TO_BORDER);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T,     GL_CLAMP_TO_BORDER);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, xx w, xx h, 0, GL_RGBA, GL_UNSIGNED_BYTE, bitmap.data.data);
+	glGenerateMipmap(GL_TEXTURE_2D);
+
+	return bitmap;
+}
+
+#import "GL"(DUMP_GL_ERRORS=true);
+#import "stb_image";
 
 #scope_file
 
@@ -123,14 +183,18 @@ report_shader_errors :: (shader: GLuint) {
 	}
 }
 
+
 VERTEX_SHADER :: #string END
 #version 330 core
-layout (location = 0) in vec4 rect;
-layout (location = 1) in vec4 inColor;
+layout (location = 0) in vec4 dstRect;
+layout (location = 1) in vec4 srcRect;
+layout (location = 2) in vec4 inColor;
 
 uniform vec2 resolution;
+uniform sampler2D bitmap;
 
 out vec4 color;
+out vec2 uv;
 
 void main()
 {
@@ -143,13 +207,19 @@ void main()
         vec2( 0.0,  1.0)
     );
 
-	vec2 screenPos = rect.xy + (quadVerts[gl_VertexID]) * rect.zw;
+	vec2 screenPos = dstRect.xy + (quadVerts[gl_VertexID]) * dstRect.zw;
 
 	vec2 pos;
 	pos.x = (screenPos.x / resolution.x) * 2.0 - 1.0;
 	pos.y = 1.0 - (screenPos.y / resolution.y) * 2.0;
 
     gl_Position = vec4(pos, 0.0, 1.0);
+
+	vec2 texSize = textureSize(bitmap, 0);
+	uv = srcRect.xy + quadVerts[gl_VertexID] * srcRect.zw;
+	uv.x = uv.x / texSize.x;
+	uv.y = uv.y / texSize.y;
+
 	color = inColor; 
 }
 END
@@ -158,10 +228,13 @@ FRAGMENT_SHADER :: #string END
 #version 330 core
 out vec4 FragColor;
 
+uniform sampler2D bitmap;
+
 in vec4 color;
+in vec2 uv;
 
 void main()
 {
-    FragColor = color;
+    FragColor = color * texture(bitmap, uv);
 } 
 END
