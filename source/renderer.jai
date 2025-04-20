@@ -22,6 +22,9 @@ Instance :: struct {
 	dstRect: Rect;
 	srcRect: Rect;
 	color: Vector4;
+	cornerRadii: Vector4;
+	edgeSoftness: float; // negative will result in inverse rounded corners
+	borderThickness: float;
 }
 
 Bitmap :: struct {
@@ -47,19 +50,29 @@ init_renderer :: (_window: Window_Type) {
 	numInstances = 0;
 	instances[numInstances] = .{
 		dstRect=.{ 5.0, 5.0, 100.0, 100.0},
-		srcRect=.{50.0, 0.0, 50.0, 89.0},
-		color=.{0.8,0.1,0.1,1.0}
+		srcRect=.{0.0, 0.0, 1.0, 1.0},
+		color=.{0.8,0.1,0.1,1.0},
+		cornerRadii=.{20.0, 0.0, 0.0, 20.0},
+		edgeSoftness=2.0,
+		borderThickness=0.0
 	};
 	numInstances += 1;
 	instances[numInstances] = .{
-		dstRect=.{ 100.0, 100.0, 200.0, 100.0},
-		srcRect=.{0.0, 0.0, 100.0, 89.0},
-		color=.{0.1,0.1,0.1,1.0}};
+		dstRect=.{ 120.0, 120.0, 200.0, 100.0},
+		srcRect=.{0.0, 0.0, 1.0, 1.0},
+		color=.{0.1,0.1,0.1,1.0},
+		cornerRadii=.{0.0, 0.0, 0.0, 0.0},
+		edgeSoftness=0.0,
+		borderThickness=0.0
+	};
 	numInstances += 1;
 	instances[numInstances] = .{
 		dstRect=.{ 10.0,  400.0, 50.0, 50.0},
-		srcRect=.{0.0, 0.0, 100.0, 89.0},
-		color=.{0.1,0.1,0.1,1.0}
+		srcRect=.{0.0, 0.0, 1.0, 1.0},
+		color=.{0.1,0.1,0.1,1.0},
+		cornerRadii=.{0.0, 0.0, 0.0, 0.0},
+		edgeSoftness=0.0,
+		borderThickness=0.0
 	};
 	numInstances += 1;
 
@@ -69,7 +82,7 @@ init_renderer :: (_window: Window_Type) {
 		vertexShader = glCreateShader(GL_VERTEX_SHADER);
 		glShaderSource(vertexShader, 1, *shaderSource, null);
 		glCompileShader(vertexShader);
-		report_shader_errors(vertexShader);
+		report_shader_errors(vertexShader, "Vertex");
 
         DumpGLErrors("vertex shader");
 	}
@@ -79,7 +92,7 @@ init_renderer :: (_window: Window_Type) {
 		fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
 		glShaderSource(fragmentShader, 1,  *shaderSource, null);
 		glCompileShader(fragmentShader);
-		report_shader_errors(vertexShader);
+		report_shader_errors(fragmentShader, "Fragment");
 
         DumpGLErrors("fragment shader");
 	}
@@ -107,17 +120,35 @@ init_renderer :: (_window: Window_Type) {
 		stride : u32 = size_of(T);
 		offset: *T: null;
 
+		// dstRect
 		glEnableVertexAttribArray(0);
 		glVertexAttribPointer(0, 4, GL_FLOAT, xx false, stride, xx *offset.dstRect);
 		glVertexAttribDivisor(0, 1); // update the attribute once per instance
 
+		// srcRect
 		glEnableVertexAttribArray(1);
 		glVertexAttribPointer(1, 4, GL_FLOAT, xx false, stride, xx *offset.srcRect);
 		glVertexAttribDivisor(1, 1);
 
+		// color
 		glEnableVertexAttribArray(2);
 		glVertexAttribPointer(2, 4, GL_FLOAT, xx false, stride, xx *offset.color);
 		glVertexAttribDivisor(2, 1);
+
+		// cornerRadii
+		glEnableVertexAttribArray(3);
+		glVertexAttribPointer(3, 4, GL_FLOAT, xx false, stride, xx *offset.cornerRadii);
+		glVertexAttribDivisor(3, 1);
+
+		// edgeSoftness
+		glEnableVertexAttribArray(4);
+		glVertexAttribPointer(4, 1, GL_FLOAT, xx false, stride, xx *offset.edgeSoftness);
+		glVertexAttribDivisor(4, 1);
+
+		// borderThickness
+		glEnableVertexAttribArray(5);
+		glVertexAttribPointer(5, 1, GL_FLOAT, xx false, stride, xx *offset.borderThickness);
+		glVertexAttribDivisor(5, 1);
 
 		DumpGLErrors("vao");
 	}
@@ -199,14 +230,14 @@ load_bitmap :: (path: string) -> Bitmap {
 
 #scope_file
 
-report_shader_errors :: (shader: GLuint) {
+report_shader_errors :: (shader: GLuint, shaderName: string) {
 	success : GLint;
 	glGetShaderiv(shader, GL_COMPILE_STATUS, *success);
 
 	if !success then {
 		log_data: [512] u8;
 		glGetShaderInfoLog(shader, log_data.count, null, log_data.data);
-		log("%", to_string(log_data.data), flags=.ERROR);
+		log("%:\n%", shaderName, to_string(log_data.data), flags=.ERROR);
 	}
 }
 
@@ -216,12 +247,19 @@ VERTEX_SHADER :: #string END
 layout (location = 0) in vec4 dstRect;
 layout (location = 1) in vec4 srcRect;
 layout (location = 2) in vec4 inColor;
+layout (location = 3) in vec4 inCornerRadii;
+layout (location = 4) in float inEdgeSoftness;
+layout (location = 5) in float inBorderThickness;
 
 uniform vec2 resolution;
 uniform sampler2D bitmap;
 
-out vec4 color;
+out vec2 dstSize;
 out vec2 uv;
+out vec4 color;
+out vec4 cornerRadii;
+out float edgeSoftness;
+out float borderThickness;
 
 void main()
 {
@@ -248,6 +286,10 @@ void main()
 	uv.y = uv.y / texSize.y;
 
 	color = inColor; 
+	cornerRadii = inCornerRadii;
+	edgeSoftness = inEdgeSoftness;
+	borderThickness = inBorderThickness;
+	dstSize = dstRect.zw;
 }
 END
 
@@ -257,11 +299,30 @@ out vec4 FragColor;
 
 uniform sampler2D bitmap;
 
-in vec4 color;
+in vec2 dstSize;
 in vec2 uv;
+in vec4 color;
+in vec4 cornerRadii;
+in float edgeSoftness;
+in float borderThickness;
+
+float sdfRoundedBox(vec2 pt, vec2 halfDimensions, vec4 radii)
+{
+    radii.xy = (pt.x > 0.0) ? radii.zw : radii.yx;
+    radii.x = (pt.y > 0.0) ? radii.x : radii.y;
+    vec2 q = abs(pt) - halfDimensions + radii.x;
+    return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - radii.x;
+}
 
 void main()
 {
     FragColor = color * texture(bitmap, uv);
+
+	vec2 softnessPadding = vec2(max(0, edgeSoftness-1), max(0, edgeSoftness-1));
+	vec2 size = dstSize - softnessPadding;
+	vec2 pt = (uv - vec2(0.5, 0.5)) * size; 
+	float dist = sdfRoundedBox(pt, size / 2, cornerRadii);
+
+	FragColor.a *= 1 - smoothstep(-edgeSoftness, 0, dist);
 } 
 END
