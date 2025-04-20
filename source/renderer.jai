@@ -54,7 +54,7 @@ init_renderer :: (_window: Window_Type) {
 		color=.{0.8,0.1,0.1,1.0},
 		cornerRadii=.{20.0, 0.0, 0.0, 20.0},
 		edgeSoftness=2.0,
-		borderThickness=0.0
+		borderThickness=2.0
 	};
 	numInstances += 1;
 	instances[numInstances] = .{
@@ -319,10 +319,22 @@ void main()
     FragColor = color * texture(bitmap, uv);
 
 	vec2 softnessPadding = vec2(max(0, edgeSoftness-1), max(0, edgeSoftness-1));
-	vec2 size = dstSize - softnessPadding;
-	vec2 pt = (uv - vec2(0.5, 0.5)) * size; 
-	float dist = sdfRoundedBox(pt, size / 2, cornerRadii);
+	vec2 pt = (uv - vec2(0.5, 0.5)) * dstSize; 
+	vec2 halfSize = (dstSize/2) - softnessPadding;
 
-	FragColor.a *= 1 - smoothstep(-edgeSoftness, 0, dist);
+	float borderFactor = 1.0;
+	if (borderThickness != 0.0) {
+
+		vec2 interiorHalfSize = (dstSize/2) - softnessPadding - borderThickness;
+		float interiorRadiusReduce = min(interiorHalfSize.x/halfSize.x, interiorHalfSize.y/halfSize.y);
+		vec4 interiorRadii = cornerRadii * (interiorRadiusReduce*interiorRadiusReduce);
+		float dist = sdfRoundedBox(pt, interiorHalfSize, interiorRadii);
+		borderFactor = smoothstep(-edgeSoftness, 0, dist);
+	}
+
+	float dist = sdfRoundedBox(pt, halfSize, cornerRadii);
+	float mainSDFfactor = 1 - smoothstep(-edgeSoftness, 0, dist);
+
+	FragColor.a *= mainSDFfactor * borderFactor;
 } 
 END
