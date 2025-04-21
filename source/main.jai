@@ -227,20 +227,13 @@ frame :: () {
 		set_next_width(parent_pct(1.0, 0.0));
 		set_next_height(parent_pct(1.0, 0.0));
 		box(0); 
+
+		// search
+		set_next_palette(.{background = .{0.0, 0.0, 0.0, 1.0}});
+		set_next_width(parent_pct(1.0, 1.0));
+		set_next_height(em(2.0, 1.0));
+		box(.DRAW_BACKGROUND); 
 	}
-
-	// what sizing rules do we want here?
-	// panel is percent of parent on both axes (100% in the case of one panel)
-	// header is text content on Y really plus padding, on X it's percent of parent 100%
-	// code box is 100% of parent 0 strictness (i.e. fill available space)
-
-	// lets do fixed parameters first, then introduce prefered sizes
-
-
-	// then next step will be to convert "panel" into a box itself
-	// and specify that the panel has children, which are the two boxes
-	// then we create the basic layout algorithm, adding whatever parameters to the panel
-	// such that we can replicate the above layout dynamically
 
 	// after this you will want to introduce text rendering
 	// place inside the header box another box which renders text, with some padding

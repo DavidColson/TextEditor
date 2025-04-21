@@ -12,6 +12,7 @@ UIBox :: struct {
 	parent: *UIBox;
 
 	// per frame information
+	childCount: s32;
 	childLayoutAxis: UIAxis;
 	size: [UIAxis.COUNT]UISize;
 	fixedPosition: [UIAxis.COUNT]float; // parent relative
@@ -99,6 +100,7 @@ box :: (flags: UIBoxFlags) -> *UIBox {
 	// insert into parent's list of children
 	if box.parent {
 		linked_list_insert(*box.parent.head, *box.parent.tail, box.parent.tail, box);
+		box.parent.childCount += 1;
 	}
 
 	if !is_fixed_x_default() {
@@ -291,7 +293,7 @@ compute_downward_dependant_sizes :: (root: *UIBox, axis: UIAxis) {
 						sum = max(sum, child.fixedSize[axis]);
 					}
 				}
-				child = child.parent;
+				child = child.next;
 			}
 			root.fixedSize[axis] = sum;
 		case;
@@ -299,15 +301,104 @@ compute_downward_dependant_sizes :: (root: *UIBox, axis: UIAxis) {
 }
 
 enforce_layout_constraints :: (root: *UIBox, axis: UIAxis) {
-	// Verify the sum of the children do not extend past the size of the parent
+	// Verify the sum of the children do not extend past the size of the parent, and if they do correct some
+
+	// raddbg has an "allowoverflow" flag which skips these checks, might need that at some point?
 
 	// along non layout axis
-	// simply check if the child size is larger than the parent, and if so, reduce the child size until it's correct
+	if axis != root.childLayoutAxis {
+		// simply check if the child size is larger than the parent, and if so, reduce the child size until it's correct
+		allowedSize := root.fixedSize[axis];
+
+		child := root.head;
+		while child {
+			floating := UIBoxFlags.FLOATING_X;
+			if axis == .Y then floating = .FLOATING_Y; 
+
+			if !(child.flags & floating) {
+				violation := child.fixedSize[axis] - allowedSize;
+				maxFixup := child.fixedSize[axis];
+				fixup := clamp(violation, 0, maxFixup);
+				if fixup > 0 {
+					child.fixedSize[axis] -= fixup;
+				}
+			}
+			child = child.next;
+		}
+	}
 
 	// along layout axis
-	// figure out the total size of all children (sum)
-	// if that amount is larger than the size of the parent, there is a violation that must be corrected
-	// We must remove some amount from all children, weighted by 1-strictness per child
+	if axis == root.childLayoutAxis {
+		totalAllowedSize := root.fixedSize[axis];
+		totalSize := 0.0;
+		totalWeightedSize := 0.0;
+
+		child := root.head;
+		while child {
+			floating := UIBoxFlags.FLOATING_X;
+			if axis == .Y then floating = .FLOATING_Y; 
+
+			if !(child.flags & floating) {
+				totalSize += child.fixedSize[axis];
+				totalWeightedSize += child.fixedSize[axis] * (1.0-child.size[axis].strictness);
+			}
+			child = child.next;
+		}
+
+		// the children go outside of the parent, need to subtract some amount from each child, 
+		// weighted by the strictness of their size policies
+		violation := totalSize - totalAllowedSize;
+		if violation > 0 {
+			childFixupSum := 0.0;
+			childFixups := NewArray(root.childCount, float,, uiState.frameAlloc);
+
+			// calculate the possible adjustment for each child based on strictness
+			// if strictness is 1, then there is no fixup possible here
+			childId := 0;
+			child := root.head;
+			while child {
+				floating := UIBoxFlags.FLOATING_X;
+				if axis == .Y then floating = .FLOATING_Y; 
+
+				if !(child.flags & floating) {
+					fixupSizeThisChild := child.fixedSize[axis] * (1.0-child.size[axis].strictness);
+					fixupSizeThisChild = max(0.0, fixupSizeThisChild);
+					childFixups[childId] = fixupSizeThisChild;
+					childFixupSum += fixupSizeThisChild;
+				}
+				childId += 1;
+				child = child.next;
+			}
+
+			childId = 0;
+			child = root.head;
+			while child {
+				floating := UIBoxFlags.FLOATING_X;
+				if axis == .Y then floating = .FLOATING_Y; 
+
+				if !(child.flags & floating) {
+					// total weighted size is the size of all the available fixup space
+					// so this is what percentage of that needs to be corrected
+					fixupPct := violation / totalWeightedSize;
+					fixupPct = clamp(fixupPct, 0.0, 1.0);
+					child.fixedSize[axis] -= childFixups[childId] * fixupPct;
+				}
+
+				childId += 1;
+				child = child.next;
+			}
+		}
+	}
+
+	// @todo: raddbg goes back and undoes the fixups for parent percent boxes where the root allows overflow
+	// you would do that here if you need that
+
+	// do children now
+	child := root.head;
+	while child {
+		enforce_layout_constraints(child, axis);
+		child = child.next;
+	}
 }
 
 compute_positions :: (root: *UIBox, axis: UIAxis) {
@@ -477,19 +568,3 @@ auto_pop_parameter_stacks :: () {
 		return builder_to_string(*builder);
 	}
 }
-
-
-
-// for later
-// push_timed :: (s: string) #expand {
-//     print("%", s);
-//
-//     t0 := current_time_consensus();
-//
-//     `defer {
-//         t1 := current_time_consensus();
-//         delta := t1 - t0;
-//
-//         print("Elapsed: %\n", to_float64_seconds(delta));
-//     }
-// }
