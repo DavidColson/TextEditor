@@ -212,6 +212,7 @@ frame :: () {
 
 	set_next_width(parent_pct(1.0, 1.0));
 	set_next_height(parent_pct(1.0, 1.0));
+	set_next_child_layout_axis(.Y);
 	panelBox := box(.DRAW_BACKGROUND);
 	{
 		push_parent(panelBox); defer pop_parent();

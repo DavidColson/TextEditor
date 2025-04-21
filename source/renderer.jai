@@ -58,34 +58,6 @@ init_renderer :: (_window: Window_Type) {
 	glViewport(0, 0, xx windowWidth, xx windowHeight);
 
 	numInstances = 0;
-	instances[numInstances] = .{
-		dstRect=.{ 5.0, 5.0, 100.0, 100.0},
-		srcRect=.{0.0, 0.0, 1.0, 1.0},
-		color=.{0.8,0.1,0.1,1.0},
-		cornerRadii=.{20.0, 0.0, 0.0, 20.0},
-		edgeSoftness=2.0,
-		borderThickness=5.0
-	};
-	numInstances += 1;
-	instances[numInstances] = .{
-		dstRect=.{ 120.0, 120.0, 200.0, 100.0},
-		srcRect=.{0.0, 0.0, 1.0, 1.0},
-		color=.{0.1,0.1,0.1,1.0},
-		cornerRadii=.{0.0, 0.0, 0.0, 0.0},
-		edgeSoftness=0.0,
-		borderThickness=0.0
-	};
-	numInstances += 1;
-	instances[numInstances] = .{
-		dstRect=.{ 10.0,  400.0, 50.0, 50.0},
-		srcRect=.{0.0, 0.0, 1.0, 1.0},
-		color=.{0.1,0.1,0.1,1.0},
-		cornerRadii=.{0.0, 0.0, 0.0, 0.0},
-		edgeSoftness=0.0,
-		borderThickness=0.0
-	};
-	numInstances += 1;
-	numInstances = 0;
 	numGroups = 0;
 
 	// make vertex shader
