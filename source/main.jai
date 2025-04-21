@@ -210,20 +210,31 @@ frame :: () {
 	panel := *focusedPanel;
 	panelRect := panel.rect;
 
-	panelBox := box(panel.rect.x, panel.rect.y, panel.rect.w, panel.rect.h, .DRAW_BACKGROUND);
-
+	set_next_width(parent_pct(1.0, 1.0));
+	set_next_height(parent_pct(1.0, 1.0));
+	panelBox := box(.DRAW_BACKGROUND);
 	{
 		push_parent(panelBox); defer pop_parent();
 
 		// header
 		set_next_palette(.{background = .{0.0, 0.0, 0.0, 1.0}});
-		box(panelRect.x, panelRect.y, panelRect.w, em(1.2), .DRAW_BACKGROUND); 
+		set_next_width(parent_pct(1.0, 1.0));
+		set_next_height(em(1.5, 1.0));
+		box(.DRAW_BACKGROUND); 
 
 		// code
-		box(panelRect.x, panelRect.y + em(3.2), panelRect.w, panelRect.h - em(1.2), 0); 
+		set_next_width(parent_pct(1.0, 0.0));
+		set_next_height(parent_pct(1.0, 0.0));
+		box(0); 
 	}
 
-	// write some code to actually render the above, with custom opengl etc
+	// what sizing rules do we want here?
+	// panel is percent of parent on both axes (100% in the case of one panel)
+	// header is text content on Y really plus padding, on X it's percent of parent 100%
+	// code box is 100% of parent 0 strictness (i.e. fill available space)
+
+	// lets do fixed parameters first, then introduce prefered sizes
+
 
 	// then next step will be to convert "panel" into a box itself
 	// and specify that the panel has children, which are the two boxes
