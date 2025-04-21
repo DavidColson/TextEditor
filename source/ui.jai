@@ -212,8 +212,8 @@ child_sum :: (strictness: float) -> UISize #expand { return .{ .SUM_OF_CHILDREN,
 compute_layout :: (root: *UIBox, axis: UIAxis) {
 	compute_standalone_sizes(root, axis);
 	compute_upward_dependant_sizes(root, axis);
-	// compute_downward_dependant_sizes(root, axis);
-	// enforce constraints
+	compute_downward_dependant_sizes(root, axis);
+	enforce_layout_constraints(root, axis);
 	compute_positions(root, axis);
 }
 
@@ -258,7 +258,7 @@ compute_upward_dependant_sizes :: (root: *UIBox, axis: UIAxis) {
 		case;
 	}
 
-	// recurse children
+	// recurse the children after, since they will depend on the parent
 	first := root.head;
 	while first {
 		compute_upward_dependant_sizes(first, axis);
@@ -267,7 +267,7 @@ compute_upward_dependant_sizes :: (root: *UIBox, axis: UIAxis) {
 }
 
 compute_downward_dependant_sizes :: (root: *UIBox, axis: UIAxis) {
-	// recurse children
+	// we depend on the children's sizes, so we'll recurse the children first
 	first := root.head;
 	while first {
 		compute_downward_dependant_sizes(first, axis);
@@ -284,20 +284,33 @@ compute_downward_dependant_sizes :: (root: *UIBox, axis: UIAxis) {
 				if axis == .Y then floating = .FLOATING_Y; 
 
 				if !(child.flags & floating) {
-					// @todo: child layout axis
-					// if this is the child layout axis then sum the children's sizes on the axis
-					// if it's not the child layout axis, take the max of all the sizes
+					if root.childLayoutAxis == axis {
+						sum += child.fixedSize[axis];
+					}
+					else {
+						sum = max(sum, child.fixedSize[axis]);
+					}
 				}
 				child = child.parent;
 			}
 			root.fixedSize[axis] = sum;
 		case;
 	}
+}
 
+enforce_layout_constraints :: (root: *UIBox, axis: UIAxis) {
+	// Verify the sum of the children do not extend past the size of the parent
+
+	// along non layout axis
+	// simply check if the child size is larger than the parent, and if so, reduce the child size until it's correct
+
+	// along layout axis
+	// figure out the total size of all children (sum)
+	// if that amount is larger than the size of the parent, there is a violation that must be corrected
+	// We must remove some amount from all children, weighted by 1-strictness per child
 }
 
 compute_positions :: (root: *UIBox, axis: UIAxis) {
-
 	// set a position value to 0
 	layoutPosition := 0.0;
 
