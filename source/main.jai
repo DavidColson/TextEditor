@@ -210,9 +210,18 @@ frame :: () {
 	panel := *focusedPanel;
 	panelRect := panel.rect;
 
-	set_next_palette(.{background = .{0.0, 0.0, 0.0, 1.0}});
-	box(panelRect.x, panelRect.y, panelRect.w, em(1.2), .DRAW_BACKGROUND); 
-	box(panelRect.x, panelRect.y + em(3.2), panelRect.w, panelRect.h - em(1.2), .DRAW_BACKGROUND); 
+	panelBox := box(panel.rect.x, panel.rect.y, panel.rect.w, panel.rect.h, .DRAW_BACKGROUND);
+
+	{
+		push_parent(panelBox); defer pop_parent();
+
+		// header
+		set_next_palette(.{background = .{0.0, 0.0, 0.0, 1.0}});
+		box(panelRect.x, panelRect.y, panelRect.w, em(1.2), .DRAW_BACKGROUND); 
+
+		// code
+		box(panelRect.x, panelRect.y + em(3.2), panelRect.w, panelRect.h - em(1.2), 0); 
+	}
 
 	// write some code to actually render the above, with custom opengl etc
 

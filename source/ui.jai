@@ -46,7 +46,7 @@ UIPalette :: struct {
 }
 
 defaultPalette :: UIPalette.{
-	background = #run hex_to_color_vec4("4D4D4D"),
+	background = #run hex_to_color_vec4("282c34"),
 	borders = #run hex_to_color_vec4("EEEEEE")
 };
 
