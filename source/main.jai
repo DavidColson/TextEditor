@@ -205,6 +205,8 @@ main :: () {
 }
 
 frame :: () {
+	begin_ui();
+
 	panel := *focusedPanel;
 	panelRect := panel.rect;
 
@@ -231,7 +233,7 @@ frame :: () {
 	// after this we will explore the picker/finder widgets
 
 	// maybe this should be "ui_end_frame"
-	draw_ui();
+	end_ui();
 	render_frame();
 }
 

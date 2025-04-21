@@ -1,9 +1,14 @@
 UIBox :: struct {
 	flags: UIBoxFlags;
 
-	// points to sibling boxes
+	// siblings
 	next: *UIBox;
 	prev: *UIBox;
+	// chilren
+	head: *UIBox;
+	tail: *UIBox;
+	// parent
+	parent: *UIBox;
 
 	// per build information
 	rect: Rect;
@@ -17,9 +22,7 @@ UIState :: struct {
 	frameAlloc: Allocator;
 
 	// Per frame UI data
-	// @todo: when we have a tree this will be root box
-	boxListHead: *UIBox;
-	boxListTail: *UIBox;
+	rootbox: *UIBox;
 
 	// Generated parameter stacks
 	#insert -> string {
@@ -41,6 +44,7 @@ UIPalette :: struct {
 	background: Vector4;
 	borders: Vector4;
 }
+
 defaultPalette :: UIPalette.{
 	background = #run hex_to_color_vec4("4D4D4D"),
 	borders = #run hex_to_color_vec4("EEEEEE")
@@ -54,11 +58,6 @@ init_ui :: () {
 	reset_parameter_stacks();
 }
 
-em :: (v: float) -> float {
-	// @todo: get font size
-	fontSize := 15.0;
-	return fontSize * v;
-}
 
 box :: (x: float, y: float, w: float, h: float, flags: UIBoxFlags) -> *UIBox {
 	// allocate box
@@ -69,34 +68,38 @@ box :: (x: float, y: float, w: float, h: float, flags: UIBoxFlags) -> *UIBox {
 	box.rect.h = h;
 	box.flags = flags;
 	box.palette = top_palette();
+	box.parent = top_parent();
 
-	// @todo: eventually will want to make a macro for doing linked list insertions
-	// allowing insertion at start or after specified node
-	if uiState.boxListHead == null {
-		// new linked list
-		uiState.boxListHead = box;
-		uiState.boxListTail = box;
-		box.next = null;
-		box.prev = null;
-	}
-	else {
-		// insert at end
-		uiState.boxListTail.next = box;
-		box.prev = uiState.boxListTail;
-		box.next = null;
-		uiState.boxListTail = box;
+	// insert into parent's list of children
+	if box.parent {
+		linked_list_insert(*box.parent.head, *box.parent.tail, box.parent.tail, box);
 	}
 
 	auto_pop_parameter_stacks();
 
-	return null;
+	return box;
 }
 
-draw_ui :: () {
+begin_ui :: () {
+	uiState.rootbox = box(0, 0, xx windowWidth, xx windowHeight, 0); 
+	push_parent(uiState.rootbox);
+}
+
+end_ui :: () {
 	// send draw calls to renderer
-	box := uiState.boxListHead;
+
+	recursionStack: [32]*UIBox;
+	recursionLevel := 0;
+	push_parent :: (box: *UIBox) #expand { `recursionStack[`recursionLevel] = box; `recursionLevel += 1; }
+	pop_parent :: () -> *UIBox #expand { `recursionLevel -= 1; return `recursionStack[`recursionLevel]; }
+
 	start_instance_group();
+
+	// @todo: you could wrap this in a depth first for expansion
+	box := uiState.rootbox;
+	push_parent(box.next);
 	while box {
+
 		if box.flags & .DRAW_BACKGROUND {
 			submit_instance(.{
 				dstRect = box.rect,
@@ -108,18 +111,75 @@ draw_ui :: () {
 			});
 		}
 
-		box = box.next;
+		// get next box
+		if box.head {
+			// this box has children, so traverse them
+			push_parent(box.next);
+			box = box.head;
+		}
+		else {
+			box = box.next;
+			if box == null && recursionLevel > 0 {
+				// go up a recursion level
+				box = pop_parent();
+			}
+		}
 	}
+
 	end_instance_group();
 
 	reset_parameter_stacks();
 	reset(*uiState.frameArena, overwrite_memory=true);
 }
 
+// Helpers
+
+// macro?
+em :: (v: float) -> float {
+	// @todo: get font size
+	fontSize := 15.0;
+	return fontSize * v;
+}
+
+// Linked list functions
+
+linked_list_insert :: (head: **$T, tail: **T, insertAfter: *T, toInsert: *T) {
+	if <<head == null {
+		// empty linked list
+		<<head = toInsert;
+		<<tail = toInsert;
+		toInsert.next = null;
+		toInsert.prev = null;
+	}
+	else if insertAfter == null {
+		// insert at front
+		toInsert.next = <<head;
+		(<<head).prev = toInsert;
+		<<head = toInsert;
+		toInsert.prev = null;
+	}
+	else if insertAfter == <<tail {
+		// insert at end
+		(<<tail).next = toInsert;
+		toInsert.prev = <<tail;
+		toInsert.next = null;
+		(<<tail) = toInsert;
+	}
+	else {
+		// insert in middle
+		toInsert.next = insertAfter.next;
+		toInsert.prev = insertAfter;
+		if insertAfter.next != null {
+			insertAfter.next.prev = toInsert;
+		}
+		insertAfter.next = toInsert;
+	}
+}
 
 // Parameter stack functions code generation
 
 PARAMETERS :: Parameter.[
+	.{ "parent", "*UIBox", "null" },
 	.{ "palette", "UIPalette", "defaultPalette" },
 	.{ "corner_radius", "float", "0" }
 ];
