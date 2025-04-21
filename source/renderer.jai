@@ -14,9 +14,19 @@ RendererState :: struct {
     instances: [MAX_INSTANCES] Instance;
 	numInstances: s32;
 
+	MAX_GROUPS :: 256;
+	instanceGroups: [MAX_GROUPS]InstanceGroup;
+	numGroups: s32;
+
 	testBitmap: Bitmap;
 }
 renderState: RendererState;
+
+InstanceGroup :: struct {
+	instanceStart: s32;
+	instanceEnd: s32;
+	texture: *Bitmap;
+}
 
 Instance :: struct {
 	dstRect: Rect;
@@ -54,7 +64,7 @@ init_renderer :: (_window: Window_Type) {
 		color=.{0.8,0.1,0.1,1.0},
 		cornerRadii=.{20.0, 0.0, 0.0, 20.0},
 		edgeSoftness=2.0,
-		borderThickness=2.0
+		borderThickness=5.0
 	};
 	numInstances += 1;
 	instances[numInstances] = .{
@@ -75,6 +85,8 @@ init_renderer :: (_window: Window_Type) {
 		borderThickness=0.0
 	};
 	numInstances += 1;
+	numInstances = 0;
+	numGroups = 0;
 
 	// make vertex shader
 	{
@@ -111,10 +123,9 @@ init_renderer :: (_window: Window_Type) {
 	{
 		glGenVertexArrays(1, *vao);
 		glGenBuffers(1, *instanceVbo);
-		glBindVertexArray(vao);
 
+		glBindVertexArray(vao);
 		glBindBuffer(GL_ARRAY_BUFFER, instanceVbo);
-		glBufferData(GL_ARRAY_BUFFER, size_of(Instance) * numInstances, instances.data, GL_STATIC_DRAW);
 
 		T :: Instance;
 		stride : u32 = size_of(T);
@@ -182,25 +193,55 @@ init_renderer :: (_window: Window_Type) {
 render_frame :: () {
 	using renderState;
 
-	c,_ := hex_to_color_vec4("282c34");
+	c := hex_to_color_vec4("282c34");
     glClearColor(c.x, c.y, c.z, 0.0);
-
 	glClear(GL_COLOR_BUFFER_BIT);
 
-	glBindTexture(GL_TEXTURE_2D, whiteDefaultTex);
+	glBindVertexArray(vao);
+	glBindBuffer(GL_ARRAY_BUFFER, instanceVbo);
+	glBufferData(GL_ARRAY_BUFFER, size_of(Instance) * numInstances, instances.data, GL_STREAM_DRAW);
 
 	glUseProgram(program);
-
 	resolutionUniformLocation = glGetUniformLocation(program, "resolution");
 	glUniform2f(resolutionUniformLocation, xx windowWidth, xx windowHeight);
-	glBindVertexArray(vao);
 
-	glDrawArraysInstanced(GL_TRIANGLES, 0, 6, 3);
+	for 0..numGroups-1 {
+		instance := *instanceGroups[it];
+		if instance.texture == null {
+			glBindTexture(GL_TEXTURE_2D, whiteDefaultTex);
+		}
+		else {
+			glBindTexture(GL_TEXTURE_2D, instance.texture.texHandle);
+		}
+
+		count := instance.instanceEnd - instance.instanceStart;
+		glDrawArraysInstanced(GL_TRIANGLES, instance.instanceStart, 6, xx count);
+	}
 
 	platform_swap_buffers(window);
+
+	numInstances = 0;
+	numGroups = 0;
 }
 
-renderer_resize_backbuffer :: () {
+start_instance_group :: (tex: *Bitmap = null) {
+	using renderState;
+	instanceGroups[numGroups] = .{numInstances, 0, tex};
+	numGroups += 1;
+}
+
+submit_instance :: (instance: Instance) {
+	using renderState;
+	instances[numInstances] = instance;
+	numInstances += 1;
+}
+
+end_instance_group :: () {
+	using renderState;
+	instanceGroups[numGroups-1].instanceEnd = numInstances;
+}
+
+resize_backbuffer :: () {
 	glViewport(0, 0, xx windowWidth, xx windowHeight);
 }
 

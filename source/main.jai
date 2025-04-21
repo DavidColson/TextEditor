@@ -110,7 +110,7 @@ main :: () {
     window = create_window(windowWidth, windowHeight, "TextEditor");
 	init_renderer(window);
 	my_init_fonts();
-
+	init_ui();
 	rebuild_key_map();
 
 	registers.registerAllocator = Allocator.{ proc = flat_pool_allocator_proc, data = *registers.registerPool };
@@ -150,7 +150,7 @@ main :: () {
                 windowWidth  = it.width;
                 windowHeight = it.height;
 
-				renderer_resize_backbuffer();
+				resize_backbuffer();
 
 				focusedPanel.rect.x = 0;
 				focusedPanel.rect.y = 0;
@@ -208,8 +208,9 @@ frame :: () {
 	panel := *focusedPanel;
 	panelRect := panel.rect;
 
-	ui_box(panelRect.x, panelRect.y, panelRect.w, em(1.2)); 
-	ui_box(panelRect.x, panelRect.y + em(1.2), panelRect.w, panelRect.h - em(1.2)); 
+	set_next_palette(.{background = .{0.0, 0.0, 0.0, 1.0}});
+	box(panelRect.x, panelRect.y, panelRect.w, em(1.2), .DRAW_BACKGROUND); 
+	box(panelRect.x, panelRect.y + em(3.2), panelRect.w, panelRect.h - em(1.2), .DRAW_BACKGROUND); 
 
 	// write some code to actually render the above, with custom opengl etc
 
@@ -229,8 +230,8 @@ frame :: () {
 
 	// after this we will explore the picker/finder widgets
 
+	// maybe this should be "ui_end_frame"
 	draw_ui();
-
 	render_frame();
 }
 
@@ -306,10 +307,10 @@ my_init_fonts :: () {
 }
 
 // color stuff
-hex_to_color_vec4 :: (src_hex: string) -> Vector4, success: bool {
+hex_to_color_vec4 :: (src_hex: string) -> Vector4 {
     hex := src_hex;
     if hex.count == 6 then hex = tprint("%FF", hex);
-    if hex.count != 8 return Vector4.{}, false;
+    if hex.count != 8 return Vector4.{};
 
     r := slice(hex, 0, 2);
     g := slice(hex, 2, 2);
@@ -332,7 +333,7 @@ hex_to_color_vec4 :: (src_hex: string) -> Vector4, success: bool {
 
     c := Vector4.{ to_float(r), to_float(g), to_float(b), to_float(a) };
 
-    return c, c.x >= 0 && c.y >= 0 && c.z >= 0 && c.w >= 0;
+    return c;
 }
 
 // utilities 
