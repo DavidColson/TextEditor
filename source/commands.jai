@@ -627,7 +627,14 @@ confirm_document_search :: (using panel: *Panel, args: []string) {
 		document_cursor_step_one_backward(*panel.cursor.head);
 	}
 	editorMode = .NORMAL;
-	panel_reset_dialogs(panel);
+
+	input_field_reset_keeping_memory(*panel.searchInput);
+	panel.searchInput.onEditCallback = null;
+	panel.searchInput.userData = null;
+	if panel.results.count {
+		array_reset(*panel.results);
+	}
+	panel.activeDialog = .NONE;
 }
 
 end_document_search :: (using panel: *Panel) { 
