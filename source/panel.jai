@@ -6,6 +6,13 @@ panel_set_active_document :: (panel: *Panel, doc: *Document) {
 	panel.cursor.anchor = document_create_cursor(panel.document);
 }
 
+panel_refresh_cursors :: (panel: *Panel) {
+	headOffset := panel.cursor.head.documentOffset;
+	anchorOffset := panel.cursor.anchor.documentOffset;
+	panel.cursor.head = document_create_cursor(panel.document, headOffset);
+	panel.cursor.anchor = document_create_cursor(panel.document, anchorOffset);
+}
+
 panel_reset_dialogs :: (panel: *Panel) {
 	if panel.activeDialog == {
 		case .FILE_FINDER; file_finder_reset(panel);

@@ -29,6 +29,7 @@ Document :: struct {
 	path: string;
 	addedBufferEnd: Coordinate;
 	unsaved: bool;
+	diskLastModtime: Apollo_Time;
 	lastDeletionOffset: s64;
 }
 
@@ -134,19 +135,19 @@ document_load_from_disk :: (doc: *Document) {
 	}
 
 	// if the file read fails, we must leave the document in a valid state with no content, so intialize it as such
+	array_reset_keeping_memory(*doc.undoStack);
+	array_reset_keeping_memory(*doc.redoStack);
+	array_reset_keeping_memory(*doc.originalData.lineStarts);
+	array_reset_keeping_memory(*doc.addedData.lineStarts);
+	reset(*doc.documentMemory, overwrite_memory=true);
+	reset(*doc.pieceChainMemory, overwrite_memory=true);
+	doc.size = 0;
+	doc.unsaved = false;
+	doc.lastDeletionOffset = 0;
 	doc.pieceChainHead = New(PieceChainNode,, doc.pieceChainAlloc);
 	doc.pieceChainTail = New(PieceChainNode,, doc.pieceChainAlloc);
 	doc.pieceChainHead.next = doc.pieceChainTail;
 	doc.pieceChainTail.prev = doc.pieceChainHead;
-	doc.size = 0;
-	doc.unsaved = false;
-	doc.lastDeletionOffset = 0;
-	array_reset(*doc.undoStack);
-	array_reset(*doc.redoStack);
-	array_reset(*doc.originalData.lineStarts);
-	array_reset(*doc.addedData.lineStarts);
-	reset(*doc.documentMemory, overwrite_memory=true);
-	reset(*doc.pieceChainMemory, overwrite_memory=true);
 
 	fileSize := file_length(f);
 	if (fileSize > (256*1024*1024)) {
@@ -217,6 +218,7 @@ document_load_from_disk :: (doc: *Document) {
 
 	// setup added data buffer
 	doc.addedData.text.data = file.data + file.count;
+	doc.addedData.text.count = 0;
 	doc.addedData.lineStarts.allocator = doc.pieceChainAlloc;
 	array_add(*doc.addedData.lineStarts, 0);
 	doc.addedBufferEnd = Coordinate.{0,0};
@@ -225,10 +227,6 @@ document_load_from_disk :: (doc: *Document) {
 	// setup undo stack
 	doc.undoStack.allocator = doc.pieceChainAlloc;
 	doc.redoStack.allocator = doc.pieceChainAlloc;
-
-	// create the nill head/tail nodes (means we never have to null check the prev/next ptrs)
-	doc.pieceChainHead = New(PieceChainNode,, doc.pieceChainAlloc);
-	doc.pieceChainTail = New(PieceChainNode,, doc.pieceChainAlloc);
 
 	// create the main node of the piece chain
 	node := New(PieceChainNode,, doc.pieceChainAlloc);
@@ -297,7 +295,16 @@ document_save :: (doc: *Document, path: string, backup := false) {
 		push_notification("Failed to save file");
 	}
 	if !backup {
-		doc.path = copy_string(path,,doc.documentAlloc);
+		if doc.path != path {
+			free(doc.path); // this is bad for some reason?
+			doc.path = copy_string(path);
+		}
+
+		modtime, size, success := file_modtime_and_size(doc.path);
+		if success {
+			doc.diskLastModtime = modtime;
+		}
+
 		doc.unsaved = false;
 		push_notification("Document Saved");
 	}

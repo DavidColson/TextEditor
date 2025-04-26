@@ -230,14 +230,18 @@ file_change_callback :: (watcher: *File_Watcher(void), change: *File_Change, use
 	if found {
 		success, doc := document_get_by_path(change.full_path);
 		if change.events & .MODIFIED {
-			// reload file
-			if doc.unsaved == false {
-				document_load_from_disk(doc);
-			}
-			else {
-				// @todo: when we have nicer UI this should give a popup or something more explicit
-				doc.unsaved = true;
-				push_notification("File on disk changed, but you have unsaved edits");
+			modtime, size, success := file_modtime_and_size(doc.path);
+			if modtime > doc.diskLastModtime {
+				// reload file
+				if doc.unsaved == false {
+					document_load_from_disk(doc);
+					panel_refresh_cursors(*focusedPanel);
+				}
+				else {
+					// @todo: when we have nicer UI this should give a popup or something more explicit
+					doc.unsaved = true;
+					push_notification("File on disk changed, but you have unsaved edits");
+				}
 			}
 		}
 		if change.events & .REMOVED {
