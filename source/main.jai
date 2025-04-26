@@ -110,6 +110,7 @@ main :: () {
     window = create_window(windowWidth, windowHeight, "TextEditor");
 	init_renderer(window);
 	my_init_fonts();
+	init_font_cache();
 	init_ui();
 	rebuild_key_map();
 
@@ -541,6 +542,7 @@ Input :: #import "Input";
 #load "panel.jai";
 #load "ui.jai";
 #load "renderer.jai";
+#load "font.jai";
 #load "uniform/module.jai";
 
 #if OS == .WINDOWS {

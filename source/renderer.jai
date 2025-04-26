@@ -196,6 +196,10 @@ render_frame :: () {
 	numGroups = 0;
 }
 
+// @todo: could groups be automatic?
+// you just submit your instance with it's texture data
+// if the texture is different (or any other parameter) to the one used
+// in the current instance, then you split off into a new group
 start_instance_group :: (tex: *Bitmap = null) {
 	using renderState;
 	instanceGroups[numGroups] = .{numInstances, 0, tex};
