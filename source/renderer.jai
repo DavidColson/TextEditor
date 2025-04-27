@@ -43,6 +43,12 @@ Bitmap :: struct {
 
 	data: []u8;
 	texHandle: GLuint;
+	format: BitmapFormat;
+}
+
+BitmapFormat :: enum {
+	RGBA8;
+	R8;
 }
 
 init_renderer :: (_window: Window_Type) {
@@ -50,7 +56,7 @@ init_renderer :: (_window: Window_Type) {
 	window = _window;
 
 	// all initialization
-	gl_create_context(window, 3, 3);
+	gl_create_context(window, 4, 2);
 
 	gl_load(*gl);
 	gl_enable_debug_output(break_on_error = true);
@@ -138,7 +144,8 @@ init_renderer :: (_window: Window_Type) {
 
 	// test texture loading
 	{
-		testBitmap = load_bitmap(tprint("%../../fonts/house-solid.png", path_strip_filename(get_path_of_running_executable())));
+		testBitmap = make_bitmap_from_file(tprint("%../../fonts/house-solid.png", path_strip_filename(get_path_of_running_executable())));
+		load_bitmap_to_gpu(*testBitmap);
 	}
 
 	// create default white texture
@@ -187,7 +194,7 @@ render_frame :: () {
 		}
 
 		count := instance.instanceEnd - instance.instanceStart;
-		glDrawArraysInstanced(GL_TRIANGLES, instance.instanceStart, 6, xx count);
+		glDrawArraysInstancedBaseInstance(GL_TRIANGLES, 0, 6, xx count, xx instance.instanceStart);
 	}
 
 	platform_swap_buffers(window);
@@ -221,25 +228,48 @@ resize_backbuffer :: () {
 	glViewport(0, 0, xx windowWidth, xx windowHeight);
 }
 
-load_bitmap :: (path: string) -> Bitmap {
+make_bitmap_from_file :: (path: string) -> Bitmap {
 	bitmap: Bitmap;
 	w, h, channels: s32;
+	stbi_set_flip_vertically_on_load(1);
 	bitmap.data.data = stbi_load(temp_c_string(path), *w, *h, *channels, 0); 
 	bitmap.data.count = channels * w * h; 
 	bitmap.width = w;
 	bitmap.height = h;
+	bitmap.format = .RGBA8;
 
+	return bitmap;
+}
+
+alloc_bitmap :: (bitmap: *Bitmap, w: s32, h: s32, format: BitmapFormat) {
+	bytesPerPixel := 1;
+	if format == .RGBA8 {
+		bytesPerPixel = 4;
+	}
+	
+	size := bytesPerPixel * w * h;
+	bitmap.data = NewArray(size, u8);
+	bitmap.format = format;
+	bitmap.width = w;
+	bitmap.height = h;
+}
+
+load_bitmap_to_gpu :: (bitmap: *Bitmap) {
 	glGenTextures(1, *bitmap.texHandle);
 	glBindTexture(GL_TEXTURE_2D, bitmap.texHandle);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S,     GL_CLAMP_TO_BORDER);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T,     GL_CLAMP_TO_BORDER);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, xx w, xx h, 0, GL_RGBA, GL_UNSIGNED_BYTE, bitmap.data.data);
+
+	glformat := GL_RGBA;
+	if bitmap.format == .R8 {
+		glformat = GL_RED;
+	}
+	glTexImage2D(GL_TEXTURE_2D, 0, xx glformat, xx bitmap.width, xx bitmap.height, 0, xx glformat, GL_UNSIGNED_BYTE, bitmap.data.data);
+
 	glGenerateMipmap(GL_TEXTURE_2D);
 	glBindTexture(GL_TEXTURE_2D, 0);
-
-	return bitmap;
 }
 
 #import "GL"(DUMP_GL_ERRORS=true);
@@ -300,7 +330,7 @@ void main()
 	vec2 texSize = textureSize(bitmap, 0);
 	uv = srcRect.xy + quadVerts[gl_VertexID] * srcRect.zw;
 	uv.x = uv.x / texSize.x;
-	uv.y = uv.y / texSize.y;
+	uv.y = 1.0 - uv.y / texSize.y;
 
 	color = inColor; 
 	cornerRadii = inCornerRadii;
