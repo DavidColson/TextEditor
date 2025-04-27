@@ -250,18 +250,7 @@ frame :: () {
 	// maybe this should be "ui_end_frame"
 	end_ui();
 
-	start_instance_group(*defaultFont.atlasList[0].texture);
-	// start_instance_group(*renderState.testBitmap);
-	submit_instance(.{
-		dstRect = .{50, 50, 550, 550},
-		srcRect = .{0.0, 0.0, 1024.0, 1024.0},
-		color = .{1.0, 1.0, 1.0, 1.0},
-		cornerRadii = .{0.0, 0.0, 0.0, 0.0},
-		edgeSoftness = 0.0,
-		borderThickness = 0.0
-	});
-	end_instance_group();
-
+	draw_text("hello world", 50, 50.0 + defaultFont.characterHeight);
 
 	render_frame();
 }

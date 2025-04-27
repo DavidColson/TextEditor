@@ -22,13 +22,15 @@ Font :: struct {
 	pool: Flat_Pool;
 	allocator: Allocator;
 
-	// some kind of lookup
-	// codepoint to atlas id and glyph id
+	// metrics
+	characterHeight: int;
+	typicalAscender: int;
+	typicalDescender: int;
 }
 
 GlyphData :: struct {
 	atlas: s32;
-	uv: Rect;
+	uv: Rect; // @todo: rename, this is not 0-1 normalized so it's confusing, it's really the src rect
 	bearingX: s32;
 	bearingY: s32;
 	advance: s32;
@@ -78,6 +80,14 @@ load_font :: (path: string, sizePixels: int) -> *Font {
 	assert(!error);
 
 	FT_Set_Pixel_Sizes(font.face, 0, xx (sizePixels * 8));
+
+	font.characterHeight = sizePixels * 8;
+
+	glyphIndex := FT_Get_Char_Index(font.face, #char "g");
+    if glyphIndex {
+        FT_Load_Glyph(font.face, glyphIndex, FT_LOAD_DEFAULT);
+        font.typicalDescender = FT_ROUND(font.face.glyph.metrics.horiBearingY - font.face.glyph.metrics.height);
+    }
 
 	// setup our first atlas
 	atlas := array_add(*font.atlasList);
@@ -129,10 +139,39 @@ load_font :: (path: string, sizePixels: int) -> *Font {
 	return font;
 }
 
-draw_text :: (text: string) {
-	// generate line of text, produce render instances from it
-	// @todo: this is the next step
-	// note that text rendering may require a custom shader, or at least a custom codepath in said shader
+draw_text :: (text: string, x: float, y: float) {
+	// @todo: refactor this such that we split calculating all the rects and setting everything up
+	// into a pass (used for calculating metrics)
+	// and then a second pass to actually submit the instances
+
+	start_instance_group(*defaultFont.atlasList[0].texture);
+
+	xPos := x;
+	yPos := y;
+	for text {
+		utf32 := character_utf8_to_utf32(*cast(u8)it, 1);
+		glyphIndex := FT_Get_Char_Index(defaultFont.face, utf32);
+		glyphData, success := table_find(*defaultFont.glyphTable, glyphIndex);
+
+		// @todo: should not need this if we generate glyphs if they don't exist, so there is always a glyph
+		// I guess unless it's not in the font, but we'll give back a default in that case
+		if success {
+			xPos = x + glyphData.bearingX;
+			yPos = y - glyphData.bearingY;
+			w := glyphData.uv.w;
+			h := glyphData.uv.h;
+			submit_instance(.{
+				dstRect = .{xPos, yPos, w, h},
+				srcRect = glyphData.uv,
+				color = .{1.0, 1.0, 1.0, 1.0},
+				cornerRadii = .{0.0, 0.0, 0.0, 0.0},
+				edgeSoftness = 0.0,
+				borderThickness = 0.0
+			});
+			x += glyphData.advance;
+		}
+	}
+	end_instance_group();
 }
 
 can_rect_fit_in_atlas :: (atlas: *Atlas, atNode: s32, w: s32, h: s32) -> s32 {
@@ -252,16 +291,21 @@ try_add_glyph_to_atlas :: (atlas: *Atlas, face: FT_Face, glyphData: *GlyphData) 
 	}
 
 	// set the uv rect for rendering
-	glyphData.uv.x = xx bestX;
-	glyphData.uv.y = xx bestY;
-	glyphData.uv.w = xx width;
-	glyphData.uv.h = xx rows;
+	glyphData.uv.x = cast(float)  bestX;
+	glyphData.uv.y = cast(float) (atlas.height - bestY - rows);
+	glyphData.uv.w = cast(float)  width;
+	glyphData.uv.h = cast(float)  rows;
 
 	return true;
 }
 
 defaultFont : *Font;
 #scope_file
+
+FT_ROUND :: inline (x: int) -> int {
+    if x >= 0 return (x + 0x1f) >> 6;
+    return -(((-x) + 0x1f) >> 6);
+}
 
 freetype : FT_Library;
 // @todo: move outside
