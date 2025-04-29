@@ -30,9 +30,9 @@ Font :: struct {
 
 GlyphData :: struct {
 	atlas: s32;
-	uv: Rect; // @todo: rename, this is not 0-1 normalized so it's confusing, it's really the src rect
-	bearingX: s32;
-	bearingY: s32;
+	subRect: Rect;
+	offsetX: s32;
+	offsetY: s32;
 	advance: s32;
 }
 
@@ -50,8 +50,10 @@ AtlasNode :: struct {
 }
 
 TextRun :: struct {
-	// list of glyphs ready to render
-	// bounds/dimensions
+	glyphs: []*GlyphData;
+	// in pixels
+	height: s32;
+	width: s32; 
 }
 
 init_font_cache :: () {
@@ -119,8 +121,8 @@ load_font :: (path: string, sizePixels: int) -> *Font {
 
 		glyphData := New(GlyphData,,font.allocator);
 
-		glyphData.bearingX = font.face.glyph.bitmap_left;
-		glyphData.bearingY = font.face.glyph.bitmap_top;
+		glyphData.offsetX = font.face.glyph.bitmap_left;
+		glyphData.offsetY = font.face.glyph.bitmap_top;
 		glyphData.advance = (font.face.glyph.advance.x >> 6);
 
 		if !try_add_glyph_to_atlas(*font.atlasList[font.atlasList.count-1], font.face, glyphData) {
@@ -139,37 +141,55 @@ load_font :: (path: string, sizePixels: int) -> *Font {
 	return font;
 }
 
+generate_text_run :: (text: string) -> TextRun {
+	textCopy := text;
+	nCodepoints := 0;
+	while textCopy.count > 0 {
+		nBytes := 1 + trailingBytesForUTF8[textCopy[0]];
+		textCopy.data += nBytes; 
+		textCopy.count -= nBytes; 
+		nCodepoints += 1;
+	}
+	
+	result: TextRun;
+	result.width = 0;
+	result.height = 0;
+	result.glyphs = NewArray(nCodepoints,*GlyphData);
+
+	textCopy = text;
+	i := 0;
+	while textCopy.count > 0 {
+		utf32,success := utf8_next_character(*textCopy);
+		if success == .CONVERSION_OK {
+			glyphIndex := FT_Get_Char_Index(defaultFont.face, utf32);
+			// @todo: this should be "find or create glyph"
+			glyphData,_ := table_find(*defaultFont.glyphTable, glyphIndex);
+			result.glyphs[i] = glyphData;
+			result.width += glyphData.advance;
+			result.height = max(cast(s32)glyphData.subRect.h, result.height);
+		}
+		i += 1;
+	}
+	return result;
+}
+
 draw_text :: (text: string, x: float, y: float) {
-	// @todo: refactor this such that we split calculating all the rects and setting everything up
-	// into a pass (used for calculating metrics)
-	// and then a second pass to actually submit the instances
+	run := generate_text_run(text,,temp);
 
+	// render the text run at the desired position
 	start_instance_group(*defaultFont.atlasList[0].texture, true);
-
 	xPos := x;
 	yPos := y;
-	for text {
-		utf32 := character_utf8_to_utf32(*cast(u8)it, 1);
-		glyphIndex := FT_Get_Char_Index(defaultFont.face, utf32);
-		glyphData, success := table_find(*defaultFont.glyphTable, glyphIndex);
-
-		// @todo: should not need this if we generate glyphs if they don't exist, so there is always a glyph
-		// I guess unless it's not in the font, but we'll give back a default in that case
-		if success {
-			xPos = x + glyphData.bearingX;
-			yPos = y - glyphData.bearingY;
-			w := glyphData.uv.w;
-			h := glyphData.uv.h;
-			submit_instance(.{
-				dstRect = .{xPos, yPos, w, h},
-				srcRect = glyphData.uv,
-				color = .{1.0, 1.0, 1.0, 1.0},
-				cornerRadii = .{0.0, 0.0, 0.0, 0.0},
-				edgeSoftness = 0.0,
-				borderThickness = 0.0
-			});
-			x += glyphData.advance;
-		}
+	for run.glyphs {
+		submit_instance(.{
+			dstRect = .{x + it.offsetX, y - it.offsetY, it.subRect.w, it.subRect.h},
+			srcRect = it.subRect,
+			color = .{1.0, 1.0, 1.0, 1.0},
+			cornerRadii = .{0.0, 0.0, 0.0, 0.0},
+			edgeSoftness = 0.0,
+			borderThickness = 0.0
+		});
+		x += it.advance;
 	}
 	end_instance_group();
 }
@@ -291,10 +311,10 @@ try_add_glyph_to_atlas :: (atlas: *Atlas, face: FT_Face, glyphData: *GlyphData) 
 	}
 
 	// set the uv rect for rendering
-	glyphData.uv.x = cast(float)  bestX;
-	glyphData.uv.y = cast(float) (atlas.height - bestY - rows);
-	glyphData.uv.w = cast(float)  width;
-	glyphData.uv.h = cast(float)  rows;
+	glyphData.subRect.x = cast(float)  bestX;
+	glyphData.subRect.y = cast(float) (atlas.height - bestY - rows);
+	glyphData.subRect.w = cast(float)  width;
+	glyphData.subRect.h = cast(float)  rows;
 
 	return true;
 }
