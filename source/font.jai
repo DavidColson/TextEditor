@@ -79,9 +79,9 @@ load_font :: (path: string, sizePixels: int) -> *Font {
 	error := FT_New_Memory_Face(freetype, file.data, xx file.count, 0, *font.face);
 	assert(!error);
 
-	FT_Set_Pixel_Sizes(font.face, 0, xx (sizePixels * 8));
+	FT_Set_Pixel_Sizes(font.face, 0, xx (sizePixels));
 
-	font.characterHeight = sizePixels * 8;
+	font.characterHeight = sizePixels;
 
 	glyphIndex := FT_Get_Char_Index(font.face, #char "g");
     if glyphIndex {
@@ -144,7 +144,7 @@ draw_text :: (text: string, x: float, y: float) {
 	// into a pass (used for calculating metrics)
 	// and then a second pass to actually submit the instances
 
-	start_instance_group(*defaultFont.atlasList[0].texture);
+	start_instance_group(*defaultFont.atlasList[0].texture, true);
 
 	xPos := x;
 	yPos := y;

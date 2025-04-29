@@ -4,9 +4,8 @@ RendererState :: struct {
 
 	instanceVbo: GLuint;
 	vao: GLuint;
-	vertexShader: GLuint;
-	fragmentShader: GLuint;
-	program: GLuint;
+	standardProgram: GLuint;
+	textProgram: GLuint;
 	resolutionUniformLocation: GLint;
 	whiteDefaultTex: GLuint;
 
@@ -26,6 +25,7 @@ InstanceGroup :: struct {
 	instanceStart: s32;
 	instanceEnd: s32;
 	texture: *Bitmap;
+	shader: GLuint;
 }
 
 Instance :: struct {
@@ -66,36 +66,10 @@ init_renderer :: (_window: Window_Type) {
 	numInstances = 0;
 	numGroups = 0;
 
-	// make vertex shader
+	// make shader programs
 	{
-		shaderSource := VERTEX_SHADER.data;
-		vertexShader = glCreateShader(GL_VERTEX_SHADER);
-		glShaderSource(vertexShader, 1, *shaderSource, null);
-		glCompileShader(vertexShader);
-		report_shader_errors(vertexShader, "Vertex");
-
-        DumpGLErrors("vertex shader");
-	}
-	// make fragment shader
-	{
-		shaderSource := FRAGMENT_SHADER.data;
-		fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
-		glShaderSource(fragmentShader, 1,  *shaderSource, null);
-		glCompileShader(fragmentShader);
-		report_shader_errors(fragmentShader, "Fragment");
-
-        DumpGLErrors("fragment shader");
-	}
-	// make program
-	{
-		program = glCreateProgram();
-		glAttachShader(program, vertexShader);
-		glAttachShader(program, fragmentShader);
-		glLinkProgram(program);
-
-		resolutionUniformLocation = glGetUniformLocation(program, "resolution");
-
-        DumpGLErrors("program");
+		standardProgram = get_shader_program(VERTEX_SHADER, FRAGMENT_SHADER, .[]);
+		textProgram = get_shader_program(VERTEX_SHADER, FRAGMENT_SHADER, .["TEXT_RENDERING"]);
 	}
 	// setup the VAO
 	{
@@ -180,12 +154,14 @@ render_frame :: () {
 	glBindBuffer(GL_ARRAY_BUFFER, instanceVbo);
 	glBufferData(GL_ARRAY_BUFFER, size_of(Instance) * numInstances, instances.data, GL_STREAM_DRAW);
 
-	glUseProgram(program);
-	resolutionUniformLocation = glGetUniformLocation(program, "resolution");
-	glUniform2f(resolutionUniformLocation, xx windowWidth, xx windowHeight);
 
 	for 0..numGroups-1 {
 		instance := *instanceGroups[it];
+		glUseProgram(instance.shader);
+
+		resolutionUniformLocation = glGetUniformLocation(standardProgram, "resolution");
+		glUniform2f(resolutionUniformLocation, xx windowWidth, xx windowHeight);
+
 		if instance.texture == null {
 			glBindTexture(GL_TEXTURE_2D, whiteDefaultTex);
 		}
@@ -207,9 +183,11 @@ render_frame :: () {
 // you just submit your instance with it's texture data
 // if the texture is different (or any other parameter) to the one used
 // in the current instance, then you split off into a new group
-start_instance_group :: (tex: *Bitmap = null) {
+start_instance_group :: (tex: *Bitmap = null, textRendering := false) {
 	using renderState;
-	instanceGroups[numGroups] = .{numInstances, 0, tex};
+	shader := standardProgram;
+	if textRendering then shader = textProgram;
+	instanceGroups[numGroups] = .{numInstances, 0, tex, shader};
 	numGroups += 1;
 }
 
@@ -277,20 +255,71 @@ load_bitmap_to_gpu :: (bitmap: *Bitmap) {
 
 #scope_file
 
-report_shader_errors :: (shader: GLuint, shaderName: string) {
-	success : GLint;
-	glGetShaderiv(shader, GL_COMPILE_STATUS, *success);
+get_shader_program :: (vertShader: string, fragShader: string, defines: []string) -> GLuint {
+    LOG_BUFFER_SIZE :: 512;
 
-	if !success then {
-		log_data: [512] u8;
-		glGetShaderInfoLog(shader, log_data.count, null, log_data.data);
-		log("%:\n%", shaderName, to_string(log_data.data), flags=.ERROR);
-	}
+    make_shader_object :: (shader: string, defines: []string, type : GLenum) -> GLuint {
+        shaderHandle := glCreateShader(type);
+
+		builder : String_Builder;
+		builder.allocator = temp;
+		init_string_builder(*builder);
+		append(*builder, "#version 330 core\n");
+		for defines {
+			print_to_builder(*builder, "#define %\n", it);
+		}
+		prefix := builder_to_string(*builder,,temp);
+
+        shaders: [2] *u8;
+        lengths: [2] s32;
+        shaders[0] = prefix.data;
+        shaders[1] = shader.data;
+        lengths[0] = xx prefix.count;
+        lengths[1] = xx shader.count;
+
+        glShaderSource(shaderHandle, 2, shaders.data, lengths.data);
+
+        glCompileShader(shaderHandle);
+
+        success : GLint;
+        glGetShaderiv(shaderHandle, GL_COMPILE_STATUS, *success);
+
+        if !success then {
+            logData: [LOG_BUFFER_SIZE] u8;
+            glGetShaderInfoLog(shaderHandle, logData.count, null, logData.data);
+            print("%", to_string(logData.data));
+            return 0;
+        }
+
+        return shaderHandle;
+    }
+
+    vertexShader := make_shader_object(vertShader, defines, GL_VERTEX_SHADER);
+    fragmentShader := make_shader_object(fragShader, defines, GL_FRAGMENT_SHADER);
+    program := glCreateProgram();
+
+    glAttachShader(program, vertexShader);
+    glAttachShader(program, fragmentShader);
+    glLinkProgram(program);
+
+    success : GLint = 0;
+    glGetProgramiv(program, GL_LINK_STATUS, *success);
+
+    if !success then {
+        logData: [LOG_BUFFER_SIZE] u8;
+        glGetProgramInfoLog(program, logData.count, null, logData.data);
+        print("%", to_string(logData.data));
+        return 0;
+    }
+
+    glDeleteShader(vertexShader);
+    glDeleteShader(fragmentShader);
+
+    return program;
 }
 
 
 VERTEX_SHADER :: #string END
-#version 330 core
 layout (location = 0) in vec4 dstRect;
 layout (location = 1) in vec4 srcRect;
 layout (location = 2) in vec4 inColor;
@@ -341,7 +370,6 @@ void main()
 END
 
 FRAGMENT_SHADER :: #string END
-#version 330 core
 out vec4 FragColor;
 
 uniform sampler2D bitmap;
@@ -363,7 +391,11 @@ float sdfRoundedBox(vec2 pt, vec2 halfDimensions, vec4 radii)
 
 void main()
 {
+#ifdef TEXT_RENDERING
+	FragColor = vec4(color.rgb, texture(bitmap, uv).r*color.a);
+#else
     FragColor = color * texture(bitmap, uv);
+#endif
 
 	vec2 softnessPadding = vec2(max(0, edgeSoftness-1), max(0, edgeSoftness-1));
 	vec2 pt = (uv - vec2(0.5, 0.5)) * dstSize; 
