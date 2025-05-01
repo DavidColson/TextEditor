@@ -14,14 +14,19 @@ RendererState :: struct {
 	numInstances: s32;
 
 	MAX_GROUPS :: 256;
-	instanceGroups: [MAX_GROUPS]InstanceGroup;
+	groups: [MAX_GROUPS]Group;
 	numGroups: s32;
 
 	testBitmap: Bitmap;
 }
 renderState: RendererState;
 
-InstanceGroup :: struct {
+Shader :: enum {
+	RECTS;
+	TEXT;
+}
+
+Group :: struct {
 	instanceStart: s32;
 	instanceEnd: s32;
 	texture: *Bitmap;
@@ -35,6 +40,8 @@ Instance :: struct {
 	cornerRadii: Vector4;
 	edgeSoftness: float; // negative will result in inverse rounded corners
 	borderThickness: float;
+	texture: *Bitmap;
+	shader: Shader;
 }
 
 Bitmap :: struct {
@@ -146,6 +153,9 @@ init_renderer :: (_window: Window_Type) {
 render_frame :: () {
 	using renderState;
 
+	// end the final group
+	groups[numGroups-1].instanceEnd = numInstances;
+
 	c := hex_to_color_vec4("282c34");
     glClearColor(c.x, c.y, c.z, 0.0);
 	glClear(GL_COLOR_BUFFER_BIT);
@@ -156,7 +166,7 @@ render_frame :: () {
 
 
 	for 0..numGroups-1 {
-		instance := *instanceGroups[it];
+		instance := *groups[it];
 		glUseProgram(instance.shader);
 
 		resolutionUniformLocation = glGetUniformLocation(standardProgram, "resolution");
@@ -179,27 +189,26 @@ render_frame :: () {
 	numGroups = 0;
 }
 
-// @todo: could groups be automatic?
-// you just submit your instance with it's texture data
-// if the texture is different (or any other parameter) to the one used
-// in the current instance, then you split off into a new group
-start_instance_group :: (tex: *Bitmap = null, textRendering := false) {
-	using renderState;
-	shader := standardProgram;
-	if textRendering then shader = textProgram;
-	instanceGroups[numGroups] = .{numInstances, 0, tex, shader};
-	numGroups += 1;
-}
-
 submit_instance :: (instance: Instance) {
 	using renderState;
+	if numInstances == 0 {
+		// start a new group
+		shaderHandle := standardProgram;
+		if instance.shader == .TEXT then shaderHandle = textProgram;
+		groups[numGroups] = .{numInstances, 0, instance.texture, shaderHandle};
+		numGroups += 1;
+	}
+	if numInstances && (instance.texture != instances[numInstances-1].texture || instance.shader != instances[numInstances-1].shader) {
+		// end previous group
+		groups[numGroups-1].instanceEnd = numInstances;
+		// start new group
+		shaderHandle := standardProgram;
+		if instance.shader == .TEXT then shaderHandle = textProgram;
+		groups[numGroups] = .{numInstances, 0, instance.texture, shaderHandle};
+		numGroups += 1;
+	}
 	instances[numInstances] = instance;
 	numInstances += 1;
-}
-
-end_instance_group :: () {
-	using renderState;
-	instanceGroups[numGroups-1].instanceEnd = numInstances;
 }
 
 resize_backbuffer :: () {

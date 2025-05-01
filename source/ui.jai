@@ -159,8 +159,6 @@ end_ui :: () {
 	push_parent :: (box: *UIBox) #expand { `recursionStack[`recursionLevel] = box; `recursionLevel += 1; }
 	pop_parent :: () -> *UIBox #expand { `recursionLevel -= 1; return `recursionStack[`recursionLevel]; }
 
-	start_instance_group();
-
 	// @todo: you could wrap this in a depth first for expansion
 	box := uiState.rootbox;
 	push_parent(box.next);
@@ -191,8 +189,6 @@ end_ui :: () {
 			}
 		}
 	}
-
-	end_instance_group();
 
 	reset_parameter_stacks();
 	reset(*uiState.frameArena, overwrite_memory=true);

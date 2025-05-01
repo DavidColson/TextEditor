@@ -11,16 +11,22 @@
 
 // this is presumably what we'll store in the atlas information
 
+FontCache :: struct {
+	freetype : FT_Library;
+	atlasList: [..]Atlas;
+	pool: Flat_Pool;
+	allocator: Allocator;
+}
+
 Font :: struct {
 	fileData: []u8;
 
 	face: FT_Face;
 
+	// @todo: we want to make this a two level hash
+	// first is a style hash (i.e. bold, italic, size etc, merged into a single key)
+	// second will be the actual glyph table
 	glyphTable: Table(u32, *GlyphData);
-	atlasList: [..]Atlas;
-
-	pool: Flat_Pool;
-	allocator: Allocator;
 
 	// metrics
 	characterHeight: int;
@@ -39,8 +45,6 @@ GlyphData :: struct {
 Atlas :: struct {
 	texture: Bitmap;
 	nodes: [..]AtlasNode;
-	width: s32;
-	height: s32;
 }
 
 AtlasNode :: struct {
@@ -58,8 +62,21 @@ TextRun :: struct {
 
 init_font_cache :: () {
 	// initialize freetype
-	error := FT_Init_FreeType(*freetype);
+	error := FT_Init_FreeType(*fontCache.freetype);
 	assert(!error);
+
+	fontCache.allocator = Allocator.{ proc = flat_pool_allocator_proc, data = *fontCache.pool };
+	fontCache.atlasList.allocator = fontCache.allocator;
+
+	// setup our first atlas
+	atlas := array_add(*fontCache.atlasList);
+	atlas.nodes.allocator = fontCache.allocator;
+	alloc_bitmap(*atlas.texture, 1024, 1024, .R8,,fontCache.allocator);
+
+	initialNode := array_add(*atlas.nodes);
+	initialNode.x = 0;
+	initialNode.y = 0;
+	initialNode.width = atlas.texture.width;
 
 	// load default fonts
 	// @todo: shouldn't really be in this file, cleanup at some point
@@ -69,16 +86,14 @@ init_font_cache :: () {
 
 load_font :: (path: string, sizePixels: int) -> *Font {
 	font := New(Font);
-	font.allocator = Allocator.{ proc = flat_pool_allocator_proc, data = *font.pool };
-	font.atlasList.allocator = font.allocator;
 
 	// load the file
-	file, success := read_entire_file(path,,font.allocator);
+	file, success := read_entire_file(path,,fontCache.allocator);
 	assert(success);
 	font.fileData.data = file.data;
 	font.fileData.count = file.count;
 
-	error := FT_New_Memory_Face(freetype, file.data, xx file.count, 0, *font.face);
+	error := FT_New_Memory_Face(fontCache.freetype, file.data, xx file.count, 0, *font.face);
 	assert(!error);
 
 	FT_Set_Pixel_Sizes(font.face, 0, xx (sizePixels));
@@ -90,18 +105,6 @@ load_font :: (path: string, sizePixels: int) -> *Font {
         FT_Load_Glyph(font.face, glyphIndex, FT_LOAD_DEFAULT);
         font.typicalDescender = FT_ROUND(font.face.glyph.metrics.horiBearingY - font.face.glyph.metrics.height);
     }
-
-	// setup our first atlas
-	atlas := array_add(*font.atlasList);
-	atlas.nodes.allocator = font.allocator;
-	atlas.width = 1024;
-	atlas.height = 1024;
-	alloc_bitmap(*atlas.texture, atlas.width, atlas.height, .R8,,font.allocator);
-
-	initialNode := array_add(*atlas.nodes);
-	initialNode.x = 0;
-	initialNode.y = 0;
-	initialNode.width = atlas.width;
 
 	// generate an ascii atlas first
 	for 0..127 {
@@ -119,13 +122,13 @@ load_font :: (path: string, sizePixels: int) -> *Font {
 		// @todo: here is where you'd specify LCD subpixel rendering
 		FT_Render_Glyph(font.face.glyph, .FT_RENDER_MODE_NORMAL);
 
-		glyphData := New(GlyphData,,font.allocator);
+		glyphData := New(GlyphData,,fontCache.allocator);
 
 		glyphData.offsetX = font.face.glyph.bitmap_left;
 		glyphData.offsetY = font.face.glyph.bitmap_top;
 		glyphData.advance = (font.face.glyph.advance.x >> 6);
 
-		if !try_add_glyph_to_atlas(*font.atlasList[font.atlasList.count-1], font.face, glyphData) {
+		if !try_add_glyph_to_atlas(*fontCache.atlasList[fontCache.atlasList.count-1], font.face, glyphData) {
 			// @todo: failed to find space in atlas, make a new one
 			assert(false);
 		}
@@ -136,7 +139,7 @@ load_font :: (path: string, sizePixels: int) -> *Font {
 	// upload atlas to gpu
 	// @todo: this should happen dynamically when things update in a smart way?
 	// maybe before doing a render we check if it's dirty?
-	load_bitmap_to_gpu(*font.atlasList[0].texture);
+	load_bitmap_to_gpu(*fontCache.atlasList[0].texture);
 
 	return font;
 }
@@ -177,7 +180,6 @@ draw_text :: (text: string, x: float, y: float) {
 	run := generate_text_run(text,,temp);
 
 	// render the text run at the desired position
-	start_instance_group(*defaultFont.atlasList[0].texture, true);
 	xPos := x;
 	yPos := y;
 	for run.glyphs {
@@ -187,11 +189,12 @@ draw_text :: (text: string, x: float, y: float) {
 			color = .{1.0, 1.0, 1.0, 1.0},
 			cornerRadii = .{0.0, 0.0, 0.0, 0.0},
 			edgeSoftness = 0.0,
-			borderThickness = 0.0
+			borderThickness = 0.0,
+			texture = *fontCache.atlasList[it.atlas].texture,
+			shader = .TEXT
 		});
 		x += it.advance;
 	}
-	end_instance_group();
 }
 
 can_rect_fit_in_atlas :: (atlas: *Atlas, atNode: s32, w: s32, h: s32) -> s32 {
@@ -199,7 +202,7 @@ can_rect_fit_in_atlas :: (atlas: *Atlas, atNode: s32, w: s32, h: s32) -> s32 {
 	y := atlas.nodes[atNode].y;
 
 	// check we're not going off the edge of the bitmap
-	if x + w > atlas.width {
+	if x + w > atlas.texture.width {
 		return -1;
 	}
 
@@ -217,7 +220,7 @@ can_rect_fit_in_atlas :: (atlas: *Atlas, atNode: s32, w: s32, h: s32) -> s32 {
 		if node.y > y
 			y = node.y;
 
-		if y + h > atlas.height
+		if y + h > atlas.texture.height
 			return -1; // off the edge of the bitmap
 
 		remainingSpace -= node.width;
@@ -228,8 +231,8 @@ can_rect_fit_in_atlas :: (atlas: *Atlas, atNode: s32, w: s32, h: s32) -> s32 {
 }
 
 try_add_glyph_to_atlas :: (atlas: *Atlas, face: FT_Face, glyphData: *GlyphData) -> bool {
-	bestHeight: s32 = atlas.height;
-	bestWidth: s32 = atlas.width;
+	bestHeight: s32 = atlas.texture.height;
+	bestWidth: s32 = atlas.texture.width;
 	bestNode: s32 = -1;
 	bestX, bestY: s32;
 
@@ -305,14 +308,14 @@ try_add_glyph_to_atlas :: (atlas: *Atlas, face: FT_Face, glyphData: *GlyphData) 
 	pitch := cast(s32) face.glyph.bitmap.pitch;
 	for j : 0..rows-1 {
 		for i : 0..width-1 {
-            dst_pixel := atlas.texture.data.data + ((bestY + j) * atlas.width + (bestX + i));
+            dst_pixel := atlas.texture.data.data + ((bestY + j) * atlas.texture.width + (bestX + i));
             <<dst_pixel = face.glyph.bitmap.buffer[(rows - 1 - j) * pitch + i];
 		}
 	}
 
 	// set the uv rect for rendering
 	glyphData.subRect.x = cast(float)  bestX;
-	glyphData.subRect.y = cast(float) (atlas.height - bestY - rows);
+	glyphData.subRect.y = cast(float) (atlas.texture.height - bestY - rows);
 	glyphData.subRect.w = cast(float)  width;
 	glyphData.subRect.h = cast(float)  rows;
 
@@ -322,12 +325,13 @@ try_add_glyph_to_atlas :: (atlas: *Atlas, face: FT_Face, glyphData: *GlyphData) 
 defaultFont : *Font;
 #scope_file
 
+fontCache: FontCache;
+
 FT_ROUND :: inline (x: int) -> int {
     if x >= 0 return (x + 0x1f) >> 6;
     return -(((-x) + 0x1f) >> 6);
 }
 
-freetype : FT_Library;
 // @todo: move outside
 
 #import "freetype-2.12.1";
