@@ -48,6 +48,7 @@ Bitmap :: struct {
 	width: s32;
 	height: s32;
 
+	dirty: bool;
 	data: []u8;
 	texHandle: GLuint;
 	format: BitmapFormat;
@@ -164,7 +165,6 @@ render_frame :: () {
 	glBindBuffer(GL_ARRAY_BUFFER, instanceVbo);
 	glBufferData(GL_ARRAY_BUFFER, size_of(Instance) * numInstances, instances.data, GL_STREAM_DRAW);
 
-
 	for 0..numGroups-1 {
 		instance := *groups[it];
 		glUseProgram(instance.shader);
@@ -176,6 +176,10 @@ render_frame :: () {
 			glBindTexture(GL_TEXTURE_2D, whiteDefaultTex);
 		}
 		else {
+			if instance.texture.dirty {
+				load_bitmap_to_gpu(instance.texture);
+				instance.texture.dirty = false;
+			}
 			glBindTexture(GL_TEXTURE_2D, instance.texture.texHandle);
 		}
 

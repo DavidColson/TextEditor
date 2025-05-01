@@ -250,7 +250,8 @@ frame :: () {
 	// maybe this should be "ui_end_frame"
 	end_ui();
 
-	draw_text("hello world", 50, 50.0 + defaultFont.characterHeight);
+	draw_text("hello world", 25, 50.0, 80.0);
+	draw_text("hello world", 15, 50.0, 50.0);
 
 	render_frame();
 }

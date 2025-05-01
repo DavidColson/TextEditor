@@ -20,13 +20,15 @@ FontCache :: struct {
 
 Font :: struct {
 	fileData: []u8;
-
 	face: FT_Face;
 
-	// @todo: we want to make this a two level hash
-	// first is a style hash (i.e. bold, italic, size etc, merged into a single key)
-	// second will be the actual glyph table
-	glyphTable: Table(u32, *GlyphData);
+	// keyed by size currently
+	styleTable: Table(int, FontStyle);
+}
+
+FontStyle :: struct {
+	// keyed by glyphIndex in the font face
+	glyphTable: Table(u32, GlyphData);
 
 	// metrics
 	characterHeight: int;
@@ -42,19 +44,8 @@ GlyphData :: struct {
 	advance: s32;
 }
 
-Atlas :: struct {
-	texture: Bitmap;
-	nodes: [..]AtlasNode;
-}
-
-AtlasNode :: struct {
-	x: s32;
-	y: s32;
-	width: s32;
-}
-
 TextRun :: struct {
-	glyphs: []*GlyphData;
+	glyphs: []GlyphData;
 	// in pixels
 	height: s32;
 	width: s32; 
@@ -81,10 +72,10 @@ init_font_cache :: () {
 	// load default fonts
 	// @todo: shouldn't really be in this file, cleanup at some point
 	path := tprint("%../../fonts/FiraMonoNerdFontMono-Medium.ttf", path_strip_filename(get_path_of_running_executable()));
-	defaultFont = load_font(path, textSize);
+	defaultFont = load_font(path);
 }
 
-load_font :: (path: string, sizePixels: int) -> *Font {
+load_font :: (path: string) -> *Font {
 	font := New(Font);
 
 	// load the file
@@ -95,56 +86,14 @@ load_font :: (path: string, sizePixels: int) -> *Font {
 
 	error := FT_New_Memory_Face(fontCache.freetype, file.data, xx file.count, 0, *font.face);
 	assert(!error);
-
-	FT_Set_Pixel_Sizes(font.face, 0, xx (sizePixels));
-
-	font.characterHeight = sizePixels;
-
-	glyphIndex := FT_Get_Char_Index(font.face, #char "g");
-    if glyphIndex {
-        FT_Load_Glyph(font.face, glyphIndex, FT_LOAD_DEFAULT);
-        font.typicalDescender = FT_ROUND(font.face.glyph.metrics.horiBearingY - font.face.glyph.metrics.height);
-    }
-
-	// generate an ascii atlas first
-	for 0..127 {
-
-		// @todo: refactor this into something like "find or make glyph"
-
-		// unicode!!
-		utf32 := character_utf8_to_utf32(*cast(u8)it, 1);
-		glyphIndex := FT_Get_Char_Index(font.face, utf32);
-
-		// Try LOAD_NO_HINTING if you want to allow no hinting
-		error := FT_Load_Glyph(font.face, glyphIndex, FT_LOAD_DEFAULT);
-		assert(!error);
-
-		// @todo: here is where you'd specify LCD subpixel rendering
-		FT_Render_Glyph(font.face.glyph, .FT_RENDER_MODE_NORMAL);
-
-		glyphData := New(GlyphData,,fontCache.allocator);
-
-		glyphData.offsetX = font.face.glyph.bitmap_left;
-		glyphData.offsetY = font.face.glyph.bitmap_top;
-		glyphData.advance = (font.face.glyph.advance.x >> 6);
-
-		if !try_add_glyph_to_atlas(*fontCache.atlasList[fontCache.atlasList.count-1], font.face, glyphData) {
-			// @todo: failed to find space in atlas, make a new one
-			assert(false);
-		}
-
-		table_add(*font.glyphTable, glyphIndex, glyphData);
-	}
-
-	// upload atlas to gpu
-	// @todo: this should happen dynamically when things update in a smart way?
-	// maybe before doing a render we check if it's dirty?
-	load_bitmap_to_gpu(*fontCache.atlasList[0].texture);
+	font.styleTable.allocator = fontCache.allocator;
 
 	return font;
 }
 
-generate_text_run :: (text: string) -> TextRun {
+// @todo should really take a font, or some kind of handle to a font
+// maybe you can specify a default font in the cache?
+generate_text_run :: (text: string, size: int) -> TextRun {
 	textCopy := text;
 	nCodepoints := 0;
 	while textCopy.count > 0 {
@@ -157,7 +106,7 @@ generate_text_run :: (text: string) -> TextRun {
 	result: TextRun;
 	result.width = 0;
 	result.height = 0;
-	result.glyphs = NewArray(nCodepoints,*GlyphData);
+	result.glyphs = NewArray(nCodepoints,GlyphData);
 
 	textCopy = text;
 	i := 0;
@@ -165,8 +114,8 @@ generate_text_run :: (text: string) -> TextRun {
 		utf32,success := utf8_next_character(*textCopy);
 		if success == .CONVERSION_OK {
 			glyphIndex := FT_Get_Char_Index(defaultFont.face, utf32);
-			// @todo: this should be "find or create glyph"
-			glyphData,_ := table_find(*defaultFont.glyphTable, glyphIndex);
+
+			glyphData := find_or_make_glyph(defaultFont, size, glyphIndex);
 			result.glyphs[i] = glyphData;
 			result.width += glyphData.advance;
 			result.height = max(cast(s32)glyphData.subRect.h, result.height);
@@ -176,12 +125,10 @@ generate_text_run :: (text: string) -> TextRun {
 	return result;
 }
 
-draw_text :: (text: string, x: float, y: float) {
-	run := generate_text_run(text,,temp);
+draw_text :: (text: string, size: int, x: float, y: float) {
+	run := generate_text_run(text, size,,temp);
 
 	// render the text run at the desired position
-	xPos := x;
-	yPos := y;
 	for run.glyphs {
 		submit_instance(.{
 			dstRect = .{x + it.offsetX, y - it.offsetY, it.subRect.w, it.subRect.h},
@@ -195,6 +142,69 @@ draw_text :: (text: string, x: float, y: float) {
 		});
 		x += it.advance;
 	}
+}
+
+
+
+#scope_file
+
+Atlas :: struct {
+	texture: Bitmap;
+	nodes: [..]AtlasNode;
+}
+
+AtlasNode :: struct {
+	x: s32;
+	y: s32;
+	width: s32;
+}
+
+find_or_make_glyph :: (font: *Font, size: int, glyphIndex: u32) -> GlyphData {
+	fontStyle,newStyle := find_or_add(*font.styleTable, size);
+
+	// cache miss on the font style
+	if newStyle {
+		fontStyle.glyphTable.allocator = fontCache.allocator;
+		FT_Set_Pixel_Sizes(font.face, 0, xx size);
+
+		// calculate basic metrics
+		fontStyle.characterHeight = size;
+		glyphIndexTemp := FT_Get_Char_Index(font.face, #char "T");
+		if glyphIndexTemp {
+			FT_Load_Glyph(font.face, glyphIndexTemp, FT_LOAD_DEFAULT);
+			fontStyle.typicalAscender = FT_ROUND(font.face.glyph.metrics.horiBearingY - font.face.glyph.metrics.height);
+		}
+
+		glyphIndexTemp = FT_Get_Char_Index(font.face, #char "g");
+		if glyphIndexTemp {
+			FT_Load_Glyph(font.face, glyphIndexTemp, FT_LOAD_DEFAULT);
+			fontStyle.typicalDescender = FT_ROUND(font.face.glyph.metrics.horiBearingY - font.face.glyph.metrics.height);
+		}
+	}
+
+	glyphData,newGlyph := find_or_add(*fontStyle.glyphTable, glyphIndex);
+	
+	// cache miss on the glyph
+	if newGlyph {
+		FT_Set_Pixel_Sizes(font.face, 0, xx size);
+
+		// Try LOAD_NO_HINTING if you want to allow no hinting
+		error := FT_Load_Glyph(font.face, glyphIndex, FT_LOAD_DEFAULT);
+		assert(!error);
+
+		// @todo: here is where you'd specify LCD subpixel rendering
+		FT_Render_Glyph(font.face.glyph, .FT_RENDER_MODE_NORMAL);
+
+		glyphData.offsetX = font.face.glyph.bitmap_left;
+		glyphData.offsetY = font.face.glyph.bitmap_top;
+		glyphData.advance = (font.face.glyph.advance.x >> 6);
+
+		if !try_add_glyph_to_atlas(*fontCache.atlasList[fontCache.atlasList.count-1], font.face, glyphData) {
+			// @todo: failed to find space in atlas, make a new one
+			assert(false);
+		}
+	}
+	return <<glyphData;
 }
 
 can_rect_fit_in_atlas :: (atlas: *Atlas, atNode: s32, w: s32, h: s32) -> s32 {
@@ -312,6 +322,7 @@ try_add_glyph_to_atlas :: (atlas: *Atlas, face: FT_Face, glyphData: *GlyphData) 
             <<dst_pixel = face.glyph.bitmap.buffer[(rows - 1 - j) * pitch + i];
 		}
 	}
+	atlas.texture.dirty = true;
 
 	// set the uv rect for rendering
 	glyphData.subRect.x = cast(float)  bestX;
@@ -323,7 +334,6 @@ try_add_glyph_to_atlas :: (atlas: *Atlas, face: FT_Face, glyphData: *GlyphData) 
 }
 
 defaultFont : *Font;
-#scope_file
 
 fontCache: FontCache;
 
