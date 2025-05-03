@@ -22,6 +22,7 @@ Font :: struct {
 	fileData: []u8;
 	face: FT_Face;
 
+	hasKerning: bool;
 	// keyed by size currently
 	styleTable: Table(int, FontStyle);
 }
@@ -37,6 +38,7 @@ FontStyle :: struct {
 }
 
 GlyphData :: struct {
+	index: u32;
 	atlas: s32;
 	subRect: Rect;
 	offsetX: s32;
@@ -45,7 +47,7 @@ GlyphData :: struct {
 }
 
 TextRun :: struct {
-	glyphs: []GlyphData;
+	instances: []Instance;
 	// in pixels
 	height: s32;
 	width: s32; 
@@ -122,8 +124,6 @@ load_font_from_memory :: (data: string) -> *Font {
 	return font;
 }
 
-// @todo should really take a font, or some kind of handle to a font
-// maybe you can specify a default font in the cache?
 generate_text_run :: (text: string, size: int, font: *Font) -> TextRun {
 	textCopy := text;
 	nCodepoints := 0;
@@ -137,19 +137,42 @@ generate_text_run :: (text: string, size: int, font: *Font) -> TextRun {
 	result: TextRun;
 	result.width = 0;
 	result.height = 0;
-	result.glyphs = NewArray(nCodepoints,GlyphData);
+	result.instances = NewArray(nCodepoints,Instance);
 
 	textCopy = text;
+	prevGlyphIndex: u32 = 0;
 	i := 0;
+	x := 0.0;
 	while textCopy.count > 0 {
 		utf32,success := utf8_next_character(*textCopy);
 		if success == .CONVERSION_OK {
 			glyphIndex := FT_Get_Char_Index(font.face, utf32);
-
 			glyphData := find_or_make_glyph(font, size, glyphIndex);
-			result.glyphs[i] = glyphData;
+
+			if FT_HAS_KERNING(font.face) {
+				delta:FT_Vector = ---;
+				FT_Get_Kerning(font.face, prevGlyphIndex, glyphIndex, xx FT_Kerning_Mode.DEFAULT, *delta);
+				result.width += (delta.x >> 6);
+				x += (delta.x >> 6);
+			}
+
+			result.instances[i] = .{
+				dstRect = .{x + glyphData.offsetX, xx -glyphData.offsetY, glyphData.subRect.w / 3.0, glyphData.subRect.h},
+				srcRect = glyphData.subRect,
+				color = .{1.0, 1.0, 1.0, 1.0},
+				cornerRadii = .{0.0, 0.0, 0.0, 0.0},
+				edgeSoftness = 0.0,
+				borderThickness = 0.0,
+				texture = *fontCache.atlasList[glyphData.atlas].texture,
+				shader = .TEXT
+			} ;
+
+			x += glyphData.advance;
 			result.width += glyphData.advance;
 			result.height = max(cast(s32)glyphData.subRect.h, result.height);
+
+
+			prevGlyphIndex = glyphIndex;
 		}
 		i += 1;
 	}
@@ -160,18 +183,11 @@ draw_text :: (text: string, size: int, font: *Font, x: float, y: float) {
 	run := generate_text_run(text, size, font,,temp);
 
 	// render the text run at the desired position
-	for run.glyphs {
-		submit_instance(.{
-			dstRect = .{x + it.offsetX, y - it.offsetY, it.subRect.w / 3.0, it.subRect.h},
-			srcRect = it.subRect,
-			color = .{1.0, 1.0, 1.0, 1.0},
-			cornerRadii = .{0.0, 0.0, 0.0, 0.0},
-			edgeSoftness = 0.0,
-			borderThickness = 0.0,
-			texture = *fontCache.atlasList[it.atlas].texture,
-			shader = .TEXT
-		});
-		x += it.advance;
+	for run.instances {
+		instance := it;
+		instance.dstRect.x = x + instance.dstRect.x;
+		instance.dstRect.y = y + instance.dstRect.y;
+		submit_instance(instance);
 	}
 }
 
@@ -225,6 +241,7 @@ find_or_make_glyph :: (font: *Font, size: int, glyphIndex: u32) -> GlyphData {
 
 		FT_Render_Glyph(font.face.glyph, .FT_RENDER_MODE_LCD);
 
+		glyphData.index = glyphIndex;
 		glyphData.offsetX = font.face.glyph.bitmap_left;
 		glyphData.offsetY = font.face.glyph.bitmap_top;
 		glyphData.advance = (font.face.glyph.advance.x >> 6);
@@ -369,7 +386,5 @@ FT_ROUND :: inline (x: int) -> int {
     if x >= 0 return (x + 0x1f) >> 6;
     return -(((-x) + 0x1f) >> 6);
 }
-
-// @todo: move outside
 
 #import "freetype-2.12.1";
