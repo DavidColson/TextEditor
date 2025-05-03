@@ -86,6 +86,11 @@ Registers :: struct {
 }
 registers: Registers;
 
+// fonts
+fontUI: *Font;
+fontCode: *Font;
+fontIcons: *Font;
+
 // options
 textSize :: 15;
 tabSize :: 4;
@@ -111,6 +116,7 @@ main :: () {
 	init_renderer(window);
 	my_init_fonts();
 	init_font_cache();
+	load_fonts();
 	init_ui();
 	rebuild_key_map();
 
@@ -250,8 +256,13 @@ frame :: () {
 	// maybe this should be "ui_end_frame"
 	end_ui();
 
-	draw_text("hello world", 25, 50.0, 80.0);
-	draw_text("hello world", 15, 50.0, 50.0);
+	draw_text("hello world", 25, fontUI, 50.0, 80.0);
+	draw_text("hello world", 15, fontCode, 50.0, 50.0);
+
+	FILE_ICON :: #run to_string(*convert_utf32_to_utf8(0xf15b));
+	THUMB_ICON :: #run to_string(*convert_utf32_to_utf8(0xf164));
+	draw_text(FILE_ICON, 30, fontIcons, 50.0, 130.0);
+	draw_text(THUMB_ICON, 30, fontIcons, 80.0, 130.0);
 
 	render_frame();
 }
@@ -320,6 +331,21 @@ read_register :: (name: u8) -> string {
 	return string.{};
 }
 
+load_fonts :: () {
+	fontUI,_ = load_font("segoeui.ttf");
+
+	// attempt to load my personal font, then fallback to consolas
+	// @todo: ideally my font would be in a config file somewhere not in here
+	success: bool;
+	fontCode,success = load_font("FiraMonoNerdFontMono-Medium.ttf");
+	if !success { 
+		fontCode,_ = load_font("consola.ttf");
+	}
+
+	fontIcons = load_font_from_memory(#run read_entire_file("fonts/Font Awesome 6 Free-Regular-400.otf"));
+}
+
+// @todo: remove
 my_init_fonts :: () {
 	// @todo: embed the default font into the exe with #run
 	my_font = New(Dynamic_Font);

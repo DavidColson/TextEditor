@@ -124,12 +124,6 @@ init_renderer :: (_window: Window_Type) {
 		DumpGLErrors("vao");
 	}
 
-	// test texture loading
-	{
-		testBitmap = make_bitmap_from_file(tprint("%../../fonts/house-solid.png", path_strip_filename(get_path_of_running_executable())));
-		load_bitmap_to_gpu(*testBitmap);
-	}
-
 	// create default white texture
 	{
 		glGenTextures(1, *whiteDefaultTex);

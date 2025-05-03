@@ -68,14 +68,32 @@ init_font_cache :: () {
 	initialNode.x = 0;
 	initialNode.y = 0;
 	initialNode.width = atlas.texture.width;
-
-	// load default fonts
-	// @todo: shouldn't really be in this file, cleanup at some point
-	path := tprint("%../../fonts/FiraMonoNerdFontMono-Medium.ttf", path_strip_filename(get_path_of_running_executable()));
-	defaultFont = load_font(path);
 }
 
-load_font :: (path: string) -> *Font {
+load_font :: (filename: string) -> *Font, bool {
+	// we support loading fonts from windows font folders. If the path is absolute, then we'll just do that
+	path: string;
+	if !is_absolute_path(filename) {
+		// search in windows
+		windowsSystem := tprint("C:\\Windows\\Fonts\\%", filename);
+		if file_exists(windowsSystem) {
+			path = windowsSystem;
+		}
+		windowsUser := tprint("%\\AppData\\Local\\Microsoft\\Windows\\Fonts\\%", get_home_directory(), filename);
+		if file_exists(windowsUser) {
+			path = windowsUser;
+		}
+	}
+	else {
+		if file_exists(filename) {
+			path = filename;
+		}
+	}
+
+	if path.count == 0 {
+		return null, false;
+	}
+
 	font := New(Font);
 
 	// load the file
@@ -88,12 +106,25 @@ load_font :: (path: string) -> *Font {
 	assert(!error);
 	font.styleTable.allocator = fontCache.allocator;
 
+	return font, true;
+}
+
+load_font_from_memory :: (data: string) -> *Font {
+	font := New(Font);
+
+	font.fileData.data = data.data;
+	font.fileData.count = data.count;
+
+	error := FT_New_Memory_Face(fontCache.freetype, data.data, xx data.count, 0, *font.face);
+	assert(!error);
+	font.styleTable.allocator = fontCache.allocator;
+
 	return font;
 }
 
 // @todo should really take a font, or some kind of handle to a font
 // maybe you can specify a default font in the cache?
-generate_text_run :: (text: string, size: int) -> TextRun {
+generate_text_run :: (text: string, size: int, font: *Font) -> TextRun {
 	textCopy := text;
 	nCodepoints := 0;
 	while textCopy.count > 0 {
@@ -113,9 +144,9 @@ generate_text_run :: (text: string, size: int) -> TextRun {
 	while textCopy.count > 0 {
 		utf32,success := utf8_next_character(*textCopy);
 		if success == .CONVERSION_OK {
-			glyphIndex := FT_Get_Char_Index(defaultFont.face, utf32);
+			glyphIndex := FT_Get_Char_Index(font.face, utf32);
 
-			glyphData := find_or_make_glyph(defaultFont, size, glyphIndex);
+			glyphData := find_or_make_glyph(font, size, glyphIndex);
 			result.glyphs[i] = glyphData;
 			result.width += glyphData.advance;
 			result.height = max(cast(s32)glyphData.subRect.h, result.height);
@@ -125,8 +156,8 @@ generate_text_run :: (text: string, size: int) -> TextRun {
 	return result;
 }
 
-draw_text :: (text: string, size: int, x: float, y: float) {
-	run := generate_text_run(text, size,,temp);
+draw_text :: (text: string, size: int, font: *Font, x: float, y: float) {
+	run := generate_text_run(text, size, font,,temp);
 
 	// render the text run at the desired position
 	for run.glyphs {
@@ -332,8 +363,6 @@ try_add_glyph_to_atlas :: (atlas: *Atlas, face: FT_Face, glyphData: *GlyphData) 
 
 	return true;
 }
-
-defaultFont : *Font;
 
 fontCache: FontCache;
 
