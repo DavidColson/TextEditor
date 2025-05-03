@@ -256,13 +256,20 @@ frame :: () {
 	// maybe this should be "ui_end_frame"
 	end_ui();
 
-	draw_text("hello world", 25, fontUI, 50.0, 80.0);
-	draw_text("hello world", 15, fontCode, 50.0, 50.0);
+	draw_text("The quick brown fox jumps over the lazy dog", 10, fontUI, 50.0, 50.0);
+	draw_text("The quick brown fox jumps over the lazy dog", 15, fontUI, 50.0, 73.0);
+	draw_text("The quick brown fox jumps over the lazy dog", 20, fontUI, 50.0, 100.0);
+	draw_text("The quick brown fox jumps over the lazy dog", 25, fontUI, 50.0, 130.0);
+
+	draw_text("The quick brown fox jumps over the lazy dog", 10, fontCode, 50.0, 200.0+50.0);
+	draw_text("The quick brown fox jumps over the lazy dog", 15, fontCode, 50.0, 200.0+73.0);
+	draw_text("The quick brown fox jumps over the lazy dog", 20, fontCode, 50.0, 200.0+100.0);
+	draw_text("The quick brown fox jumps over the lazy dog", 25, fontCode, 50.0, 200.0+130.0);
 
 	FILE_ICON :: #run to_string(*convert_utf32_to_utf8(0xf15b));
 	THUMB_ICON :: #run to_string(*convert_utf32_to_utf8(0xf164));
-	draw_text(FILE_ICON, 30, fontIcons, 50.0, 130.0);
-	draw_text(THUMB_ICON, 30, fontIcons, 80.0, 130.0);
+	draw_text(FILE_ICON, 30, fontIcons, 50.0, 500.0);
+	draw_text(THUMB_ICON, 30, fontIcons, 80.0, 500.0);
 
 	render_frame();
 }
