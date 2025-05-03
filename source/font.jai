@@ -162,7 +162,7 @@ draw_text :: (text: string, size: int, font: *Font, x: float, y: float) {
 	// render the text run at the desired position
 	for run.glyphs {
 		submit_instance(.{
-			dstRect = .{x + it.offsetX, y - it.offsetY, it.subRect.w, it.subRect.h},
+			dstRect = .{x + it.offsetX, y - it.offsetY, it.subRect.w / 3.0, it.subRect.h},
 			srcRect = it.subRect,
 			color = .{1.0, 1.0, 1.0, 1.0},
 			cornerRadii = .{0.0, 0.0, 0.0, 0.0},
@@ -223,8 +223,7 @@ find_or_make_glyph :: (font: *Font, size: int, glyphIndex: u32) -> GlyphData {
 		error := FT_Load_Glyph(font.face, glyphIndex, FT_LOAD_DEFAULT);
 		assert(!error);
 
-		// @todo: here is where you'd specify LCD subpixel rendering
-		FT_Render_Glyph(font.face.glyph, .FT_RENDER_MODE_NORMAL);
+		FT_Render_Glyph(font.face.glyph, .FT_RENDER_MODE_LCD);
 
 		glyphData.offsetX = font.face.glyph.bitmap_left;
 		glyphData.offsetY = font.face.glyph.bitmap_top;

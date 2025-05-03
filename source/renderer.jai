@@ -77,7 +77,7 @@ init_renderer :: (_window: Window_Type) {
 	// make shader programs
 	{
 		standardProgram = get_shader_program(VERTEX_SHADER, FRAGMENT_SHADER, .[]);
-		textProgram = get_shader_program(VERTEX_SHADER, FRAGMENT_SHADER, .["TEXT_RENDERING"]);
+		textProgram = get_shader_program(VERTEX_SHADER, FRAGMENT_SHADER_TEXT, .[]);
 	}
 	// setup the VAO
 	{
@@ -162,6 +162,14 @@ render_frame :: () {
 	for 0..numGroups-1 {
 		instance := *groups[it];
 		glUseProgram(instance.shader);
+
+		// per component blending for subpixel text rendering
+		if instance.shader == textProgram {
+			glBlendFunc(GL_SRC1_COLOR, GL_ONE_MINUS_SRC1_COLOR);  
+		}
+		else {
+			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);  
+		}
 
 		resolutionUniformLocation = glGetUniformLocation(standardProgram, "resolution");
 		glUniform2f(resolutionUniformLocation, xx windowWidth, xx windowHeight);
@@ -377,7 +385,7 @@ void main()
 END
 
 FRAGMENT_SHADER :: #string END
-out vec4 FragColor;
+layout(location = 0, index = 0) out vec4 fragmentColor;
 
 uniform sampler2D bitmap;
 
@@ -398,11 +406,7 @@ float sdfRoundedBox(vec2 pt, vec2 halfDimensions, vec4 radii)
 
 void main()
 {
-#ifdef TEXT_RENDERING
-	FragColor = vec4(color.rgb, texture(bitmap, uv).r*color.a);
-#else
-    FragColor = color * texture(bitmap, uv);
-#endif
+    fragmentColor = color * texture(bitmap, uv);
 
 	vec2 softnessPadding = vec2(max(0, edgeSoftness-1), max(0, edgeSoftness-1));
 	vec2 pt = (uv - vec2(0.5, 0.5)) * dstSize; 
@@ -421,6 +425,29 @@ void main()
 	float dist = sdfRoundedBox(pt, halfSize, cornerRadii);
 	float mainSDFfactor = 1 - smoothstep(-edgeSoftness, 0, dist);
 
-	FragColor.a *= mainSDFfactor * borderFactor;
+	fragmentColor.a *= mainSDFfactor * borderFactor;
+} 
+END
+
+FRAGMENT_SHADER_TEXT :: #string END
+layout(location = 0, index = 0) out vec4 fragmentColor;
+layout(location = 0, index = 1) out vec4 blendWeights;
+
+uniform sampler2D bitmap;
+
+in vec2 dstSize;
+in vec2 uv;
+in vec4 color;
+in vec4 cornerRadii;
+in float edgeSoftness;
+in float borderThickness;
+
+void main()
+{
+	float left   = textureOffset(bitmap, uv, ivec2(-1, 0)).r;
+    float center = texture(bitmap, uv).r;
+    float right  = textureOffset(bitmap, uv, ivec2( 1, 0)).r;
+	fragmentColor = vec4(color.rgb, color.a);
+	blendWeights = vec4(left, center, right, 1.0);
 } 
 END
