@@ -25,6 +25,8 @@ UIBox :: struct {
 	fixedSize: [UIAxis.COUNT]float;
 	rect: Rect;
 	palette: UIPalette;
+	customDrawFunction: (*UIBox, *void);
+	customDrawUdata: *void;
 }
 
 UIState :: struct {
@@ -110,6 +112,8 @@ box :: (flags: UIBoxFlags) -> *UIBox {
 	box.parent = top_parent();
 	box.childLayoutAxis = top_child_layout_axis();
 
+	box.customDrawFunction = null;
+
 	// insert into parent's list of children
 	if box.parent {
 		linked_list_insert(*box.parent.head, *box.parent.tail, box.parent.tail, box);
@@ -181,6 +185,10 @@ end_ui :: () {
 	push_parent(box.next);
 	while box {
 
+		if box.customDrawFunction {
+			box.customDrawFunction(box, box.customDrawUdata);
+		}
+
 		if box.flags & .DRAW_BACKGROUND {
 			submit_instance(.{
 				dstRect = box.rect,
@@ -195,7 +203,7 @@ end_ui :: () {
 		if box.flags & .DRAW_TEXT {
 			// find position of text?
 			metrics := get_font_metrics(box.font, xx box.fontSize);
-			yPos := (box.rect.y + box.rect.h/2.0) + metrics.typicalAscender/2.0 - 1.0;
+			yPos := floor(box.rect.y + box.rect.h/2.0) + floor(metrics.typicalAscender/2.0);
 			xPos := box.rect.x;
 
 			if box.textAlignment == {
@@ -206,6 +214,7 @@ end_ui :: () {
 				case .RIGHT;
 					xPos = Min((box.rect.x + box.rect.w) - box.textRun.width - box.textPadding, box.rect.w);
 			}
+			xPos = floor(xPos);
 			draw_text_run(box.textRun, xPos, yPos);
 		}
 
@@ -256,7 +265,7 @@ compute_standalone_sizes :: (root: *UIBox, axis: UIAxis) {
 		case .TEXT_CONTENT;
 			padding := root.size[axis].value;
 			root.textRun = generate_text_run(root.text, xx root.fontSize, root.font,,temp);
-			textSize := 0;
+			textSize := 0.0;
 			if axis == .X {
 				textSize = root.textRun.width;
 			}

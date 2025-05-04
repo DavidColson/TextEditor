@@ -46,16 +46,16 @@ GlyphData :: struct {
 	index: u32;
 	atlas: s32;
 	subRect: Rect;
-	offsetX: s32;
-	offsetY: s32;
-	advance: s32;
+	offsetX: float;
+	offsetY: float;
+	advance: float;
 }
 
 TextRun :: struct {
 	instances: []Instance;
 	// in pixels
-	height: s32;
-	width: s32; 
+	height: float;
+	width: float; 
 }
 
 init_font_cache :: () {
@@ -193,7 +193,7 @@ generate_text_run :: (text: string, size: int, font: *Font) -> TextRun {
 			}
 
 			result.instances[i] = .{
-				dstRect = .{x + glyphData.offsetX, cast(float) -glyphData.offsetY, glyphData.subRect.w / 3.0, glyphData.subRect.h},
+				dstRect = .{x + glyphData.offsetX, -glyphData.offsetY, glyphData.subRect.w / 3.0, glyphData.subRect.h},
 				srcRect = glyphData.subRect,
 				color = .{1.0, 1.0, 1.0, 1.0},
 				cornerRadii = .{0.0, 0.0, 0.0, 0.0},
@@ -205,7 +205,7 @@ generate_text_run :: (text: string, size: int, font: *Font) -> TextRun {
 
 			x += glyphData.advance;
 			result.width += glyphData.advance;
-			result.height = max(cast(s32)glyphData.subRect.h, result.height);
+			result.height = max(glyphData.subRect.h, result.height);
 
 
 			prevGlyphIndex = glyphIndex;
@@ -285,9 +285,9 @@ find_or_make_glyph :: (font: *Font, size: int, glyphIndex: u32) -> GlyphData {
 		FT_Render_Glyph(font.face.glyph, .FT_RENDER_MODE_LCD);
 
 		glyphData.index = glyphIndex;
-		glyphData.offsetX = font.face.glyph.bitmap_left;
-		glyphData.offsetY = font.face.glyph.bitmap_top;
-		glyphData.advance = (font.face.glyph.advance.x >> 6);
+		glyphData.offsetX = cast(float)font.face.glyph.bitmap_left;
+		glyphData.offsetY = cast(float)font.face.glyph.bitmap_top;
+		glyphData.advance = cast(float)(font.face.glyph.advance.x >> 6);
 
 		if !try_add_glyph_to_atlas(*fontCache.atlasList[fontCache.atlasList.count-1], font.face, glyphData) {
 			// @todo: failed to find space in atlas, make a new one

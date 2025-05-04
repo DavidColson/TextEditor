@@ -252,16 +252,14 @@ load_bitmap_to_gpu :: (bitmap: *Bitmap) {
 	glBindTexture(GL_TEXTURE_2D, bitmap.texHandle);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S,     GL_CLAMP_TO_BORDER);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T,     GL_CLAMP_TO_BORDER);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
 	glformat := GL_RGBA;
 	if bitmap.format == .R8 {
 		glformat = GL_RED;
 	}
 	glTexImage2D(GL_TEXTURE_2D, 0, xx glformat, xx bitmap.width, xx bitmap.height, 0, xx glformat, GL_UNSIGNED_BYTE, bitmap.data.data);
-
-	glGenerateMipmap(GL_TEXTURE_2D);
 	glBindTexture(GL_TEXTURE_2D, 0);
 }
 
@@ -371,10 +369,10 @@ void main()
 
     gl_Position = vec4(pos, 0.0, 1.0);
 
+
 	vec2 texSize = textureSize(bitmap, 0);
 	uv = srcRect.xy + quadVerts[gl_VertexID] * srcRect.zw;
-	uv.x = uv.x / texSize.x;
-	uv.y = 1.0 - uv.y / texSize.y;
+	uv.y = texSize.y - uv.y;
 
 	color = inColor; 
 	cornerRadii = inCornerRadii;
@@ -444,10 +442,11 @@ in float borderThickness;
 
 void main()
 {
-	float left   = textureOffset(bitmap, uv, ivec2(-1, 0)).r;
-    float center = texture(bitmap, uv).r;
-    float right  = textureOffset(bitmap, uv, ivec2( 1, 0)).r;
-	fragmentColor = vec4(color.rgb, color.a);
-	blendWeights = vec4(left, center, right, 1.0);
+	ivec2 iuv = ivec2(uv);
+	float left   = texelFetchOffset(bitmap, iuv, 0, ivec2(-1, 0)).r;
+    float center = texelFetch(bitmap, iuv, 0).r;
+    float right  = texelFetchOffset(bitmap, iuv, 0, ivec2( 1, 0)).r;
+	fragmentColor = color;
+	blendWeights = vec4(left * color.a, center * color.a, right * color.a, 1.0);
 } 
 END
