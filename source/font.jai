@@ -30,11 +30,16 @@ Font :: struct {
 FontStyle :: struct {
 	// keyed by glyphIndex in the font face
 	glyphTable: Table(u32, GlyphData);
+	metrics: FontMetrics;
+}
 
-	// metrics
+FontMetrics :: struct {
 	characterHeight: int;
 	typicalAscender: int;
 	typicalDescender: int;
+	maxDescender: int;
+	maxAscender: int;
+	lineSpacing: int;
 }
 
 GlyphData :: struct {
@@ -124,6 +129,37 @@ load_font_from_memory :: (data: string) -> *Font {
 	return font;
 }
 
+get_font_metrics :: (font: *Font, size: int) -> FontMetrics {
+	fontStyle,newStyle := find_or_add(*font.styleTable, size);
+
+	// cache miss
+	// @todo: duplicated from find_or_make_glyph
+	if newStyle {
+		fontStyle.glyphTable.allocator = fontCache.allocator;
+		FT_Set_Pixel_Sizes(font.face, 0, xx size);
+
+		// calculate basic metrics
+		fontStyle.metrics.characterHeight = size;
+		glyphIndexTemp := FT_Get_Char_Index(font.face, #char "T");
+		if glyphIndexTemp {
+			FT_Load_Glyph(font.face, glyphIndexTemp, FT_LOAD_DEFAULT);
+			fontStyle.metrics.typicalAscender = FT_ROUND(font.face.glyph.metrics.horiBearingY);
+		}
+
+		glyphIndexTemp = FT_Get_Char_Index(font.face, #char "g");
+		if glyphIndexTemp {
+			FT_Load_Glyph(font.face, glyphIndexTemp, FT_LOAD_DEFAULT);
+			fontStyle.metrics.typicalDescender = FT_ROUND(font.face.glyph.metrics.horiBearingY - font.face.glyph.metrics.height);
+		}
+
+		scale := font.face.size.metrics.y_scale/(64.0*65536.0);
+		fontStyle.metrics.lineSpacing = cast(int) floor(scale * font.face.height + 0.5);
+		fontStyle.metrics.maxAscender  = cast(int) floor(scale * font.face.bbox.yMax + 0.5);
+		fontStyle.metrics.maxDescender = cast(int) floor(scale * font.face.bbox.yMin + 0.5);
+	}
+	return fontStyle.metrics;
+}
+
 generate_text_run :: (text: string, size: int, font: *Font) -> TextRun {
 	textCopy := text;
 	nCodepoints := 0;
@@ -157,7 +193,7 @@ generate_text_run :: (text: string, size: int, font: *Font) -> TextRun {
 			}
 
 			result.instances[i] = .{
-				dstRect = .{x + glyphData.offsetX, xx -glyphData.offsetY, glyphData.subRect.w / 3.0, glyphData.subRect.h},
+				dstRect = .{x + glyphData.offsetX, cast(float) -glyphData.offsetY, glyphData.subRect.w / 3.0, glyphData.subRect.h},
 				srcRect = glyphData.subRect,
 				color = .{1.0, 1.0, 1.0, 1.0},
 				cornerRadii = .{0.0, 0.0, 0.0, 0.0},
@@ -179,16 +215,18 @@ generate_text_run :: (text: string, size: int, font: *Font) -> TextRun {
 	return result;
 }
 
-draw_text :: (text: string, size: int, font: *Font, x: float, y: float) {
-	run := generate_text_run(text, size, font,,temp);
-
-	// render the text run at the desired position
-	for run.instances {
+draw_text_run :: (textRun: TextRun, x: float, y: float) {
+	for textRun.instances {
 		instance := it;
 		instance.dstRect.x = x + instance.dstRect.x;
 		instance.dstRect.y = y + instance.dstRect.y;
 		submit_instance(instance);
 	}
+}
+
+draw_text :: (text: string, size: int, font: *Font, x: float, y: float) {
+	run := generate_text_run(text, size, font,,temp);
+	draw_text_run(run, x, y);
 }
 
 
@@ -215,18 +253,23 @@ find_or_make_glyph :: (font: *Font, size: int, glyphIndex: u32) -> GlyphData {
 		FT_Set_Pixel_Sizes(font.face, 0, xx size);
 
 		// calculate basic metrics
-		fontStyle.characterHeight = size;
+		fontStyle.metrics.characterHeight = size;
 		glyphIndexTemp := FT_Get_Char_Index(font.face, #char "T");
 		if glyphIndexTemp {
 			FT_Load_Glyph(font.face, glyphIndexTemp, FT_LOAD_DEFAULT);
-			fontStyle.typicalAscender = FT_ROUND(font.face.glyph.metrics.horiBearingY - font.face.glyph.metrics.height);
+			fontStyle.metrics.typicalAscender = FT_ROUND(font.face.glyph.metrics.horiBearingY);
 		}
 
 		glyphIndexTemp = FT_Get_Char_Index(font.face, #char "g");
 		if glyphIndexTemp {
 			FT_Load_Glyph(font.face, glyphIndexTemp, FT_LOAD_DEFAULT);
-			fontStyle.typicalDescender = FT_ROUND(font.face.glyph.metrics.horiBearingY - font.face.glyph.metrics.height);
+			fontStyle.metrics.typicalDescender = FT_ROUND(font.face.glyph.metrics.horiBearingY - font.face.glyph.metrics.height);
 		}
+
+		scale := font.face.size.metrics.y_scale/(64.0*65536.0);
+		fontStyle.metrics.lineSpacing = cast(int) floor(scale * font.face.height + 0.5);
+		fontStyle.metrics.maxAscender  = cast(int) floor(scale * font.face.bbox.yMax + 0.5);
+		fontStyle.metrics.maxDescender = cast(int) floor(scale * font.face.bbox.yMin + 0.5);
 	}
 
 	glyphData,newGlyph := find_or_add(*fontStyle.glyphTable, glyphIndex);

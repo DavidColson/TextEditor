@@ -12,6 +12,12 @@ UIBox :: struct {
 	parent: *UIBox;
 
 	// per frame information
+	text: string;
+	textRun: TextRun;
+	textAlignment: UITextAlign;
+	textPadding: float;
+	font: *Font;
+	fontSize: float;
 	childCount: s32;
 	childLayoutAxis: UIAxis;
 	size: [UIAxis.COUNT]UISize;
@@ -44,6 +50,7 @@ uiState: UIState;
 
 UIBoxFlags :: enum_flags {
 	DRAW_BACKGROUND;
+	DRAW_TEXT;
 	FLOATING_X;
 	FLOATING_Y;
 	FIXED_WIDTH;
@@ -62,6 +69,12 @@ UISizeKind :: enum {
 	TEXT_CONTENT;
 	PERCENT_OF_PARENT;
 	SUM_OF_CHILDREN;
+}
+
+UITextAlign :: enum {
+	LEFT;
+	CENTER;
+	RIGHT;
 }
 
 UISize :: struct {
@@ -128,6 +141,10 @@ box :: (flags: UIBoxFlags) -> *UIBox {
 		box.size[UIAxis.Y] = top_height();
 	}
 
+	box.textPadding = top_text_padding();
+	box.textAlignment = top_text_alignment();
+	box.fontSize = top_font_size();
+	box.font = top_font();
 	auto_pop_parameter_stacks();
 
 	return box;
@@ -175,6 +192,23 @@ end_ui :: () {
 			});
 		}
 
+		if box.flags & .DRAW_TEXT {
+			// find position of text?
+			metrics := get_font_metrics(box.font, xx box.fontSize);
+			yPos := (box.rect.y + box.rect.h/2.0) + metrics.typicalAscender/2.0 - 1.0;
+			xPos := box.rect.x;
+
+			if box.textAlignment == {
+				case .LEFT;
+					xPos += box.textPadding;
+				case .CENTER;
+					xPos = Min((box.rect.x + box.rect.w/2.0) - box.textRun.width/2.0, box.rect.w);
+				case .RIGHT;
+					xPos = Min((box.rect.x + box.rect.w) - box.textRun.width - box.textPadding, box.rect.w);
+			}
+			draw_text_run(box.textRun, xPos, yPos);
+		}
+
 		// get next box
 		if box.head {
 			// this box has children, so traverse them
@@ -198,7 +232,7 @@ end_ui :: () {
 
 px :: (value: float, strictness: float) -> UISize #expand { return .{ .PIXELS, value, strictness }; }
 em :: (value: float, strictness: float) -> UISize #expand { return .{ .PIXELS, value * top_font_size(), strictness }; }
-text_dim :: (padding: float, strictness: float) -> UISize #expand { return .{ .TEXT_CONTENT, value, strictness }; }
+text_dim :: (padding: float, strictness: float) -> UISize #expand { return .{ .TEXT_CONTENT, padding, strictness }; }
 parent_pct :: (value: float, strictness: float) -> UISize #expand { return .{ .PERCENT_OF_PARENT, value, strictness }; }
 child_sum :: (strictness: float) -> UISize #expand { return .{ .SUM_OF_CHILDREN, 0.0, strictness }; }
 
@@ -220,8 +254,16 @@ compute_standalone_sizes :: (root: *UIBox, axis: UIAxis) {
 		case .PIXELS;
 			root.fixedSize[axis] = root.size[axis].value;
 		case .TEXT_CONTENT;
-			// @todo: calculate text size
-			root.fixedSize[axis] = 20.0;
+			padding := root.size[axis].value;
+			root.textRun = generate_text_run(root.text, xx root.fontSize, root.font,,temp);
+			textSize := 0;
+			if axis == .X {
+				textSize = root.textRun.width;
+			}
+			else {
+				textSize = root.textRun.height;
+			}
+			root.fixedSize[axis] = textSize + padding + root.textPadding * 2;
 		case;
 	}
 
@@ -482,6 +524,9 @@ PARAMETERS :: Parameter.[
 	.{ "fixed_height", 		"float", 		"0" },
 	.{ "width", 			"UISize", 		"px(100.0, 1.0)" },
 	.{ "height", 			"UISize", 		"px(100.0, 1.0)" },
+	.{ "text_padding", 		"float", 		"5" },
+	.{ "text_alignment",	"UITextAlign", 	".LEFT" },
+	.{ "font",		 		"*Font", 		"fontUI" },
 	.{ "font_size", 		"float", 		"15" },
 	.{ "palette", 			"UIPalette", 	"defaultPalette" },
 	.{ "corner_radius", 	"float", 		"0" }
@@ -537,7 +582,7 @@ set_next :: (stack: *ParameterStack($T), v: T) {
 		print_to_builder(*builder, "top_%1 :: () -> %2 { return get_top(*uiState.%1Stack); }\n", it.name, it.type);
 		print_to_builder(*builder, "pop_%1 :: () -> %2 { return pop(*uiState.%1Stack); }\n", it.name, it.type);
 		print_to_builder(*builder, "push_%1 :: (%1: %2) { push(*uiState.%1Stack, %1); }\n", it.name, it.type);
-		print_to_builder(*builder, "set_next_%1 :: (%1: %2) { set_next(*uiState.%1Stack, %1); }\n", it.name, it.type);
+		print_to_builder(*builder, "set_next_%1 :: (%1: %2) { set_next(*uiState.%1Stack, %1); }\n\n", it.name, it.type);
 	}
 	return builder_to_string(*builder);
 }

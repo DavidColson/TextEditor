@@ -217,6 +217,10 @@ frame :: () {
 	panel := *focusedPanel;
 	panelRect := panel.rect;
 
+	// global font styles
+	push_font_size(25.0);
+	push_text_padding(top_font_size() * 0.2);
+
 	set_next_width(parent_pct(1.0, 1.0));
 	set_next_height(parent_pct(1.0, 1.0));
 	set_next_child_layout_axis(.Y);
@@ -229,6 +233,13 @@ frame :: () {
 		set_next_width(parent_pct(1.0, 1.0));
 		set_next_height(em(1.5, 1.0));
 		box(.DRAW_BACKGROUND); 
+
+		set_next_palette(.{background = .{0.0, 0.0, 1.0, 1.0}});
+		set_next_width(parent_pct(1.0, 0.0));
+		set_next_height(text_dim(0.0, 1.0));
+		set_next_text_alignment(.RIGHT);
+		label := box(.DRAW_BACKGROUND | .DRAW_TEXT); 
+		label.text = "hello world HELLO WORLD";
 
 		// code
 		set_next_width(parent_pct(1.0, 0.0));
@@ -256,15 +267,15 @@ frame :: () {
 	// maybe this should be "ui_end_frame"
 	end_ui();
 
-	draw_text("The quick brown fox jumps over the lazy dog", 10, fontUI, 50.0, 50.0);
-	draw_text("The quick brown fox jumps over the lazy dog", 15, fontUI, 50.0, 73.0);
-	draw_text("The quick brown fox jumps over the lazy dog", 20, fontUI, 50.0, 100.0);
-	draw_text("The quick brown fox jumps over the lazy dog", 25, fontUI, 50.0, 130.0);
-
-	draw_text("The quick brown fox jumps over the lazy dog", 10, fontCode, 50.0, 200.0+50.0);
-	draw_text("The quick brown fox jumps over the lazy dog", 15, fontCode, 50.0, 200.0+73.0);
-	draw_text("The quick brown fox jumps over the lazy dog", 20, fontCode, 50.0, 200.0+100.0);
-	draw_text("The quick brown fox jumps over the lazy dog", 25, fontCode, 50.0, 200.0+130.0);
+	// draw_text("The quick brown fox jumps over the lazy dog", 10, fontUI, 50.0, 50.0);
+	// draw_text("The quick brown fox jumps over the lazy dog", 15, fontUI, 50.0, 73.0);
+	// draw_text("The quick brown fox jumps over the lazy dog", 20, fontUI, 50.0, 100.0);
+	// draw_text("The quick brown fox jumps over the lazy dog", 25, fontUI, 50.0, 130.0);
+	//
+	// draw_text("The quick brown fox jumps over the lazy dog", 10, fontCode, 50.0, 200.0+50.0);
+	// draw_text("The quick brown fox jumps over the lazy dog", 15, fontCode, 50.0, 200.0+73.0);
+	// draw_text("The quick brown fox jumps over the lazy dog", 20, fontCode, 50.0, 200.0+100.0);
+	// draw_text("The quick brown fox jumps over the lazy dog", 25, fontCode, 50.0, 200.0+130.0);
 
 	FILE_ICON :: #run to_string(*convert_utf32_to_utf8(0xf15b));
 	THUMB_ICON :: #run to_string(*convert_utf32_to_utf8(0xf164));
