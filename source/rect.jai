@@ -5,6 +5,15 @@ Rect :: struct {
 	h: float;
 }
 
+contains_point :: (rect: Rect, x: float, y: float) -> bool {
+	if (rect.x < x && x < rect.x+rect.w) && (rect.y < y && y < rect.y+rect.h) {
+		return true;
+	}
+	return false;
+}
+
+// @todo: probably can delete a lot of this soon?
+
 make_rect :: (x: int, y: int, w: int, h: int) -> Rect {
     r: Rect = ---;
 

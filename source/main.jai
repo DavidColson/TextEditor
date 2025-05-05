@@ -170,6 +170,10 @@ main :: () {
 
         for Input.events_this_frame {
             if it.type == .QUIT then pendingQuit = true;
+
+			array_add(*uiState.events, it);
+			// @todo: you will want to refactor this to send input events to the specific UI elements
+			// that are active
 			input_handler(it);
 		}
 
@@ -232,8 +236,11 @@ build_ui :: () {
 		set_next_palette(.{background = .{0.0, 0.0, 0.0, 1.0}});
 		set_next_width(parent_pct(1.0, 1.0));
 		set_next_height(text_dim(0.0, 1.0));
-		header := box(.DRAW_BACKGROUND | .DRAW_TEXT); 
-		header.text = panel.document.path;
+		header := box(.DRAW_BACKGROUND | .DRAW_TEXT, "header"); 
+		header.text = panel.document.path; // @todo: use the display part of the key
+		if signal_from_box(header).hovering {
+			print("hello from hover");
+		}
 
 		// code
 		set_next_font(fontCode);

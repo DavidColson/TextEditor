@@ -47,6 +47,8 @@ UIState :: struct {
 
 	frameIndex: u64;
 
+	events: [..]Input.Event;
+
 	// Generated parameter stacks
 	#insert -> string {
 		builder: String_Builder;
@@ -58,6 +60,11 @@ UIState :: struct {
 	}
 }
 uiState: UIState;
+
+UISignal :: struct {
+	hovering: bool;
+	pressed: bool;
+}
 
 UIBoxFlags :: enum_flags {
 	DRAW_BACKGROUND;
@@ -201,6 +208,18 @@ box :: (flags: UIBoxFlags, key: UIKey = cast(UIKey)0) -> *UIBox {
 	return box;
 }
 
+signal_from_box :: (box: *UIBox) -> UISignal {
+	// iterate uiState.events
+	// see if any are relevant to you
+	// create a signal and return it
+    x, y, success := get_mouse_pointer_position(window, false);
+	if success && contains_point(box.rect, xx x, xx y) {
+		return .{hovering = true};
+	}
+
+	return .{};
+}
+
 begin_ui :: () {
 	set_next_fixed_x(0);
 	set_next_fixed_y(0);
@@ -289,6 +308,7 @@ end_ui :: () {
 
 	reset_parameter_stacks();
 	reset(*uiState.frameArena, overwrite_memory=true);
+	array_reset_keeping_memory(*uiState.events);
 	uiState.frameIndex += 1;
 }
 
