@@ -218,7 +218,7 @@ frame :: () {
 	panelRect := panel.rect;
 
 	// global font styles
-	push_font_size(14.0);
+	push_font_size(15.0);
 	push_text_padding(top_font_size() * 0.4);
 
 	set_next_width(parent_pct(1.0, 1.0));
@@ -276,6 +276,20 @@ custom_draw_code :: (box: *UIBox, udata: *void) {
 		startVisibleLines = clamp(-panel.scrollPos / metrics.characterHeight, 0, documentLines - 1);
 		endVisibleLines = clamp(startVisibleLines + cast(s64)box.rect.h / metrics.characterHeight, 0, documentLines - 1);
 
+		// Draw line numbers
+		gutterWidth := 0;
+		if lineNumbers {
+			y := box.rect.y + metrics.lineSpacing;
+			maxLinesRun := generate_text_run(tprint(" % ", documentLines), xx box.fontSize, box.font,,temp);
+			gutterWidth = xx maxLinesRun.width;
+
+			for startVisibleLines..endVisibleLines {
+				lineNoRun := generate_text_run(tprint("% ", it+1), xx box.fontSize, box.font,,temp);
+				draw_text_run(lineNoRun, box.rect.x + (gutterWidth - lineNoRun.width), y);
+				y += metrics.lineSpacing;
+			}
+		}
+
 		// @todo: refactor to use document cursors to walk through text rather than get_line_content for every line
 		linesOnScreen: [..]string;
 		linesOnScreen.allocator = temp;
@@ -284,8 +298,8 @@ custom_draw_code :: (box: *UIBox, udata: *void) {
 		}
 
 		// now actually draw the text
-		y := box.rect.y;
-		x := box.rect.x;
+		x := box.rect.x + gutterWidth;
+		y := box.rect.y + metrics.lineSpacing;
 		for line: linesOnScreen {
 			run := generate_text_run(line, xx box.fontSize, box.font,,temp);
 			draw_text_run(run, x, y);
@@ -364,7 +378,7 @@ load_fonts :: () {
 	// attempt to load my personal font, then fallback to consolas
 	// @todo: ideally my font would be in a config file somewhere not in here
 	success: bool;
-	fontCode,success = load_font("FiraMonoNerdFontMono-Medium.ttf");
+	fontCode,success = load_font("FiraMonoNerdFontMono-Regular.ttf");
 	if !success { 
 		fontCode,_ = load_font("consola.ttf");
 	}
