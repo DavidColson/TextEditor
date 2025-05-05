@@ -1,14 +1,12 @@
 UIBox :: struct {
 	flags: UIBoxFlags;
+	key: UIKey;
 
-	// box tree
-	// siblings
-	next: *UIBox;
+	// tree
+	next: *UIBox; // siblings
 	prev: *UIBox;
-	// chilren
-	head: *UIBox;
+	head: *UIBox; // chilren
 	tail: *UIBox;
-	// parent
 	parent: *UIBox;
 
 	// per frame information
@@ -27,6 +25,10 @@ UIBox :: struct {
 	palette: UIPalette;
 	customDrawFunction: (*UIBox, *void);
 	customDrawUdata: *void;
+
+	// persistent data
+	firstTouchedFrame: u64;
+	lastTouchedFrame: u64;
 }
 
 UIState :: struct {
@@ -37,6 +39,13 @@ UIState :: struct {
 
 	// Per frame UI data
 	rootbox: *UIBox;
+
+	// Persistent UI data
+	boxTable: Table(UIKey, *UIBox);
+	freeListHead: *UIBox;
+	freeListTail: *UIBox;
+
+	frameIndex: u64;
 
 	// Generated parameter stacks
 	#insert -> string {
@@ -90,6 +99,8 @@ UIPalette :: struct {
 	borders: Vector4;
 }
 
+UIKey :: u64;
+
 defaultPalette :: UIPalette.{
 	background = #run hex_to_color_vec4("282c34"),
 	borders = #run hex_to_color_vec4("EEEEEE")
@@ -100,19 +111,54 @@ init_ui :: () {
 	uiState.alloc = Allocator.{ proc = flat_pool_allocator_proc, data = *uiState.arena };
 	uiState.frameAlloc = Allocator.{ proc = flat_pool_allocator_proc, data = *uiState.frameArena };
 
+	uiState.boxTable.allocator = uiState.alloc;
+	init(*uiState.boxTable, 4096);
+
+	uiState.frameIndex = 0;
+
 	reset_parameter_stacks();
 }
 
+box :: (flags: UIBoxFlags, strKey: string) -> *UIBox {
+	return box(flags, key_from_string(strKey));
+}
 
-box :: (flags: UIBoxFlags) -> *UIBox {
-	// allocate box
-	box := New(UIBox,, uiState.frameAlloc);
+box :: (flags: UIBoxFlags, strKeyFormat: string, args: .. Any) -> *UIBox {
+	return box(flags, key_from_string(strKeyFormat, ..args));
+}
+
+box :: (flags: UIBoxFlags, key: UIKey = cast(UIKey)0) -> *UIBox {
+	// attempt to get the box from persistent data using it's key
+	box,success := table_find(*uiState.boxTable, key);
+
+	// if it can't be found it's new
+	if !success {
+		// transient box, we'll allocate in the frame allocator (cleared at the end of the frame)
+		if key == key_zero() {
+			box = New(UIBox,, uiState.frameAlloc);
+		}
+		else {
+			if uiState.freeListTail != null {
+				// there is an existing box we can reuse
+				box = uiState.freeListTail;
+				linked_list_remove(*uiState.freeListHead, *uiState.freeListTail, box);
+			}
+			else {
+				box = New(UIBox,, uiState.alloc);
+			}
+			table_add(*uiState.boxTable, key, box);
+		}
+		box.firstTouchedFrame = uiState.frameIndex;
+	}
+
+	// setup box
+	box.key = key;
 	box.flags = flags;
 	box.palette = top_palette();
 	box.parent = top_parent();
 	box.childLayoutAxis = top_child_layout_axis();
-
 	box.customDrawFunction = null;
+	box.lastTouchedFrame = uiState.frameIndex;
 
 	// insert into parent's list of children
 	if box.parent {
@@ -120,6 +166,7 @@ box :: (flags: UIBoxFlags) -> *UIBox {
 		box.parent.childCount += 1;
 	}
 
+	// populate the box with data from stacks
 	if !is_fixed_x_default() {
 		box.fixedPosition[UIAxis.X] = top_fixed_x();
 		box.flags |= .FLOATING_X;
@@ -149,8 +196,8 @@ box :: (flags: UIBoxFlags) -> *UIBox {
 	box.textAlignment = top_text_alignment();
 	box.fontSize = top_font_size();
 	box.font = top_font();
-	auto_pop_parameter_stacks();
 
+	auto_pop_parameter_stacks();
 	return box;
 }
 
@@ -164,6 +211,14 @@ begin_ui :: () {
 }
 
 end_ui :: () {
+	// yeet any unused boxes
+	for uiState.boxTable {
+		if it.lastTouchedFrame < uiState.frameIndex || it.key == key_zero() {
+			table_remove(*uiState.boxTable, it.key);
+			linked_list_insert(*uiState.freeListHead, *uiState.freeListTail, uiState.freeListTail, it);
+		}
+	}
+
 	// layout all the boxes
 	compute_layout(uiState.rootbox, .X);
 	compute_layout(uiState.rootbox, .Y);
@@ -234,7 +289,29 @@ end_ui :: () {
 
 	reset_parameter_stacks();
 	reset(*uiState.frameArena, overwrite_memory=true);
+	uiState.frameIndex += 1;
 }
+
+// keying
+
+key_zero :: () -> UIKey {
+	return cast(UIKey)0;
+}
+
+key_from_string :: (str: string) -> UIKey {
+	return cast(UIKey)fnv1a_hash(str.data, str.count);
+}
+
+key_from_string :: (formatStr: string, args: ..Any) -> UIKey {
+	keyString := tprint(formatStr, ..args);
+	return key_from_string(keyString);
+}
+
+display_string_from_key_string :: (str: string) -> string {
+    index := find_index_from_left(str, "##");
+	return slice(str, 0, index);
+}
+
 
 // Size helpers
 
@@ -518,6 +595,22 @@ linked_list_insert :: (head: **$T, tail: **T, insertAfter: *T, toInsert: *T) {
 			insertAfter.next.prev = toInsert;
 		}
 		insertAfter.next = toInsert;
+	}
+}
+
+linked_list_remove :: (head: **$T, tail: **T, toRemove: *T) {
+	if toRemove.prev != null {
+		toRemove.prev.next = toRemove.next;
+	}
+	else {
+		<<head = toRemove.next; // toRemove was first
+	}
+
+	if toRemove.next != null {
+		toRemove.next.prev = toRemove.prev;
+	}
+	else {
+		<<tail = toRemove.prev; // toRemove was last
 	}
 }
 

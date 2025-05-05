@@ -181,7 +181,7 @@ main :: () {
 			my_init_fonts();
 		}
 
-		frame();
+		build_ui();
 
 		panel_scroll_with_mouse(*focusedPanel, Input.mouse_delta_z);
 
@@ -211,7 +211,7 @@ main :: () {
     }
 }
 
-frame :: () {
+build_ui :: () {
 	begin_ui();
 
 	panel := *focusedPanel;
@@ -239,7 +239,7 @@ frame :: () {
 		set_next_font(fontCode);
 		set_next_width(parent_pct(1.0, 0.0));
 		set_next_height(parent_pct(1.0, 0.0));
-		codeBox := box(0); 
+		codeBox := box(0, "code"); 
 		codeBox.customDrawFunction = custom_draw_code;
 		codeBox.customDrawUdata = cast(*void) panel;
 
@@ -593,6 +593,7 @@ Input :: #import "Input";
 #import "System";
 #import "String";
 #import "File";
+#import "Hash";
 #import "File_Utilities";
 #import "Unicode";
 #import "Sort";
