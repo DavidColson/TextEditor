@@ -184,11 +184,6 @@ end_ui :: () {
 	box := uiState.rootbox;
 	push_parent(box.next);
 	while box {
-
-		if box.customDrawFunction {
-			box.customDrawFunction(box, box.customDrawUdata);
-		}
-
 		if box.flags & .DRAW_BACKGROUND {
 			submit_instance(.{
 				dstRect = box.rect,
@@ -216,6 +211,10 @@ end_ui :: () {
 			}
 			xPos = floor(xPos);
 			draw_text_run(box.textRun, xPos, yPos);
+		}
+
+		if box.customDrawFunction {
+			box.customDrawFunction(box, box.customDrawUdata);
 		}
 
 		// get next box

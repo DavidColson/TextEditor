@@ -22,6 +22,11 @@ Font :: struct {
 	fileData: []u8;
 	face: FT_Face;
 
+	drawTabs: bool;
+	drawNewLines: bool;
+
+	tabSize: s32;
+
 	hasKerning: bool;
 	// keyed by size currently
 	styleTable: Table(int, FontStyle);
@@ -77,7 +82,7 @@ init_font_cache :: () {
 	initialNode.width = atlas.texture.width;
 }
 
-load_font :: (filename: string) -> *Font, bool {
+load_font :: (filename: string, drawTabs:= false, tabSize := 4, drawNewLines := false) -> *Font, bool {
 	// we support loading fonts from windows font folders. If the path is absolute, then we'll just do that
 	path: string;
 	if !is_absolute_path(filename) {
@@ -112,6 +117,10 @@ load_font :: (filename: string) -> *Font, bool {
 	error := FT_New_Memory_Face(fontCache.freetype, file.data, xx file.count, 0, *font.face);
 	assert(!error);
 	font.styleTable.allocator = fontCache.allocator;
+
+	font.drawTabs = drawTabs;
+	font.drawNewLines = drawNewLines;
+	font.tabSize = xx tabSize;
 
 	return font, true;
 }
@@ -179,11 +188,12 @@ generate_text_run :: (text: string, size: int, font: *Font) -> TextRun {
 	prevGlyphIndex: u32 = 0;
 	i := 0;
 	x := 0.0;
+	col := 0;
 	while textCopy.count > 0 {
 		utf32,success := utf8_next_character(*textCopy);
 		if success == .CONVERSION_OK {
-			glyphIndex := FT_Get_Char_Index(font.face, utf32);
-			glyphData := find_or_make_glyph(font, size, glyphIndex);
+			glyphData := find_or_make_glyph(font, size, utf32);
+			glyphIndex := get_glyph_index(font, utf32);
 
 			if FT_HAS_KERNING(font.face) {
 				delta:FT_Vector = ---;
@@ -203,10 +213,18 @@ generate_text_run :: (text: string, size: int, font: *Font) -> TextRun {
 				shader = .TEXT
 			} ;
 
-			x += glyphData.advance;
+			// tab handling
+			if utf32 != #char "\t" {
+				x += glyphData.advance;
+				col += 1;
+			} else {
+				charsToTabstop := font.tabSize - col % font.tabSize;
+				x += charsToTabstop * glyphData.advance;
+				col += charsToTabstop;
+			}
+
 			result.width += glyphData.advance;
 			result.height = max(glyphData.subRect.h, result.height);
-
 
 			prevGlyphIndex = glyphIndex;
 		}
@@ -218,8 +236,8 @@ generate_text_run :: (text: string, size: int, font: *Font) -> TextRun {
 draw_text_run :: (textRun: TextRun, x: float, y: float) {
 	for textRun.instances {
 		instance := it;
-		instance.dstRect.x = x + instance.dstRect.x;
-		instance.dstRect.y = y + instance.dstRect.y;
+		instance.dstRect.x = floor(x + instance.dstRect.x);
+		instance.dstRect.y = floor(y + instance.dstRect.y);
 		submit_instance(instance);
 	}
 }
@@ -244,7 +262,27 @@ AtlasNode :: struct {
 	width: s32;
 }
 
-find_or_make_glyph :: (font: *Font, size: int, glyphIndex: u32) -> GlyphData {
+get_glyph_index :: (font: *Font, utf32: u32) -> u32 {
+	if font.drawTabs {
+		if utf32 == #char "\t" then utf32 = #char "→";
+	}
+	else {
+		if utf32 == #char "\t" then utf32 = #char " ";
+	}
+
+	if font.drawNewLines {
+		if utf32 == #char "\n" then utf32 = #char "¶";
+		if utf32 == #char "\r" then utf32 = #char "←";
+	}
+	else {
+		if utf32 == #char "\n" then utf32 = #char " ";
+		if utf32 == #char "\r" then utf32 = #char " ";
+	}
+	return FT_Get_Char_Index(font.face, utf32);
+}
+
+find_or_make_glyph :: (font: *Font, size: int, utf32: u32) -> GlyphData {
+	glyphIndex := get_glyph_index(font, utf32);
 	fontStyle,newStyle := find_or_add(*font.styleTable, size);
 
 	// cache miss on the font style

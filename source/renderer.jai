@@ -9,7 +9,7 @@ RendererState :: struct {
 	resolutionUniformLocation: GLint;
 	whiteDefaultTex: GLuint;
 
-    MAX_INSTANCES :: 2400;
+    MAX_INSTANCES :: 5000;
     instances: [MAX_INSTANCES] Instance;
 	numInstances: s32;
 

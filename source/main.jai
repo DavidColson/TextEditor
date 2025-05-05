@@ -218,7 +218,7 @@ frame :: () {
 	panelRect := panel.rect;
 
 	// global font styles
-	push_font_size(13.0);
+	push_font_size(14.0);
 	push_text_padding(top_font_size() * 0.4);
 
 	set_next_width(parent_pct(1.0, 1.0));
@@ -250,13 +250,6 @@ frame :: () {
 		box(.DRAW_BACKGROUND); 
 	}
 
-	// after this you will want to introduce text rendering
-	// place inside the header box another box which renders text, with some padding
-	// maybe even multiple pieces of text aligned to different sides
-
-	// Now introduce custom draw functions for boxes, and you will use this to draw code
-	// in the second box
-
 	// Following this you can introduce scrolling as a feature for boxes for the code window
 
 	// after this we will explore the picker/finder widgets
@@ -270,6 +263,35 @@ frame :: () {
 // @todo: probably want to move this somewhere else?
 custom_draw_code :: (box: *UIBox, udata: *void) {
 	panel:*Panel = cast(*Panel)udata;
+
+	if panel.document {
+		metrics := get_font_metrics(box.font, xx box.fontSize);
+		documentLines := document_get_num_lines(panel.document);
+
+		startVisibleLines : s64;
+		endVisibleLines : s64;
+		visibleLines: [..]string;
+		visibleLines.allocator = temp;
+
+		startVisibleLines = clamp(-panel.scrollPos / metrics.characterHeight, 0, documentLines - 1);
+		endVisibleLines = clamp(startVisibleLines + cast(s64)box.rect.h / metrics.characterHeight, 0, documentLines - 1);
+
+		// @todo: refactor to use document cursors to walk through text rather than get_line_content for every line
+		linesOnScreen: [..]string;
+		linesOnScreen.allocator = temp;
+		for startVisibleLines..endVisibleLines {
+			array_add(*linesOnScreen, document_get_line_content(panel.document, xx it));
+		}
+
+		// now actually draw the text
+		y := box.rect.y;
+		x := box.rect.x;
+		for line: linesOnScreen {
+			run := generate_text_run(line, xx box.fontSize, box.font,,temp);
+			draw_text_run(run, x, y);
+			y += metrics.lineSpacing;
+		}
+	}
 }
 
 do_backup_callback :: () {

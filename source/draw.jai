@@ -307,9 +307,6 @@ draw_panel :: (panel: *Panel) {
 
 		startVisibleLines : s64;
 		endVisibleLines : s64;
-		visibleLines: [..]string;
-		visibleLines.allocator = temp;
-
 		startVisibleLines = clamp(-panel.scrollPos / my_font.character_height, 0, documentLines - 1);
 		endVisibleLines = clamp(startVisibleLines + cast(s64)heightForCode / my_font.character_height, 0, documentLines - 1);
 
