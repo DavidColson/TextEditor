@@ -58,17 +58,24 @@ Notification :: struct {
 
 style: struct {
 	// colors
-	backgroundDark := Vector4.{0.10980, 0.12157, 0.14510, 1.0}; // #1C1F25
-	backgroundMid := Vector4.{0.15686, 0.17255, 0.20392, 1.0};  // #282C34
-	backgroundLight := Vector4.{0.23137, 0.25490, 0.29804, 1.0}; // #3B414C
+	backgroundDark := #run hex_to_color_vec4("1C1F25");
+	backgroundMid := #run hex_to_color_vec4("282C34");
+	backgroundLight := #run hex_to_color_vec4("3B414C");
 
-	textPrimary := Vector4.{0.76471, 0.78039, 0.81569, 1.0}; // #C3C7D0
-	textSecondary := Vector4.{0.36078, 0.38824, 0.43922, 1.0}; // #5C6370
+	textPrimary := #run hex_to_color_vec4("C3C7D0");
+	textSecondary := #run hex_to_color_vec4("5C6370");
+
+	borders := #run hex_to_color_vec4("5C6476");
 
 	// fonts
 	fontSize := 15;
 	codeFont := string.["FiraMonoNerdFontMono-Regular.ttf", "consola.ttf"];
 	uiFont := string.["segoeui.ttf"];
+
+	// Icons
+	iconVerticalEllipsis :: #run to_string(*convert_utf32_to_utf8(0xf142));
+	iconPen :: #run to_string(*convert_utf32_to_utf8(0xf304));
+	iconLock :: #run to_string(*convert_utf32_to_utf8(0xf023));
 };
 
 EDITOR_MODE_NUM :: #run enum_highest_value(EditorMode) + 1;
@@ -238,7 +245,7 @@ build_ui :: () {
 
 	// global styles
 	push_font_size(xx style.fontSize);
-	push_palette(.{text = style.textPrimary, background=style.backgroundMid});
+	push_palette(.{text = style.textPrimary, background=style.backgroundMid, border=style.borders});
 	push_text_padding(top_font_size() * 0.2);
 
 	set_next_width(parent_pct(1.0, 1.0));
@@ -255,7 +262,7 @@ build_ui :: () {
 		set_next_width(parent_pct(1.0, 1.0));
 		set_next_height(child_sum(1.0));
 		set_next_child_layout_axis(.Y);
-		header := box(.DRAW_BACKGROUND); 
+		header := box(.DRAW_BACKGROUND | .DRAW_SIDE_BOTTOM); 
 		{
 			padding := 0.3;
 			scope_parent(header);
@@ -279,15 +286,26 @@ build_ui :: () {
 				else if editorMode == .INSERT {
 					modeText = "INSERT";
 				}
-				// set_next_text_padding(3);
 				box(.DRAW_BACKGROUND | .DRAW_TEXT, modeText);
+
+				spacer(em(0.5, 1.0));
 
 				// filename
 				box(.DRAW_TEXT, path_filename(panel.document.path));
 
-				// icon for file save status
+				// lock icon @todo: implement for real
+				if false {
+					set_next_font(fontIcons);
+					set_next_text_alignment(.CENTER);
+					box(.DRAW_TEXT, style.iconLock);
+				}
 
-				// lock icon
+				// icon for file save status
+				if panel.document.unsaved {
+					set_next_font(fontIcons);
+					set_next_text_alignment(.CENTER);
+					box(.DRAW_TEXT, style.iconPen);
+				}
 
 				// fill space
 				set_next_width(parent_pct(1.0, 0.0));
@@ -297,10 +315,14 @@ build_ui :: () {
 				pendingKeys := string.{keyMap.pendingKeyString.count, keyMap.pendingKeyString.data};
 				box(.DRAW_TEXT, pendingKeys);
 
+				spacer(em(2.0, 1.0));
+
 				// location
 				cursorCoordinate := document_cursor_get_coordinate(*panel.cursor.head);
 				locationText := tprint("Ln: % Col: % Byte: %", cursorCoordinate.line+1, cursorCoordinate.col, panel.cursor.head.documentOffset);
 				box(.DRAW_TEXT, locationText);
+
+				spacer(em(2.0, 1.0));
 
 				// line endings
 				lineEndingText := "[Mixed]";
@@ -315,16 +337,22 @@ build_ui :: () {
 				}
 				box(.DRAW_TEXT, lineEndingText);
 
+				spacer(em(2.0, 1.0));
+
 				// file type
 				box(.DRAW_TEXT, "Jai");
+
+				spacer(em(2.0, 1.0));
 
 				// panel options button
 				palette.background = style.backgroundMid;
 				set_next_palette(palette);
-				box(.DRAW_BACKGROUND | .DRAW_TEXT, "Options");
+				set_next_font(fontIcons);
+				set_next_width(em(1.5, 1.0));
+				set_next_text_alignment(.CENTER);
+				box(.DRAW_TEXT, style.iconVerticalEllipsis);
 			}
 		}
-
 
 		// code
 		set_next_font(fontCode);
@@ -474,7 +502,7 @@ load_fonts :: () {
 		fontCode,_ = load_font("consola.ttf");
 	}
 
-	fontIcons = load_font_from_memory(#run read_entire_file("fonts/Font Awesome 6 Free-Regular-400.otf"));
+	fontIcons = load_font_from_memory(#run read_entire_file("fonts/Font Awesome 6 Free-Solid-900.otf"));
 }
 
 // @todo: remove

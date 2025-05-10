@@ -34,13 +34,13 @@ Group :: struct {
 }
 
 Instance :: struct {
-	dstRect: Rect;
-	srcRect: Rect;
-	color: Vector4;
-	cornerRadii: Vector4;
-	edgeSoftness: float; // negative will result in inverse rounded corners
-	borderThickness: float;
-	texture: *Bitmap;
+	dstRect: Rect = .{0.0, 0.0, 1.0, 1.0};
+	srcRect: Rect = .{0.0, 0.0, 1.0, 1.0};
+	color: Vector4 = .{1.0, 1.0, 1.0, 1.0};
+	cornerRadii: Vector4 = .{0.0, 0.0, 0.0, 0.0};
+	edgeSoftness: float = 0.0; // negative will result in inverse rounded corners
+	borderThickness: float = 0.0;
+	texture: *Bitmap = null;
 	shader: Shader;
 }
 

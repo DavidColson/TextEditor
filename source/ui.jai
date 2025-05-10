@@ -26,6 +26,7 @@ UIBox :: struct {
 	customDrawFunction: (*UIBox, *void);
 	customDrawUdata: *void;
 	cornerRadius: Vector4;
+	borderThickness: float;
 
 	// persistent data
 	firstTouchedFrame: u64;
@@ -70,6 +71,11 @@ UISignal :: struct {
 UIBoxFlags :: enum_flags {
 	DRAW_BACKGROUND;
 	DRAW_TEXT;
+	DRAW_BORDER;
+	DRAW_SIDE_BOTTOM;
+	DRAW_SIDE_TOP;
+	DRAW_SIDE_LEFT;
+	DRAW_SIDE_RIGHT;
 	FLOATING_X;
 	FLOATING_Y;
 	FIXED_WIDTH;
@@ -105,14 +111,14 @@ UISize :: struct {
 UIPalette :: struct {
 	background: Vector4;
 	text: Vector4;
-	borders: Vector4;
+	border: Vector4;
 }
 
 UIKey :: u64;
 
 defaultPalette :: UIPalette.{
 	background = #run hex_to_color_vec4("282c34"),
-	borders = #run hex_to_color_vec4("EEEEEE")
+	border = #run hex_to_color_vec4("EEEEEE")
 };
 
 
@@ -214,6 +220,7 @@ box :: (flags: UIBoxFlags, key: UIKey = cast(UIKey)0) -> *UIBox {
 	box.textAlignment = top_text_alignment();
 	box.fontSize = top_font_size();
 	box.font = top_font();
+	box.borderThickness = top_border_thickness();
 
 	auto_pop_parameter_stacks();
 	return box;
@@ -266,16 +273,14 @@ end_ui :: () {
 		if box.flags & .DRAW_BACKGROUND {
 			submit_instance(.{
 				dstRect = box.rect,
-				srcRect = .{0.0, 0.0, 1.0, 1.0},
 				color = box.palette.background,
 				cornerRadii = box.cornerRadius,
-				edgeSoftness = 0.0,
-				borderThickness = 0.0
 			});
 		}
 
 		if box.flags & .DRAW_TEXT {
 			// find position of text?
+			box.textRun = generate_text_run(box.text, xx box.fontSize, box.font,,temp);
 			metrics := get_font_metrics(box.font, xx box.fontSize);
 			yPos := floor(box.rect.y + box.rect.h/2.0) + floor(box.fontSize/2.0) - 1.0;
 			xPos := box.rect.x;
@@ -284,9 +289,9 @@ end_ui :: () {
 				case .LEFT;
 					xPos += box.textPadding;
 				case .CENTER;
-					xPos = Min((box.rect.x + box.rect.w/2.0) - box.textRun.width/2.0, box.rect.w);
+					xPos = box.rect.x + Min((box.rect.w/2.0) - box.textRun.width/2.0, box.rect.w);
 				case .RIGHT;
-					xPos = Min((box.rect.x + box.rect.w) - box.textRun.width - box.textPadding, box.rect.w);
+					xPos = box.rect.x + Min(box.rect.w - box.textRun.width - box.textPadding, box.rect.w);
 			}
 			xPos = floor(xPos);
 			draw_text_run(box.textRun, xPos, yPos, box.palette.text);
@@ -294,6 +299,40 @@ end_ui :: () {
 
 		if box.customDrawFunction {
 			box.customDrawFunction(box, box.customDrawUdata);
+		}
+
+		if box.flags & .DRAW_BORDER {
+			submit_instance(.{
+				dstRect = box.rect,
+				color = box.palette.border,
+				cornerRadii = box.cornerRadius,
+				borderThickness = box.borderThickness
+			});
+		}
+
+		if box.flags & .DRAW_SIDE_TOP {
+			submit_instance(.{
+				dstRect = .{box.rect.x, box.rect.y - floor(box.borderThickness/2), box.rect.w, box.borderThickness},
+				color = box.palette.border,
+			});
+		}
+		if box.flags & .DRAW_SIDE_BOTTOM {
+			submit_instance(.{
+				dstRect = .{box.rect.x, box.rect.y + box.rect.h - floor(box.borderThickness/2), box.rect.w, box.borderThickness},
+				color = box.palette.border,
+			});
+		}
+		if box.flags & .DRAW_SIDE_LEFT {
+			submit_instance(.{
+				dstRect = .{box.rect.x - floor(box.borderThickness/2), box.rect.y, box.borderThickness, box.rect.h},
+				color = box.palette.border,
+			});
+		}
+		if box.flags & .DRAW_SIDE_RIGHT {
+			submit_instance(.{
+				dstRect = .{box.rect.x + box.rect.w - floor(box.borderThickness/2), box.rect.y, box.borderThickness, box.rect.h},
+				color = box.palette.border,
+			});
 		}
 	}
 
@@ -683,7 +722,8 @@ PARAMETERS :: Parameter.[
 	.{ "font",		 		"*Font", 		"fontUI" },
 	.{ "font_size", 		"float", 		"15" },
 	.{ "palette", 			"UIPalette", 	"defaultPalette" },
-	.{ "corner_radius", 	"Vector4", 		".{0.0, 0.0, 0.0, 0.0}" }
+	.{ "corner_radius", 	"Vector4", 		".{0.0, 0.0, 0.0, 0.0}" },
+	.{ "border_thickness", 	"float", 		"1.0" }
 ];
 
 #scope_export
