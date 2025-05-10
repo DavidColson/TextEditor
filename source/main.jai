@@ -56,6 +56,21 @@ Notification :: struct {
 	timer: float64;
 }
 
+style: struct {
+	// colors
+	backgroundDark := Vector4.{0.10980, 0.12157, 0.14510, 1.0}; // #1C1F25
+	backgroundMid := Vector4.{0.15686, 0.17255, 0.20392, 1.0};  // #282C34
+	backgroundLight := Vector4.{0.23137, 0.25490, 0.29804, 1.0}; // #3B414C
+
+	textPrimary := Vector4.{0.76471, 0.78039, 0.81569, 1.0}; // #C3C7D0
+	textSecondary := Vector4.{0.36078, 0.38824, 0.43922, 1.0}; // #5C6370
+
+	// fonts
+	fontSize := 15;
+	codeFont := string.["FiraMonoNerdFontMono-Regular.ttf", "consola.ttf"];
+	uiFont := string.["segoeui.ttf"];
+};
+
 EDITOR_MODE_NUM :: #run enum_highest_value(EditorMode) + 1;
 
 // globals
@@ -221,26 +236,95 @@ build_ui :: () {
 	panel := *focusedPanel;
 	panelRect := panel.rect;
 
-	// global font styles
-	push_font_size(15.0);
-	push_text_padding(top_font_size() * 0.4);
+	// global styles
+	push_font_size(xx style.fontSize);
+	push_palette(.{text = style.textPrimary, background=style.backgroundMid});
+	push_text_padding(top_font_size() * 0.2);
 
 	set_next_width(parent_pct(1.0, 1.0));
 	set_next_height(parent_pct(1.0, 1.0));
 	set_next_child_layout_axis(.Y);
 	panelBox := box(.DRAW_BACKGROUND);
 	{
-		push_parent(panelBox); defer pop_parent();
+		scope_parent(panelBox);
 
 		// header
-		set_next_palette(.{background = .{0.0, 0.0, 0.0, 1.0}});
+		palette := top_palette();
+		palette.background = style.backgroundLight;
+		set_next_palette(palette);
 		set_next_width(parent_pct(1.0, 1.0));
-		set_next_height(text_dim(0.0, 1.0));
-		header := box(.DRAW_BACKGROUND | .DRAW_TEXT, "header"); 
-		header.text = panel.document.path; // @todo: use the display part of the key
-		if signal_from_box(header).hovering {
-			print("hello from hover");
+		set_next_height(child_sum(1.0));
+		set_next_child_layout_axis(.Y);
+		header := box(.DRAW_BACKGROUND); 
+		{
+			padding := 0.3;
+			scope_parent(header);
+			scope_padding(em(padding, 1.0));
+			{
+				set_next_width(child_sum(1.0));
+				set_next_height(child_sum(1.0));
+				scope_parent(box(0));
+
+				scope_padding(em(padding, 1.0));
+				scope_width(text_dim(0.0, 1.0));
+				scope_height(text_dim(0.0, 1.0));
+
+				// mode
+				palette.background = style.backgroundDark;
+				set_next_palette(palette);
+				modeText := "NORMAL";
+				if extendSelections && editorMode == .NORMAL {
+					modeText = "SELECT";
+				}
+				else if editorMode == .INSERT {
+					modeText = "INSERT";
+				}
+				// set_next_text_padding(3);
+				box(.DRAW_BACKGROUND | .DRAW_TEXT, modeText);
+
+				// filename
+				box(.DRAW_TEXT, path_filename(panel.document.path));
+
+				// icon for file save status
+
+				// lock icon
+
+				// fill space
+				set_next_width(parent_pct(1.0, 0.0));
+				box(0);
+
+				// pending keys
+				pendingKeys := string.{keyMap.pendingKeyString.count, keyMap.pendingKeyString.data};
+				box(.DRAW_TEXT, pendingKeys);
+
+				// location
+				cursorCoordinate := document_cursor_get_coordinate(*panel.cursor.head);
+				locationText := tprint("Ln: % Col: % Byte: %", cursorCoordinate.line+1, cursorCoordinate.col, panel.cursor.head.documentOffset);
+				box(.DRAW_TEXT, locationText);
+
+				// line endings
+				lineEndingText := "[Mixed]";
+				if panel.document.lineEndings == .LF {
+					lineEndingText = "LF";
+				}
+				else if panel.document.lineEndings == .CRLF {
+					lineEndingText = "CRLF";
+				}
+				else if panel.document.lineEndings == .MIXED_MAJORITY_LF {
+					lineEndingText = "[Mixed]";
+				}
+				box(.DRAW_TEXT, lineEndingText);
+
+				// file type
+				box(.DRAW_TEXT, "Jai");
+
+				// panel options button
+				palette.background = style.backgroundMid;
+				set_next_palette(palette);
+				box(.DRAW_BACKGROUND | .DRAW_TEXT, "Options");
+			}
 		}
+
 
 		// code
 		set_next_font(fontCode);
@@ -251,10 +335,10 @@ build_ui :: () {
 		codeBox.customDrawUdata = cast(*void) panel;
 
 		// search
-		set_next_palette(.{background = .{0.0, 0.0, 0.0, 1.0}});
-		set_next_width(parent_pct(1.0, 1.0));
-		set_next_height(em(2.0, 1.0));
-		box(.DRAW_BACKGROUND); 
+		// set_next_palette(palette);
+		// set_next_width(parent_pct(1.0, 1.0));
+		// set_next_height(em(2.0, 1.0));
+		// box(.DRAW_BACKGROUND); 
 	}
 
 	// Following this you can introduce scrolling as a feature for boxes for the code window
@@ -292,7 +376,7 @@ custom_draw_code :: (box: *UIBox, udata: *void) {
 
 			for startVisibleLines..endVisibleLines {
 				lineNoRun := generate_text_run(tprint("% ", it+1), xx box.fontSize, box.font,,temp);
-				draw_text_run(lineNoRun, box.rect.x + (gutterWidth - lineNoRun.width), y);
+				draw_text_run(lineNoRun, box.rect.x + (gutterWidth - lineNoRun.width), y, style.textSecondary);
 				y += metrics.lineSpacing;
 			}
 		}
@@ -309,7 +393,7 @@ custom_draw_code :: (box: *UIBox, udata: *void) {
 		y := box.rect.y + metrics.lineSpacing;
 		for line: linesOnScreen {
 			run := generate_text_run(line, xx box.fontSize, box.font,,temp);
-			draw_text_run(run, x, y);
+			draw_text_run(run, x, y, style.textPrimary);
 			y += metrics.lineSpacing;
 		}
 	}

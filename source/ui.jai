@@ -25,6 +25,7 @@ UIBox :: struct {
 	palette: UIPalette;
 	customDrawFunction: (*UIBox, *void);
 	customDrawUdata: *void;
+	cornerRadius: Vector4;
 
 	// persistent data
 	firstTouchedFrame: u64;
@@ -103,6 +104,7 @@ UISize :: struct {
 
 UIPalette :: struct {
 	background: Vector4;
+	text: Vector4;
 	borders: Vector4;
 }
 
@@ -127,11 +129,19 @@ init_ui :: () {
 }
 
 box :: (flags: UIBoxFlags, strKey: string) -> *UIBox {
-	return box(flags, key_from_string(strKey));
+	result := box(flags, key_from_string(strKey));
+	if result.flags & .DRAW_TEXT {
+		result.text = display_string_from_key_string(strKey);
+	}
+	return result;
 }
 
 box :: (flags: UIBoxFlags, strKeyFormat: string, args: .. Any) -> *UIBox {
-	return box(flags, key_from_string(strKeyFormat, ..args));
+	result := box(flags, key_from_string(strKeyFormat, ..args));
+	if result.flags & .DRAW_TEXT {
+		result.text = display_string_from_key_string(tprint(strKeyFormat, ..args));
+	}
+	return result;
 }
 
 box :: (flags: UIBoxFlags, key: UIKey = cast(UIKey)0) -> *UIBox {
@@ -199,6 +209,7 @@ box :: (flags: UIBoxFlags, key: UIKey = cast(UIKey)0) -> *UIBox {
 		box.size[UIAxis.Y] = top_height();
 	}
 
+	box.cornerRadius = top_corner_radius();
 	box.textPadding = top_text_padding();
 	box.textAlignment = top_text_alignment();
 	box.fontSize = top_font_size();
@@ -249,21 +260,15 @@ end_ui :: () {
 	uiState.rootbox.rect.h = uiState.rootbox.fixedSize[1];
 
 	// send draw calls to renderer
-	recursionStack: [32]*UIBox;
-	recursionLevel := 0;
-	push_parent :: (box: *UIBox) #expand { `recursionStack[`recursionLevel] = box; `recursionLevel += 1; }
-	pop_parent :: () -> *UIBox #expand { `recursionLevel -= 1; return `recursionStack[`recursionLevel]; }
+	for :depth_first uiState.rootbox {
+		box := it;
 
-	// @todo: you could wrap this in a depth first for expansion
-	box := uiState.rootbox;
-	push_parent(box.next);
-	while box {
 		if box.flags & .DRAW_BACKGROUND {
 			submit_instance(.{
 				dstRect = box.rect,
 				srcRect = .{0.0, 0.0, 1.0, 1.0},
 				color = box.palette.background,
-				cornerRadii = .{0.0, 0.0, 0.0, 0.0},
+				cornerRadii = box.cornerRadius,
 				edgeSoftness = 0.0,
 				borderThickness = 0.0
 			});
@@ -272,7 +277,7 @@ end_ui :: () {
 		if box.flags & .DRAW_TEXT {
 			// find position of text?
 			metrics := get_font_metrics(box.font, xx box.fontSize);
-			yPos := floor(box.rect.y + box.rect.h/2.0) + floor(metrics.typicalAscender/2.0);
+			yPos := floor(box.rect.y + box.rect.h/2.0) + floor(box.fontSize/2.0) - 1.0;
 			xPos := box.rect.x;
 
 			if box.textAlignment == {
@@ -284,12 +289,35 @@ end_ui :: () {
 					xPos = Min((box.rect.x + box.rect.w) - box.textRun.width - box.textPadding, box.rect.w);
 			}
 			xPos = floor(xPos);
-			draw_text_run(box.textRun, xPos, yPos);
+			draw_text_run(box.textRun, xPos, yPos, box.palette.text);
 		}
 
 		if box.customDrawFunction {
 			box.customDrawFunction(box, box.customDrawUdata);
 		}
+	}
+
+	reset_parameter_stacks();
+	reset(*uiState.frameArena, overwrite_memory=true);
+	array_reset_keeping_memory(*uiState.events);
+	uiState.frameIndex += 1;
+}
+
+// depth first UI tree iterator
+
+depth_first :: (box: *UIBox, body: Code, flags: For_Flags) #expand {
+	recursionStack: [32]*UIBox;
+	recursionLevel := 0;
+	push_parent :: (box: *UIBox) #expand { `recursionStack[`recursionLevel] = box; `recursionLevel += 1; }
+	pop_parent :: () -> *UIBox #expand { `recursionLevel -= 1; return `recursionStack[`recursionLevel]; }
+
+	counter := 0;
+	push_parent(box.next);
+	while box {
+		`it_index := counter; defer counter += 1;
+		`it := box;
+
+		#insert body;
 
 		// get next box
 		if box.head {
@@ -305,11 +333,6 @@ end_ui :: () {
 			}
 		}
 	}
-
-	reset_parameter_stacks();
-	reset(*uiState.frameArena, overwrite_memory=true);
-	array_reset_keeping_memory(*uiState.events);
-	uiState.frameIndex += 1;
 }
 
 // keying
@@ -329,9 +352,25 @@ key_from_string :: (formatStr: string, args: ..Any) -> UIKey {
 
 display_string_from_key_string :: (str: string) -> string {
     index := find_index_from_left(str, "##");
+	if index < 0
+		return str;
 	return slice(str, 0, index);
 }
 
+// Basic widgets
+
+spacer :: (size: UISize) {
+	if top_parent().childLayoutAxis == .X {
+		set_next_width(size);
+		box(0); 
+	}
+	else {
+		set_next_height(size);
+		box(0); 
+	}
+}
+
+scope_padding :: (size: UISize) #expand { spacer(size); `defer spacer(size); }
 
 // Size helpers
 
@@ -366,7 +405,7 @@ compute_standalone_sizes :: (root: *UIBox, axis: UIAxis) {
 				textSize = root.textRun.width;
 			}
 			else {
-				textSize = root.textRun.height;
+				textSize = root.fontSize;
 			}
 			root.fixedSize[axis] = textSize + padding + root.textPadding * 2;
 		case;
@@ -545,41 +584,35 @@ enforce_layout_constraints :: (root: *UIBox, axis: UIAxis) {
 }
 
 compute_positions :: (root: *UIBox, axis: UIAxis) {
-	// set a position value to 0
-	layoutPosition := 0.0;
+	// depth first iterate through all boxes
+	for :depth_first root {
+		box := it;
+		layoutPosition := 0.0;
 
-	// loop through the children of this box setting their position
-	// along the layout axis, and increasing the position in the layout
-	child := root.head;
-	while child {
-		floating := UIBoxFlags.FLOATING_X;
-		if axis == .Y then floating = .FLOATING_Y; 
+		// loop through the children of this box
+		child := box.head;
+		while child {
+			floating := UIBoxFlags.FLOATING_X;
+			if axis == .Y then floating = .FLOATING_Y; 
 
-		if !(child.flags & floating) {
-			child.fixedPosition[axis] = layoutPosition;
-			if root.childLayoutAxis == axis {
-				layoutPosition += child.fixedSize[axis];
+			if !(child.flags & floating) {
+				child.fixedPosition[axis] = layoutPosition;
+				if box.childLayoutAxis == axis {
+					layoutPosition += child.fixedSize[axis];
+				}
 			}
-		}
 
-		// actually set the final rect
-		if axis == .X {
-			child.rect.x = child.fixedPosition[axis];
-			child.rect.w = child.fixedSize[axis];
+			// actually set the final rect
+			if axis == .X {
+				child.rect.x = box.rect.x + child.fixedPosition[axis];
+				child.rect.w = child.fixedSize[axis];
+			}
+			else {
+				child.rect.y = box.rect.y + child.fixedPosition[axis];
+				child.rect.h = child.fixedSize[axis];
+			}
+			child = child.next;
 		}
-		else {
-			child.rect.y = child.fixedPosition[axis];
-			child.rect.h = child.fixedSize[axis];
-		}
-
-		child = child.next;
-	}
-
-	// give children a chance to compute positions for their children
-	child = root.head;
-	while child {
-		compute_positions(child, axis);
-		child = child.next;
 	}
 }
 
@@ -643,14 +676,14 @@ PARAMETERS :: Parameter.[
 	.{ "fixed_y", 			"float", 		"0" },
 	.{ "fixed_width", 		"float", 		"0" },
 	.{ "fixed_height", 		"float", 		"0" },
-	.{ "width", 			"UISize", 		"px(100.0, 1.0)" },
-	.{ "height", 			"UISize", 		"px(100.0, 1.0)" },
+	.{ "width", 			"UISize", 		"px(1.0, 1.0)" },
+	.{ "height", 			"UISize", 		"px(1.0, 1.0)" },
 	.{ "text_padding", 		"float", 		"5" },
 	.{ "text_alignment",	"UITextAlign", 	".LEFT" },
 	.{ "font",		 		"*Font", 		"fontUI" },
 	.{ "font_size", 		"float", 		"15" },
 	.{ "palette", 			"UIPalette", 	"defaultPalette" },
-	.{ "corner_radius", 	"float", 		"0" }
+	.{ "corner_radius", 	"Vector4", 		".{0.0, 0.0, 0.0, 0.0}" }
 ];
 
 #scope_export
@@ -703,7 +736,8 @@ set_next :: (stack: *ParameterStack($T), v: T) {
 		print_to_builder(*builder, "top_%1 :: () -> %2 { return get_top(*uiState.%1Stack); }\n", it.name, it.type);
 		print_to_builder(*builder, "pop_%1 :: () -> %2 { return pop(*uiState.%1Stack); }\n", it.name, it.type);
 		print_to_builder(*builder, "push_%1 :: (%1: %2) { push(*uiState.%1Stack, %1); }\n", it.name, it.type);
-		print_to_builder(*builder, "set_next_%1 :: (%1: %2) { set_next(*uiState.%1Stack, %1); }\n\n", it.name, it.type);
+		print_to_builder(*builder, "set_next_%1 :: (%1: %2) { set_next(*uiState.%1Stack, %1); }\n", it.name, it.type);
+		print_to_builder(*builder, "scope_%1 :: (%1: %2) #expand { push_%1(%1); `defer pop_%1(); }\n\n", it.name, it.type);
 	}
 	return builder_to_string(*builder);
 }

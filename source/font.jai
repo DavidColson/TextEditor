@@ -233,18 +233,19 @@ generate_text_run :: (text: string, size: int, font: *Font) -> TextRun {
 	return result;
 }
 
-draw_text_run :: (textRun: TextRun, x: float, y: float) {
+draw_text_run :: (textRun: TextRun, x: float, y: float, color: Vector4) {
 	for textRun.instances {
 		instance := it;
 		instance.dstRect.x = floor(x + instance.dstRect.x);
 		instance.dstRect.y = floor(y + instance.dstRect.y);
+		instance.color = color;
 		submit_instance(instance);
 	}
 }
 
 draw_text :: (text: string, size: int, font: *Font, x: float, y: float) {
 	run := generate_text_run(text, size, font,,temp);
-	draw_text_run(run, x, y);
+	draw_text_run(run, x, y, .{1.0, 1.0, 1.0, 1.0});
 }
 
 

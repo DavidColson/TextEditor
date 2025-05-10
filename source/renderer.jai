@@ -151,8 +151,7 @@ render_frame :: () {
 	// end the final group
 	groups[numGroups-1].instanceEnd = numInstances;
 
-	c := hex_to_color_vec4("282c34");
-    glClearColor(c.x, c.y, c.z, 0.0);
+    glClearColor(style.backgroundDark.x, style.backgroundDark.y, style.backgroundDark.z, 1.0);
 	glClear(GL_COLOR_BUFFER_BIT);
 
 	glBindVertexArray(vao);
