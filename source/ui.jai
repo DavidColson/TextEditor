@@ -230,6 +230,10 @@ signal_from_box :: (box: *UIBox) -> UISignal {
 	// iterate uiState.events
 	// see if any are relevant to you
 	// create a signal and return it
+
+	// hot: About to be interacting with item (hovering on button)
+	// active: Actually interacting with item (clicking on button)
+
     x, y, success := get_mouse_pointer_position(window, false);
 	if success && contains_point(box.rect, xx x, xx y) {
 		return .{hovering = true};
@@ -397,6 +401,11 @@ display_string_from_key_string :: (str: string) -> string {
 }
 
 // Basic widgets
+
+label :: (text: string) -> UISignal {
+	label := box(.DRAW_TEXT, text);
+	return signal_from_box(label);
+}
 
 spacer :: (size: UISize) {
 	if top_parent().childLayoutAxis == .X {
@@ -643,15 +652,25 @@ compute_positions :: (root: *UIBox, axis: UIAxis) {
 
 			// actually set the final rect
 			if axis == .X {
-				child.rect.x = box.rect.x + child.fixedPosition[axis];
-				child.rect.w = child.fixedSize[axis];
+				child.rect.x = round(box.rect.x + child.fixedPosition[axis]);
+				child.rect.w = round(child.fixedSize[axis]);
 			}
 			else {
-				child.rect.y = box.rect.y + child.fixedPosition[axis];
-				child.rect.h = child.fixedSize[axis];
+				child.rect.y = round(box.rect.y + child.fixedPosition[axis]);
+				child.rect.h = round(child.fixedSize[axis]);
 			}
 			child = child.next;
 		}
+	}
+}
+
+round :: (f: float) -> float {
+	diff := f - floor(f);
+	if diff >= 0.5{
+		return ceil(f);
+	}
+	else {
+		return floor(f);
 	}
 }
 

@@ -291,20 +291,41 @@ build_ui :: () {
 				spacer(em(0.5, 1.0));
 
 				// filename
-				box(.DRAW_TEXT, path_filename(panel.document.path));
+				if label(path_filename(panel.document.path)).hovering {
+					scope_parent(uiState.rootbox);
+
+					// todo:
+					// delay before it shows
+					// more padding + border
+					// better font style and color
+					// offset from cursor
+
+					x, y, success := get_mouse_pointer_position(window, false);
+					set_next_fixed_x(xx (x + 20));
+					set_next_fixed_y(xx (y + 20));
+					set_next_width(child_sum(1.0));
+					set_next_height(child_sum(1.0));
+					set_next_child_layout_axis(.Y);
+					tooltip := box(.DRAW_BACKGROUND | .DRAW_BORDER);
+					{
+						scope_padding(em(1.0, 1.0));
+						scope_parent(tooltip);
+						label(panel.document.path);
+					}
+				}
 
 				// lock icon @todo: implement for real
 				if false {
 					set_next_font(fontIcons);
 					set_next_text_alignment(.CENTER);
-					box(.DRAW_TEXT, style.iconLock);
+					label(style.iconLock);
 				}
 
 				// icon for file save status
 				if panel.document.unsaved {
 					set_next_font(fontIcons);
 					set_next_text_alignment(.CENTER);
-					box(.DRAW_TEXT, style.iconPen);
+					label(style.iconPen);
 				}
 
 				// fill space
@@ -313,14 +334,13 @@ build_ui :: () {
 
 				// pending keys
 				pendingKeys := string.{keyMap.pendingKeyString.count, keyMap.pendingKeyString.data};
-				box(.DRAW_TEXT, pendingKeys);
+				label(pendingKeys);
 
 				spacer(em(2.0, 1.0));
 
 				// location
 				cursorCoordinate := document_cursor_get_coordinate(*panel.cursor.head);
-				locationText := tprint("Ln: % Col: % Byte: %", cursorCoordinate.line+1, cursorCoordinate.col, panel.cursor.head.documentOffset);
-				box(.DRAW_TEXT, locationText);
+				label(tprint("Ln: % Col: % Byte: %", cursorCoordinate.line+1, cursorCoordinate.col, panel.cursor.head.documentOffset));
 
 				spacer(em(2.0, 1.0));
 
@@ -335,12 +355,12 @@ build_ui :: () {
 				else if panel.document.lineEndings == .MIXED_MAJORITY_LF {
 					lineEndingText = "[Mixed]";
 				}
-				box(.DRAW_TEXT, lineEndingText);
+				label(lineEndingText);
 
 				spacer(em(2.0, 1.0));
 
 				// file type
-				box(.DRAW_TEXT, "Jai");
+				label("Jai");
 
 				spacer(em(2.0, 1.0));
 
