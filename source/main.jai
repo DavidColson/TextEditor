@@ -74,7 +74,7 @@ style: struct {
 
 	// Icons
 	iconVerticalEllipsis :: #run to_string(*convert_utf32_to_utf8(0xf142));
-	iconPen :: #run to_string(*convert_utf32_to_utf8(0xf304));
+	iconPen :: #run to_string(*convert_utf32_to_utf8(0xf111));
 	iconLock :: #run to_string(*convert_utf32_to_utf8(0xf023));
 };
 
@@ -267,11 +267,10 @@ build_ui :: () {
 			padding := 0.3;
 			scope_parent(header);
 			scope_padding(em(padding, 1.0));
+			set_next_width(child_sum(1.0));
+			set_next_height(child_sum(1.0));
+			row_begin();
 			{
-				set_next_width(child_sum(1.0));
-				set_next_height(child_sum(1.0));
-				scope_parent(box(0));
-
 				scope_padding(em(padding, 1.0));
 				scope_width(text_dim(0.0, 1.0));
 				scope_height(text_dim(0.0, 1.0));
@@ -292,39 +291,24 @@ build_ui :: () {
 
 				// filename
 				if label(path_filename(panel.document.path)).hovering {
-					scope_parent(uiState.rootbox);
-
-					// todo:
-					// delay before it shows
-					// more padding + border
-					// better font style and color
-					// offset from cursor
-
-					x, y, success := get_mouse_pointer_position(window, false);
-					set_next_fixed_x(xx (x + 20));
-					set_next_fixed_y(xx (y + 20));
-					set_next_width(child_sum(1.0));
-					set_next_height(child_sum(1.0));
-					set_next_child_layout_axis(.Y);
-					tooltip := box(.DRAW_BACKGROUND | .DRAW_BORDER);
-					{
-						scope_padding(em(1.0, 1.0));
-						scope_parent(tooltip);
-						label(panel.document.path);
-					}
+					tooltip_begin();
+					label("Full Path: %", panel.document.path);
+					tooltip_end();
 				}
 
 				// lock icon @todo: implement for real
 				if false {
 					set_next_font(fontIcons);
-					set_next_text_alignment(.CENTER);
+					set_next_height(px(top_font_size()+top_text_padding()*2.0, 1.0));
+					set_next_font_size(top_font_size()*0.7);
 					label(style.iconLock);
 				}
 
 				// icon for file save status
 				if panel.document.unsaved {
 					set_next_font(fontIcons);
-					set_next_text_alignment(.CENTER);
+					set_next_height(px(top_font_size()+top_text_padding()*2.0, 1.0));
+					set_next_font_size(top_font_size()*0.7);
 					label(style.iconPen);
 				}
 
@@ -340,7 +324,7 @@ build_ui :: () {
 
 				// location
 				cursorCoordinate := document_cursor_get_coordinate(*panel.cursor.head);
-				label(tprint("Ln: % Col: % Byte: %", cursorCoordinate.line+1, cursorCoordinate.col, panel.cursor.head.documentOffset));
+				label("Ln: % Col: % Byte: %", cursorCoordinate.line+1, cursorCoordinate.col, panel.cursor.head.documentOffset);
 
 				spacer(em(2.0, 1.0));
 
@@ -372,6 +356,7 @@ build_ui :: () {
 				set_next_text_alignment(.CENTER);
 				box(.DRAW_TEXT, style.iconVerticalEllipsis);
 			}
+			row_end();
 		}
 
 		// code
