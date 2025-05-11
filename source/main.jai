@@ -265,11 +265,16 @@ build_ui :: () {
 				spacer(em(0.5, 1.0));
 
 				// filename
-				if label(path_filename(panel.document.path)).hovering {
+
+				fileLabelSignal, fileLabel := label(path_filename(panel.document.path));
+				if fileLabelSignal.hovering {
 					// @todo: animate the tooltip appearing?
-					tooltip_begin();
+					tooltip_begin(fileLabel.key, .{0.0, top_font_size() * 1.9});
 					label("Full Path: %", panel.document.path);
 					tooltip_end();
+				}
+				if fileLabelSignal.pressed {
+					// @todo: put filepath in clipboard
 				}
 
 				// lock icon @todo: implement for real
@@ -333,9 +338,34 @@ build_ui :: () {
 				set_next_text_alignment(.CENTER);
 				cornerRad := top_font_size()*0.3;
 				set_next_corner_radius(.{cornerRad, cornerRad, cornerRad, cornerRad});
-				panel.optionsMenuOpen = toggle_button(style.iconVerticalEllipsis, panel.optionsMenuOpen);
-				if panel.optionsMenuOpen {
+
+				// toggle button tied to context menu state
+				panelOptsKey := key_from_string("panelopts");
+				if is_context_menu_open(panelOptsKey) { 
+					palette := top_palette();
+					palette.background = palette.active;
+					set_next_palette(palette);
+					button := box(.DRAW_BACKGROUND | .DRAW_TEXT, style.iconVerticalEllipsis);
+					if signal_from_box(button).pressed {
+						context_menu_close();
+					}
+				}
+				else {
+					button := box(.DRAW_BACKGROUND | .DRAW_TEXT | .DRAW_HOT_EFFECTS, style.iconVerticalEllipsis);
+					if signal_from_box(button).pressed {
+						context_menu_open(panelOptsKey);
+					}
+				}
+
+				if context_menu_begin(panelOptsKey, key_from_string(style.iconVerticalEllipsis), .{0.0, top_font_size() * 1.9}) {
 					// draw options menu
+					// line numbers
+					// relative line numbers
+					// render new lines
+					// render tabs
+					// wrapping
+					label("options");
+					context_menu_end();
 				}
 			}
 			row_end();

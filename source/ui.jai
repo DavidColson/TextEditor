@@ -1,5 +1,6 @@
 UIBox :: struct {
 	flags: UIBoxFlags;
+	keyStr: string;
 	key: UIKey;
 
 	// tree
@@ -43,11 +44,16 @@ UIState :: struct {
 
 	// Per frame UI data
 	rootbox: *UIBox;
+	tooltip: *UIBox;
+	contextMenu: *UIBox;
 
 	// Persistent UI data
 	boxTable: Table(UIKey, *UIBox);
 	freeListHead: *UIBox;
 	freeListTail: *UIBox;
+
+	activeContextMenu: UIKey;
+	nextActiveContextMenu: UIKey;
 
 	hotBoxKey: UIKey;
 	activeBoxKey: UIKey;
@@ -149,14 +155,17 @@ box :: (flags: UIBoxFlags, strKey: string) -> *UIBox {
 	if result.flags & .DRAW_TEXT {
 		result.text = display_string_from_key_string(strKey);
 	}
+	result.keyStr = strKey;
 	return result;
 }
 
 box :: (flags: UIBoxFlags, strKeyFormat: string, args: .. Any) -> *UIBox {
-	result := box(flags, key_from_string(strKeyFormat, ..args));
+	keyStr := tprint(strKeyFormat, ..args);
+	result := box(flags, key_from_string(keyStr));
 	if result.flags & .DRAW_TEXT {
-		result.text = display_string_from_key_string(tprint(strKeyFormat, ..args));
+		result.text = display_string_from_key_string(keyStr);
 	}
+	result.keyStr = keyStr;
 	return result;
 }
 
@@ -181,12 +190,16 @@ box :: (flags: UIBoxFlags, key: UIKey = cast(UIKey)0) -> *UIBox {
 			}
 			table_add(*uiState.boxTable, key, box);
 		}
+		memset(box, 0, size_of(UIBox));
 		box.firstTouchedFrame = uiState.frameIndex;
-		box.hotTimer = 0.0;
-		box.activeTimer = 0.0;
 	}
 
 	// setup box
+	box.next = null;
+	box.prev = null;
+	box.head = null;
+	box.tail = null;
+	box.parent = null;
 	box.key = key;
 	box.flags = flags;
 	box.palette = top_palette();
@@ -251,16 +264,24 @@ signal_from_box :: (box: *UIBox) -> UISignal {
 	for uiState.events {
 		if it.type == {
 			case .KEYBOARD;
+				// left click press
 				if it.key_pressed && it.key_code == .MOUSE_BUTTON_LEFT && box_contains_cursor { 
 					uiState.activeBoxKey = box.key;
 					signal.pressed = true;
-					// consume event?
+					remove it;
 				}
-				else if uiState.activeBoxKey == box.key && it.key_code == .MOUSE_BUTTON_LEFT && !it.key_pressed {
-					uiState.activeBoxKey = key_zero();
-					if box_contains_cursor {
-						signal.released = true;
+				// left click release
+				else if !it.key_pressed && it.key_code == .MOUSE_BUTTON_LEFT && box_contains_cursor { 
+					signal.released = true;
+					if uiState.activeBoxKey == box.key {
+						uiState.activeBoxKey = key_zero();
 					}
+					remove it;
+				}
+
+				// clicking somewhere outside of context menu
+				if uiState.contextMenu && uiState.activeContextMenu != key_zero() && !contains_point(uiState.contextMenu.rect, xx x, xx y) && it.key_pressed {
+					context_menu_close();
 				}
 		}
 	}
@@ -275,6 +296,7 @@ begin_ui :: () {
 	set_next_fixed_height(xx windowHeight);
 	uiState.rootbox = box(0); 
 	uiState.hotBoxKey = key_zero();
+	uiState.tooltip = null;
 	push_parent(uiState.rootbox);
 }
 
@@ -296,6 +318,24 @@ end_ui :: () {
 	uiState.rootbox.rect.y = uiState.rootbox.fixedPosition[1];
 	uiState.rootbox.rect.w = uiState.rootbox.fixedSize[0];
 	uiState.rootbox.rect.h = uiState.rootbox.fixedSize[1];
+
+	// adjust position of floating popups to be within bounds (i.e. context menu/tooltips)
+	floatingRoots := *UIBox.[uiState.tooltip, uiState.contextMenu];
+	for floatingRoots {
+		if it != null {
+			xBounds := uiState.rootbox.rect.w - top_font_size()*0.3; // padding
+			yBounds := uiState.rootbox.rect.h - top_font_size()*0.3; // padding
+			xShiftDown := max(it.rect.x, 0) - it.rect.x;
+			xShiftUp := min(it.rect.x+it.rect.w, xBounds) - (it.rect.x+it.rect.w);
+			it.rect.x += xShiftDown + xShiftUp;
+			yShiftDown := max(it.rect.x, 0) - it.rect.x;
+			yShiftUp := min(it.rect.y+it.rect.h, yBounds) - (it.rect.y+it.rect.h);
+			it.rect.y += yShiftDown + yShiftUp;
+
+			compute_layout(it, .X);
+			compute_layout(it, .Y);
+		}
+	}
 
 	// send draw calls to renderer
 	for :depth_first uiState.rootbox {
@@ -375,6 +415,14 @@ end_ui :: () {
 		}
 	}
 
+	if uiState.activeContextMenu != key_zero() && uiState.nextActiveContextMenu == key_zero() {
+		uiState.contextMenu = null;
+		uiState.activeContextMenu = key_zero();
+	}
+	else if uiState.activeContextMenu == key_zero() && uiState.nextActiveContextMenu != key_zero() {
+		uiState.activeContextMenu = uiState.nextActiveContextMenu;
+	}
+
 	reset_parameter_stacks();
 	reset(*uiState.frameArena, overwrite_memory=true);
 	array_reset_keeping_memory(*uiState.events);
@@ -438,14 +486,14 @@ display_string_from_key_string :: (str: string) -> string {
 
 // Basic widgets
 
-label :: (text: string) -> UISignal {
+label :: (text: string) -> UISignal, *UIBox {
 	label := box(.DRAW_TEXT, text);
-	return signal_from_box(label);
+	return signal_from_box(label), label;
 }
 
-label :: (textFormat: string, args: ..Any) -> UISignal {
+label :: (textFormat: string, args: ..Any) -> UISignal, *UIBox {
 	label := box(.DRAW_TEXT, textFormat, ..args);
-	return signal_from_box(label);
+	return signal_from_box(label), label;
 }
 
 button :: (text: string) -> UISignal {
@@ -453,36 +501,27 @@ button :: (text: string) -> UISignal {
 	return signal_from_box(button);
 }
 
-toggle_button :: (text: string, state: bool) -> bool {
-	button: *UIBox;
-	if !state {
-		button = box(.DRAW_BACKGROUND | .DRAW_TEXT | .DRAW_HOT_EFFECTS, text);
+tooltip_begin :: (anchorBoxKey:UIKey = cast(UIKey)0, anchorOffset: Vector2 = .{0.0,0.0}) {
+	push_parent(uiState.rootbox);
+
+	anchor,success := table_find(*uiState.boxTable, anchorBoxKey);
+	if success {
+		set_next_fixed_x(xx (anchor.rect.x + anchorOffset.x));
+		set_next_fixed_y(xx (anchor.rect.y + anchorOffset.y));
 	}
 	else {
-		palette := top_palette();
-		palette.background = palette.active;
-		set_next_palette(palette);
-		button = box(.DRAW_BACKGROUND | .DRAW_TEXT, text);
+		x, y, success := get_mouse_pointer_position(window, false);
+		set_next_fixed_x(xx (x + 20));
+		set_next_fixed_y(xx (y + 20));
 	}
 
-	if signal_from_box(button).pressed {
-		return !state;
-	}
-	return state;
-}
-
-tooltip_begin :: () {
-	push_parent(uiState.rootbox);
-	x, y, success := get_mouse_pointer_position(window, false);
-	set_next_fixed_x(xx (x + 20));
-	set_next_fixed_y(xx (y + 20));
 	set_next_width(child_sum(1.0));
 	set_next_height(child_sum(1.0));
 	set_next_child_layout_axis(.Y);
 	cornerRad := top_font_size()*0.4;
 	set_next_corner_radius(.{cornerRad, cornerRad, cornerRad, cornerRad});
-	tooltip := box(.DRAW_BACKGROUND | .DRAW_BORDER);
-	push_parent(tooltip);
+	uiState.tooltip = box(.DRAW_BACKGROUND | .DRAW_BORDER, "tooltip");
+	push_parent(uiState.tooltip);
 	spacer(em(0.5, 1.0));
 
 	set_next_width(child_sum(1.0));
@@ -496,6 +535,57 @@ tooltip_end :: () {
 	row_end();
 	spacer(em(0.5, 1.0));
 	pop_parent(); // tooltip box
+	pop_parent(); // rootbox parent
+}
+
+is_context_menu_open :: (key: UIKey) -> bool {
+	return uiState.activeContextMenu == key;
+}
+
+context_menu_open :: (key: UIKey) {
+	uiState.nextActiveContextMenu = key;
+}
+
+context_menu_close :: () {
+	uiState.nextActiveContextMenu = key_zero();
+}
+
+context_menu_begin :: (key: UIKey, anchorBoxKey:UIKey = cast(UIKey)0, anchorOffset: Vector2 = .{0.0,0.0}) -> bool {
+	if uiState.activeContextMenu == key {
+		push_parent(uiState.rootbox);
+		anchor,success := table_find(*uiState.boxTable, anchorBoxKey);
+		if success {
+			set_next_fixed_x(xx (anchor.rect.x + anchorOffset.x));
+			set_next_fixed_y(xx (anchor.rect.y + anchorOffset.y));
+		}
+		else {
+			x, y, success := get_mouse_pointer_position(window, false);
+			set_next_fixed_x(xx (x + 20));
+			set_next_fixed_y(xx (y + 20));
+		}
+		set_next_width(child_sum(1.0));
+		set_next_height(child_sum(1.0));
+		set_next_child_layout_axis(.Y);
+		cornerRad := top_font_size()*0.4;
+		set_next_corner_radius(.{cornerRad, cornerRad, cornerRad, cornerRad});
+		uiState.contextMenu = box(.DRAW_BACKGROUND | .DRAW_BORDER, "context");
+		push_parent(uiState.contextMenu);
+		spacer(em(0.5, 1.0));
+
+		set_next_width(child_sum(1.0));
+		set_next_height(child_sum(1.0));
+		row_begin();
+		spacer(em(0.5, 1.0));
+		return true;
+	}
+	return false;
+}
+
+context_menu_end :: () {
+	spacer(em(0.5, 1.0));
+	row_end();
+	spacer(em(0.5, 1.0));
+	pop_parent(); // context menu box
 	pop_parent(); // rootbox parent
 }
 
