@@ -385,6 +385,7 @@ key_zero :: () -> UIKey {
 }
 
 key_from_string :: (str: string) -> UIKey {
+	if str.count == 0 then return key_zero(); 
 	return cast(UIKey)fnv1a_hash(str.data, str.count);
 }
 
@@ -405,6 +406,61 @@ display_string_from_key_string :: (str: string) -> string {
 label :: (text: string) -> UISignal {
 	label := box(.DRAW_TEXT, text);
 	return signal_from_box(label);
+}
+
+label :: (textFormat: string, args: ..Any) -> UISignal {
+	label := box(.DRAW_TEXT, textFormat, ..args);
+	return signal_from_box(label);
+}
+
+tooltip_begin :: () {
+	push_parent(uiState.rootbox);
+	x, y, success := get_mouse_pointer_position(window, false);
+	set_next_fixed_x(xx (x + 20));
+	set_next_fixed_y(xx (y + 20));
+	set_next_width(child_sum(1.0));
+	set_next_height(child_sum(1.0));
+	set_next_child_layout_axis(.Y);
+	cornerRad := top_font_size()*0.4;
+	set_next_corner_radius(.{cornerRad, cornerRad, cornerRad, cornerRad});
+	tooltip := box(.DRAW_BACKGROUND | .DRAW_BORDER);
+	push_parent(tooltip);
+	spacer(em(0.5, 1.0));
+
+	set_next_width(child_sum(1.0));
+	set_next_height(child_sum(1.0));
+	row_begin();
+	spacer(em(0.5, 1.0));
+}
+
+tooltip_end :: () {
+	spacer(em(0.5, 1.0));
+	row_end();
+	spacer(em(0.5, 1.0));
+	pop_parent(); // tooltip box
+	pop_parent(); // rootbox parent
+}
+
+row_begin :: (key := "") {
+	set_next_child_layout_axis(.X);
+	row := box(0, key);
+	push_parent(row);
+}
+
+row_end :: () -> UISignal {
+	box := pop_parent();
+	return signal_from_box(box);
+}
+
+column_begin :: (key := "") {
+	set_next_child_layout_axis(.Y);
+	col := box(0, key);
+	push_parent(col);
+}
+
+column_end :: () -> UISignal {
+	box := pop_parent();
+	return signal_from_box(box);
 }
 
 spacer :: (size: UISize) {
