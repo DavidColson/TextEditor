@@ -43,8 +43,10 @@ style: struct {
 
 	// Icons
 	iconVerticalEllipsis :: #run to_string(*convert_utf32_to_utf8(0xf142));
-	iconPen :: #run to_string(*convert_utf32_to_utf8(0xf111));
+	iconCircle :: #run to_string(*convert_utf32_to_utf8(0xf111));
 	iconLock :: #run to_string(*convert_utf32_to_utf8(0xf023));
+	iconNumList :: #run to_string(*convert_utf32_to_utf8(0xf0cb));
+	iconAlignLeft :: #run to_string(*convert_utf32_to_utf8(0xf036));
 };
 
 EDITOR_MODE_NUM :: #run enum_highest_value(EditorMode) + 1;
@@ -85,7 +87,7 @@ fontIcons: *Font;
 // options
 textSize :: 15;
 tabSize :: 4;
-lineNumbers :: true;
+lineNumbers := true;
 
 Arguments :: struct {
 }
@@ -290,7 +292,7 @@ build_ui :: () {
 					set_next_font(fontIcons);
 					set_next_height(px(top_font_size()+top_text_padding()*2.0, 1.0));
 					set_next_font_size(top_font_size()*0.7);
-					label(style.iconPen);
+					label(style.iconCircle);
 				}
 
 				// fill space
@@ -345,27 +347,65 @@ build_ui :: () {
 					palette := top_palette();
 					palette.background = palette.active;
 					set_next_palette(palette);
-					button := box(.DRAW_BACKGROUND | .DRAW_TEXT, style.iconVerticalEllipsis);
+					button := box(.DRAW_BACKGROUND | .DRAW_TEXT | .MOUSE_CLICKABLE, style.iconVerticalEllipsis);
 					if signal_from_box(button).pressed {
 						context_menu_close();
 					}
 				}
 				else {
-					button := box(.DRAW_BACKGROUND | .DRAW_TEXT | .DRAW_HOT_EFFECTS, style.iconVerticalEllipsis);
+					button := box(.DRAW_BACKGROUND | .DRAW_TEXT | .DRAW_HOT_EFFECTS | .MOUSE_CLICKABLE, style.iconVerticalEllipsis);
 					if signal_from_box(button).pressed {
 						context_menu_open(panelOptsKey);
 					}
 				}
 
+				// panel options menu
 				if context_menu_begin(panelOptsKey, key_from_string(style.iconVerticalEllipsis), .{0.0, top_font_size() * 1.9}) {
-					// draw options menu
-					// line numbers
-					// relative line numbers
-					// render new lines
-					// render tabs
-					// wrapping
-					label("options");
+					set_next_width(em(12.0, 1.0));
+					set_next_height(child_sum(1.0));
+					column_begin("context menu col");
+
+					menu_item :: (icon: string, text: string, id: int) -> UISignal {
+						set_next_width(child_sum(1.0));
+						set_next_height(child_sum(1.0));
+						set_next_child_layout_axis(.X);
+						row := box(.DRAW_BACKGROUND | .DRAW_HOT_EFFECTS | .MOUSE_CLICKABLE, "panelmenu%", id);
+						push_parent(row);
+							push_width(text_dim(0.0, 1.0));
+							push_height(text_dim(0.0, 1.0));
+							set_next_font(fontIcons);
+							set_next_width(em(2.0, 1.0));
+							if icon.count {
+								label("%##%", icon, id);
+							}
+							else {
+								box(0);
+							}
+							label("%##%", text, id);
+							pop_height();
+							pop_width();
+							spacer(parent_pct(1.0, 0.0));
+						pop_parent();
+						return signal_from_box(row);
+					}
+
+					palette := top_palette();
+					palette.background = style.backgroundLight;
+					palette.hot = style.backgroundMid;
+					palette.active = style.highlight;
+					push_palette(palette);
+
+					if menu_item(style.iconNumList, "Line Numbers", 0).pressed {
+						lineNumbers = !lineNumbers;
+					}
+					spacer(em(0.2, 1.0));
+					menu_item("", "View Line Endings", 1);
+					spacer(em(0.2, 1.0));
+					menu_item(style.iconAlignLeft, "Line wrapping", 2);
+
+					column_end();
 					context_menu_end();
+					pop_palette();
 				}
 			}
 			row_end();

@@ -90,6 +90,7 @@ UIBoxFlags :: enum_flags {
 	DRAW_SIDE_RIGHT;
 	DRAW_HOT_EFFECTS;
 	DRAW_ACTIVE_EFFECTS;
+	MOUSE_CLICKABLE;
 	FLOATING_X;
 	FLOATING_Y;
 	FIXED_WIDTH;
@@ -194,6 +195,11 @@ box :: (flags: UIBoxFlags, key: UIKey = cast(UIKey)0) -> *UIBox {
 		box.firstTouchedFrame = uiState.frameIndex;
 	}
 
+	// this will save your sanity
+	if success {
+		assert(box.lastTouchedFrame != uiState.frameIndex, "Encountered a duplicate key this frame, probably a mistake");
+	}
+
 	// setup box
 	box.next = null;
 	box.prev = null;
@@ -257,21 +263,23 @@ signal_from_box :: (box: *UIBox) -> UISignal {
 	box_contains_cursor := contains_point(box.rect, xx x, xx y);
 
 	if  box_contains_cursor {
-		uiState.hotBoxKey = box.key;
 		signal.hovering = true;
+		if box.flags & .MOUSE_CLICKABLE {
+			uiState.hotBoxKey = box.key;
+		}
 	}
 
 	for uiState.events {
 		if it.type == {
 			case .KEYBOARD;
 				// left click press
-				if it.key_pressed && it.key_code == .MOUSE_BUTTON_LEFT && box_contains_cursor { 
+				if box.flags & .MOUSE_CLICKABLE && it.key_pressed && it.key_code == .MOUSE_BUTTON_LEFT && box_contains_cursor { 
 					uiState.activeBoxKey = box.key;
 					signal.pressed = true;
 					remove it;
 				}
 				// left click release
-				else if !it.key_pressed && it.key_code == .MOUSE_BUTTON_LEFT && box_contains_cursor { 
+				else if box.flags & .MOUSE_CLICKABLE && !it.key_pressed && it.key_code == .MOUSE_BUTTON_LEFT && box_contains_cursor { 
 					signal.released = true;
 					if uiState.activeBoxKey == box.key {
 						uiState.activeBoxKey = key_zero();
@@ -343,6 +351,7 @@ end_ui :: () {
 
 		if box.flags & .DRAW_BACKGROUND {
 			color := box.palette.background;
+
 			if box.flags & .DRAW_HOT_EFFECTS && uiState.hotBoxKey != key_zero() && box.key == uiState.hotBoxKey {
 				color = box.palette.hot;
 			}
@@ -497,7 +506,7 @@ label :: (textFormat: string, args: ..Any) -> UISignal, *UIBox {
 }
 
 button :: (text: string) -> UISignal {
-	button := box(.DRAW_BACKGROUND | .DRAW_TEXT | .DRAW_HOT_EFFECTS | .DRAW_ACTIVE_EFFECTS, text);
+	button := box(.DRAW_BACKGROUND | .DRAW_TEXT | .DRAW_HOT_EFFECTS | .DRAW_ACTIVE_EFFECTS | .MOUSE_CLICKABLE, text);
 	return signal_from_box(button);
 }
 
