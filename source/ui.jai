@@ -31,6 +31,8 @@ UIBox :: struct {
 	// persistent data
 	firstTouchedFrame: u64;
 	lastTouchedFrame: u64;
+	hotTimer: float;
+	activeTimer: float;
 }
 
 UIState :: struct {
@@ -46,6 +48,9 @@ UIState :: struct {
 	boxTable: Table(UIKey, *UIBox);
 	freeListHead: *UIBox;
 	freeListTail: *UIBox;
+
+	hotBoxKey: UIKey;
+	activeBoxKey: UIKey;
 
 	frameIndex: u64;
 
@@ -66,6 +71,7 @@ uiState: UIState;
 UISignal :: struct {
 	hovering: bool;
 	pressed: bool;
+	released: bool;
 }
 
 UIBoxFlags :: enum_flags {
@@ -76,6 +82,8 @@ UIBoxFlags :: enum_flags {
 	DRAW_SIDE_TOP;
 	DRAW_SIDE_LEFT;
 	DRAW_SIDE_RIGHT;
+	DRAW_HOT_EFFECTS;
+	DRAW_ACTIVE_EFFECTS;
 	FLOATING_X;
 	FLOATING_Y;
 	FIXED_WIDTH;
@@ -110,6 +118,8 @@ UISize :: struct {
 
 UIPalette :: struct {
 	background: Vector4;
+	hot: Vector4;
+	active: Vector4;
 	text: Vector4;
 	border: Vector4;
 }
@@ -172,6 +182,8 @@ box :: (flags: UIBoxFlags, key: UIKey = cast(UIKey)0) -> *UIBox {
 			table_add(*uiState.boxTable, key, box);
 		}
 		box.firstTouchedFrame = uiState.frameIndex;
+		box.hotTimer = 0.0;
+		box.activeTimer = 0.0;
 	}
 
 	// setup box
@@ -227,19 +239,33 @@ box :: (flags: UIBoxFlags, key: UIKey = cast(UIKey)0) -> *UIBox {
 }
 
 signal_from_box :: (box: *UIBox) -> UISignal {
-	// iterate uiState.events
-	// see if any are relevant to you
-	// create a signal and return it
-
-	// hot: About to be interacting with item (hovering on button)
-	// active: Actually interacting with item (clicking on button)
-
+	signal: UISignal;
     x, y, success := get_mouse_pointer_position(window, false);
-	if success && contains_point(box.rect, xx x, xx y) {
-		return .{hovering = true};
+	box_contains_cursor := contains_point(box.rect, xx x, xx y);
+
+	if  box_contains_cursor {
+		uiState.hotBoxKey = box.key;
+		signal.hovering = true;
 	}
 
-	return .{};
+	for uiState.events {
+		if it.type == {
+			case .KEYBOARD;
+				if it.key_pressed && it.key_code == .MOUSE_BUTTON_LEFT && box_contains_cursor { 
+					uiState.activeBoxKey = box.key;
+					signal.pressed = true;
+					// consume event?
+				}
+				else if uiState.activeBoxKey == box.key && it.key_code == .MOUSE_BUTTON_LEFT && !it.key_pressed {
+					uiState.activeBoxKey = key_zero();
+					if box_contains_cursor {
+						signal.released = true;
+					}
+				}
+		}
+	}
+
+	return signal;
 }
 
 begin_ui :: () {
@@ -248,6 +274,7 @@ begin_ui :: () {
 	set_next_fixed_width(xx windowWidth);
 	set_next_fixed_height(xx windowHeight);
 	uiState.rootbox = box(0); 
+	uiState.hotBoxKey = key_zero();
 	push_parent(uiState.rootbox);
 }
 
@@ -275,9 +302,17 @@ end_ui :: () {
 		box := it;
 
 		if box.flags & .DRAW_BACKGROUND {
+			color := box.palette.background;
+			if box.flags & .DRAW_HOT_EFFECTS && uiState.hotBoxKey != key_zero() && box.key == uiState.hotBoxKey {
+				color = box.palette.hot;
+			}
+			if box.flags & .DRAW_ACTIVE_EFFECTS && uiState.activeBoxKey != key_zero() && box.key == uiState.activeBoxKey {
+				color = box.palette.active;
+			}
+
 			submit_instance(.{
 				dstRect = box.rect,
-				color = box.palette.background,
+				color = color,
 				cornerRadii = box.cornerRadius,
 			});
 		}
@@ -411,6 +446,29 @@ label :: (text: string) -> UISignal {
 label :: (textFormat: string, args: ..Any) -> UISignal {
 	label := box(.DRAW_TEXT, textFormat, ..args);
 	return signal_from_box(label);
+}
+
+button :: (text: string) -> UISignal {
+	button := box(.DRAW_BACKGROUND | .DRAW_TEXT | .DRAW_HOT_EFFECTS | .DRAW_ACTIVE_EFFECTS, text);
+	return signal_from_box(button);
+}
+
+toggle_button :: (text: string, state: bool) -> bool {
+	button: *UIBox;
+	if !state {
+		button = box(.DRAW_BACKGROUND | .DRAW_TEXT | .DRAW_HOT_EFFECTS, text);
+	}
+	else {
+		palette := top_palette();
+		palette.background = palette.active;
+		set_next_palette(palette);
+		button = box(.DRAW_BACKGROUND | .DRAW_TEXT, text);
+	}
+
+	if signal_from_box(button).pressed {
+		return !state;
+	}
+	return state;
 }
 
 tooltip_begin :: () {

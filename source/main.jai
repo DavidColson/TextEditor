@@ -5,38 +5,6 @@ BuildType :: enum u8
 	RELEASE;
 }
 
-Cursor :: struct {
-	head: DocumentCursor;
-	anchor: DocumentCursor;
-
-	// when users move up and down lines, this stores the 
-	// column that we should try stick to as we move up and down
-	// gets reset when the user actually moves left or right
-	virtualColumn: s64; 
-}
-
-Panel :: struct {
-	document: *Document;
-	rect: Rect;
-	scrollPos := 0;
-
-	// cursors
-	cursor: Cursor;
-
-	// Dialogs
-	activeDialog: DialogType;
-	commandPicker: CommandPicker;
-	filesystemNav: FilesystemNavigator;
-	fileFinder: FileFinder;
-
-	// search state (this is too a dialog, may want to group it up)
-	searchInput: InputField;
-	currentRegex: Regexp;
-	hasMatches := false;
-	previousScrollState := 0;
-	results: []DocumentRange;
-}
-
 DialogType :: enum u8 {
 	NONE;
 	COMMAND_PICKER;
@@ -61,6 +29,7 @@ style: struct {
 	backgroundDark := #run hex_to_color_vec4("1C1F25");
 	backgroundMid := #run hex_to_color_vec4("282C34");
 	backgroundLight := #run hex_to_color_vec4("3B414C");
+	highlight := #run hex_to_color_vec4("C678DD");
 
 	textPrimary := #run hex_to_color_vec4("C3C7D0");
 	textSecondary := #run hex_to_color_vec4("5C6370");
@@ -245,7 +214,13 @@ build_ui :: () {
 
 	// global styles
 	push_font_size(xx style.fontSize);
-	push_palette(.{text = style.textPrimary, background=style.backgroundMid, border=style.borders});
+	push_palette(.{
+		text = style.textPrimary,
+		background=style.backgroundMid,
+		hot=style.backgroundDark,
+		active=style.highlight,
+		border=style.borders
+	});
 	push_text_padding(top_font_size() * 0.2);
 
 	set_next_width(parent_pct(1.0, 1.0));
@@ -291,6 +266,7 @@ build_ui :: () {
 
 				// filename
 				if label(path_filename(panel.document.path)).hovering {
+					// @todo: animate the tooltip appearing?
 					tooltip_begin();
 					label("Full Path: %", panel.document.path);
 					tooltip_end();
@@ -349,12 +325,18 @@ build_ui :: () {
 				spacer(em(2.0, 1.0));
 
 				// panel options button
-				palette.background = style.backgroundMid;
+				palette = top_palette();
+				palette.background = style.backgroundLight;
 				set_next_palette(palette);
 				set_next_font(fontIcons);
 				set_next_width(em(1.5, 1.0));
 				set_next_text_alignment(.CENTER);
-				box(.DRAW_TEXT, style.iconVerticalEllipsis);
+				cornerRad := top_font_size()*0.3;
+				set_next_corner_radius(.{cornerRad, cornerRad, cornerRad, cornerRad});
+				panel.optionsMenuOpen = toggle_button(style.iconVerticalEllipsis, panel.optionsMenuOpen);
+				if panel.optionsMenuOpen {
+					// draw options menu
+				}
 			}
 			row_end();
 		}

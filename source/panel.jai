@@ -1,4 +1,37 @@
 
+Cursor :: struct {
+	head: DocumentCursor;
+	anchor: DocumentCursor;
+
+	// when users move up and down lines, this stores the 
+	// column that we should try stick to as we move up and down
+	// gets reset when the user actually moves left or right
+	virtualColumn: s64; 
+}
+
+Panel :: struct {
+	document: *Document;
+	rect: Rect; // @todo remove
+	optionsMenuOpen: bool;
+	scrollPos := 0; // @todo: remove
+
+	// cursors
+	cursor: Cursor;
+
+	// Dialogs
+	activeDialog: DialogType;
+	commandPicker: CommandPicker;
+	filesystemNav: FilesystemNavigator;
+	fileFinder: FileFinder;
+
+	// search state (this is too a dialog, may want to group it up)
+	searchInput: InputField;
+	currentRegex: Regexp;
+	hasMatches := false;
+	previousScrollState := 0;
+	results: []DocumentRange;
+}
+
 panel_set_active_document :: (panel: *Panel, doc: *Document) {
 	panel.document = doc;
 	panel.cursor = .{};
