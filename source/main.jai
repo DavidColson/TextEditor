@@ -179,8 +179,6 @@ main :: () {
 
 		build_ui();
 
-		panel_scroll_with_mouse(*focusedPanel, Input.mouse_delta_z);
-
 		// update notifications
 		nNotificationsToRemove := 0;
 		it := 0;
@@ -362,7 +360,7 @@ build_ui :: () {
 				if context_menu_begin(panelOptsKey, key_from_string(style.iconVerticalEllipsis), .{0.0, top_font_size() * 1.9}) {
 					set_next_width(em(12.0, 1.0));
 					set_next_height(child_sum(1.0));
-					column_begin("context menu col");
+					column_begin();
 
 					menu_item :: (icon: string, text: string, id: int) -> UISignal {
 						set_next_width(child_sum(1.0));
@@ -403,8 +401,8 @@ build_ui :: () {
 					menu_item(style.iconAlignLeft, "Line wrapping", 2);
 
 					column_end();
-					context_menu_end();
 					pop_palette();
+					context_menu_end();
 				}
 			}
 			row_end();
@@ -417,6 +415,10 @@ build_ui :: () {
 		codeBox := box(0, "code"); 
 		codeBox.customDrawFunction = custom_draw_code;
 		codeBox.customDrawUdata = cast(*void) panel;
+
+		metrics := get_font_metrics(codeBox.font, xx codeBox.fontSize);
+		codeBox.viewBounds.y = cast(float) -(metrics.characterHeight * document_get_num_lines(panel.document)) + metrics.characterHeight * 5;
+		signal_from_box(codeBox);
 
 		// search
 		// set_next_palette(palette);
@@ -448,7 +450,7 @@ custom_draw_code :: (box: *UIBox, udata: *void) {
 		visibleLines: [..]string;
 		visibleLines.allocator = temp;
 
-		startVisibleLines = clamp(-panel.scrollPos / metrics.characterHeight, 0, documentLines - 1);
+		startVisibleLines = clamp(cast(s64) (-box.viewOffset.y / metrics.characterHeight), 0, documentLines - 1);
 		endVisibleLines = clamp(startVisibleLines + cast(s64)box.rect.h / metrics.characterHeight, 0, documentLines - 1);
 
 		// Draw line numbers

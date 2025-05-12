@@ -32,6 +32,8 @@ UIBox :: struct {
 	// persistent data
 	firstTouchedFrame: u64;
 	lastTouchedFrame: u64;
+	viewOffset: Vector2;
+	viewBounds: Vector2;
 	hotTimer: float;
 	activeTimer: float;
 }
@@ -45,16 +47,14 @@ UIState :: struct {
 	// Per frame UI data
 	rootbox: *UIBox;
 	tooltip: *UIBox;
-	contextMenu: *UIBox;
 
 	// Persistent UI data
 	boxTable: Table(UIKey, *UIBox);
 	freeListHead: *UIBox;
 	freeListTail: *UIBox;
-
+	contextMenu: *UIBox; // at some point it may be desirable to have a "popup" stack like imgui?
 	activeContextMenu: UIKey;
 	nextActiveContextMenu: UIKey;
-
 	hotBoxKey: UIKey;
 	activeBoxKey: UIKey;
 
@@ -290,6 +290,14 @@ signal_from_box :: (box: *UIBox) -> UISignal {
 				// clicking somewhere outside of context menu
 				if uiState.contextMenu && uiState.activeContextMenu != key_zero() && !contains_point(uiState.contextMenu.rect, xx x, xx y) && it.key_pressed {
 					context_menu_close();
+				}
+
+			case .MOUSE_WHEEL;
+                if it.wheel_delta && box_contains_cursor {
+					box.viewOffset.y += it.wheel_delta;
+					box.viewOffset.y = clamp(box.viewOffset.y, box.viewBounds.y, 0);
+					box.viewOffset.x = clamp(box.viewOffset.x, box.viewBounds.x, 0);
+					remove it;
 				}
 		}
 	}

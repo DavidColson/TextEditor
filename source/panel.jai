@@ -49,6 +49,12 @@ panel_reset_dialogs :: (panel: *Panel) {
 	panel.activeDialog = .NONE;
 }
 
+
+// @todo: These will need to be rewritten to use the new UI scrolling
+// simplest option is that after signal_from_box() for the code box, call a function which updates the cursor based
+// on the new scroll position
+// panel scroll to line should basically lookup the box using it's key, which is stable, and then just set the view target manually
+
 panel_scroll_with_mouse :: (panel: *Panel, mouseDelta: int) {
 	// @todo: smooth lerp animations on this
 	// have a rawscroll value, and then a lerped value that we lerp toward every frame
