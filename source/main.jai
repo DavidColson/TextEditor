@@ -175,7 +175,6 @@ main :: () {
 		newDpiScale := platform_get_dpi_scale(window);
 		if newDpiScale != dpiScale && newDpiScale != 0.0 {
 			dpiScale = newDpiScale;
-			my_init_fonts();
 		}
 
 		build_ui();
@@ -215,15 +214,15 @@ build_ui :: () {
 	panelRect := panel.rect;
 
 	// global styles
-	push_font_size(xx style.fontSize);
-	push_palette(.{
+	scope_font_size(xx (style.fontSize * dpiScale));
+	scope_palette(.{
 		text = style.textPrimary,
 		background=style.backgroundMid,
 		hot=style.backgroundDark,
 		active=style.highlight,
 		border=style.borders
 	});
-	push_text_padding(top_font_size() * 0.2);
+	scope_text_padding(top_font_size() * 0.2);
 
 	set_next_width(parent_pct(1.0, 1.0));
 	set_next_height(parent_pct(1.0, 1.0));
