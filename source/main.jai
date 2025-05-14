@@ -47,6 +47,9 @@ style: struct {
 	iconLock :: #run to_string(*convert_utf32_to_utf8(0xf023));
 	iconNumList :: #run to_string(*convert_utf32_to_utf8(0xf0cb));
 	iconAlignLeft :: #run to_string(*convert_utf32_to_utf8(0xf036));
+
+	// animations
+	scrollAnimRate := 20;
 };
 
 EDITOR_MODE_NUM :: #run enum_highest_value(EditorMode) + 1;
@@ -64,6 +67,7 @@ dpiScale := 1.0;
 pendingQuit := false;
 backupSaveTimer:float64 = 300;
 requestRedraw := true;
+deltaTime:float64 = 0.016;
 
 notifications : [10]Notification;
 numActiveNotifications := 0;
@@ -138,7 +142,7 @@ main :: () {
 		requestRedraw = false;
 
 		now := seconds_since_init();
-		delta : float64 = min(now - lastTime, 0.016);
+		deltaTime = min(now - lastTime, 0.016);
 		lastTime = now;
 
         Input.update_window_events();
@@ -184,7 +188,7 @@ main :: () {
 		it := 0;
 		while it < numActiveNotifications {
 			notif := *notifications[it];
-			notif.timer -= delta;
+			notif.timer -= deltaTime;
 			if notif.timer < 0 {
 				nNotificationsToRemove += 1;
 			}
@@ -200,7 +204,7 @@ main :: () {
 		}
 
 		// @todo: may want to support 120hz or higher? 
-        sleep_milliseconds(cast(s32) (16 - delta/1000));
+        sleep_milliseconds(cast(s32) (16 - deltaTime/1000));
         reset_temporary_storage();
     }
 }
@@ -450,13 +454,24 @@ custom_draw_code :: (box: *UIBox, udata: *void) {
 		visibleLines: [..]string;
 		visibleLines.allocator = temp;
 
+		// @todo: there is a pop in the animation when going down because offsetWithinLine pops from some big number
+		// to 0 at the end, need to sort that out I guess, might be a better way to do this rendering really
+		// we want a consistent offset to give to rendering, but we only want to issue commands for lines which are 
+		// in the view
+
+		// really you want the offset to always be applied and have that "just work"
+
+		startLineOffset := -box.viewOffset.y / metrics.characterHeight;
+		offsetWithinLine: float = (startLineOffset - floor(startLineOffset)) * metrics.characterHeight;
+		print("off:%\n", offsetWithinLine);
+
 		startVisibleLines = clamp(cast(s64) (-box.viewOffset.y / metrics.characterHeight), 0, documentLines - 1);
 		endVisibleLines = clamp(startVisibleLines + cast(s64)box.rect.h / metrics.characterHeight, 0, documentLines - 1);
 
 		// Draw line numbers
 		gutterWidth := 0;
 		if lineNumbers {
-			y := box.rect.y + metrics.lineSpacing;
+			y:float = box.rect.y + metrics.lineSpacing - offsetWithinLine;
 			maxLinesRun := generate_text_run(tprint(" % ", documentLines), xx box.fontSize, box.font,,temp);
 			gutterWidth = xx maxLinesRun.width;
 
@@ -475,8 +490,8 @@ custom_draw_code :: (box: *UIBox, udata: *void) {
 		}
 
 		// now actually draw the text
-		x := box.rect.x + gutterWidth;
-		y := box.rect.y + metrics.lineSpacing;
+		x :float = box.rect.x + gutterWidth;
+		y :float = box.rect.y + metrics.lineSpacing - offsetWithinLine;
 		for line: linesOnScreen {
 			run := generate_text_run(line, xx box.fontSize, box.font,,temp);
 			draw_text_run(run, x, y, style.textPrimary);
@@ -640,6 +655,16 @@ convert_cursors_to_coordinate_range :: (cursor1: DocumentCursor, cursor2: Docume
 		}
 	}
 	return rangeStart, rangeEnd;
+}
+
+round :: (f: float) -> float {
+	diff := f - floor(f);
+	if diff >= 0.5{
+		return ceil(f);
+	}
+	else {
+		return floor(f);
+	}
 }
 
 // fuzzy searching

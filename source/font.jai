@@ -236,8 +236,8 @@ generate_text_run :: (text: string, size: int, font: *Font) -> TextRun {
 draw_text_run :: (textRun: TextRun, x: float, y: float, color: Vector4) {
 	for textRun.instances {
 		instance := it;
-		instance.dstRect.x = floor(x + instance.dstRect.x);
-		instance.dstRect.y = floor(y + instance.dstRect.y);
+		instance.dstRect.x = round(x + instance.dstRect.x);
+		instance.dstRect.y = round(y + instance.dstRect.y);
 		instance.color = color;
 		submit_instance(instance);
 	}

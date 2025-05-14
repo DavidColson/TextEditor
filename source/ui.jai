@@ -33,6 +33,7 @@ UIBox :: struct {
 	firstTouchedFrame: u64;
 	lastTouchedFrame: u64;
 	viewOffset: Vector2;
+	viewOffsetTarget: Vector2;
 	viewBounds: Vector2;
 	hotTimer: float;
 	activeTimer: float;
@@ -294,9 +295,9 @@ signal_from_box :: (box: *UIBox) -> UISignal {
 
 			case .MOUSE_WHEEL;
                 if it.wheel_delta && box_contains_cursor {
-					box.viewOffset.y += it.wheel_delta;
-					box.viewOffset.y = clamp(box.viewOffset.y, box.viewBounds.y, 0);
-					box.viewOffset.x = clamp(box.viewOffset.x, box.viewBounds.x, 0);
+					box.viewOffsetTarget.y += it.wheel_delta * 9;
+					box.viewOffsetTarget.y = clamp(box.viewOffsetTarget.y, box.viewBounds.y, 0);
+					box.viewOffsetTarget.x = clamp(box.viewOffsetTarget.x, box.viewBounds.x, 0);
 					remove it;
 				}
 		}
@@ -352,6 +353,26 @@ end_ui :: () {
 			compute_layout(it, .Y);
 		}
 	}
+
+	// do animations
+	for :depth_first uiState.rootbox {
+		box := it;
+
+
+		if box.keyStr == "code" {
+			print("target: (%,%), offset: (%,%)\n", box.viewOffsetTarget.x, box.viewOffsetTarget.y, box.viewOffset.x, box.viewOffset.y);
+		}
+		// scroll animations
+		box.viewOffset.x += cast(float) deltaTime * style.scrollAnimRate * (box.viewOffsetTarget.x - box.viewOffset.x);
+		box.viewOffset.y += cast(float) deltaTime * style.scrollAnimRate * (box.viewOffsetTarget.y - box.viewOffset.y);
+		if abs(box.viewOffset.x - box.viewOffsetTarget.x) < 0.001 then box.viewOffset.x = box.viewOffsetTarget.x;
+		if abs(box.viewOffset.y - box.viewOffsetTarget.y) < 0.001 then box.viewOffset.y = box.viewOffsetTarget.y;
+
+		// figure out if we need redraws because there are animations playing
+		if abs(box.viewOffset.x - box.viewOffsetTarget.x) > 0.0 then requestRedraw = true;
+		if abs(box.viewOffset.y - box.viewOffsetTarget.y) > 0.0 then requestRedraw = true;
+	}
+
 
 	// send draw calls to renderer
 	for :depth_first uiState.rootbox {
@@ -882,16 +903,6 @@ compute_positions :: (root: *UIBox, axis: UIAxis) {
 			}
 			child = child.next;
 		}
-	}
-}
-
-round :: (f: float) -> float {
-	diff := f - floor(f);
-	if diff >= 0.5{
-		return ceil(f);
-	}
-	else {
-		return floor(f);
 	}
 }
 
