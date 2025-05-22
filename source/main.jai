@@ -49,7 +49,7 @@ style: struct {
 	iconAlignLeft :: #run to_string(*convert_utf32_to_utf8(0xf036));
 
 	// animations
-	scrollAnimRate := 20;
+	scrollAnimRate := 14;
 };
 
 EDITOR_MODE_NUM :: #run enum_highest_value(EditorMode) + 1;
@@ -416,12 +416,12 @@ build_ui :: () {
 		set_next_font(fontCode);
 		set_next_width(parent_pct(1.0, 0.0));
 		set_next_height(parent_pct(1.0, 0.0));
-		codeBox := box(0, "code"); 
+		codeBox := box(.CLIP_CONTENTS, "code"); 
 		codeBox.customDrawFunction = custom_draw_code;
 		codeBox.customDrawUdata = cast(*void) panel;
 
 		metrics := get_font_metrics(codeBox.font, xx codeBox.fontSize);
-		codeBox.viewBounds.y = cast(float) -(metrics.characterHeight * document_get_num_lines(panel.document)) + metrics.characterHeight * 5;
+		codeBox.viewBounds.y = cast(float) -(metrics.lineSpacing * document_get_num_lines(panel.document)) + metrics.lineSpacing * 5;
 		signal_from_box(codeBox);
 
 		// search
@@ -454,24 +454,15 @@ custom_draw_code :: (box: *UIBox, udata: *void) {
 		visibleLines: [..]string;
 		visibleLines.allocator = temp;
 
-		// @todo: there is a pop in the animation when going down because offsetWithinLine pops from some big number
-		// to 0 at the end, need to sort that out I guess, might be a better way to do this rendering really
-		// we want a consistent offset to give to rendering, but we only want to issue commands for lines which are 
-		// in the view
+		startVisibleLines = clamp(cast(s64) (-box.viewOffset.y / metrics.lineSpacing) - 1, 0, documentLines - 1);
+		endVisibleLines = clamp(startVisibleLines + cast(s64)box.rect.h / metrics.lineSpacing + 2, 0, documentLines - 1);
 
-		// really you want the offset to always be applied and have that "just work"
-
-		startLineOffset := -box.viewOffset.y / metrics.characterHeight;
-		offsetWithinLine: float = (startLineOffset - floor(startLineOffset)) * metrics.characterHeight;
-		print("off:%\n", offsetWithinLine);
-
-		startVisibleLines = clamp(cast(s64) (-box.viewOffset.y / metrics.characterHeight), 0, documentLines - 1);
-		endVisibleLines = clamp(startVisibleLines + cast(s64)box.rect.h / metrics.characterHeight, 0, documentLines - 1);
+		startOffset := (startVisibleLines+2) * metrics.lineSpacing - metrics.lineSpacing;
 
 		// Draw line numbers
 		gutterWidth := 0;
 		if lineNumbers {
-			y:float = box.rect.y + metrics.lineSpacing - offsetWithinLine;
+			y :float = box.rect.y + startOffset + box.viewOffset.y;
 			maxLinesRun := generate_text_run(tprint(" % ", documentLines), xx box.fontSize, box.font,,temp);
 			gutterWidth = xx maxLinesRun.width;
 
@@ -491,7 +482,7 @@ custom_draw_code :: (box: *UIBox, udata: *void) {
 
 		// now actually draw the text
 		x :float = box.rect.x + gutterWidth;
-		y :float = box.rect.y + metrics.lineSpacing - offsetWithinLine;
+		y :float = box.rect.y + startOffset + box.viewOffset.y;
 		for line: linesOnScreen {
 			run := generate_text_run(line, xx box.fontSize, box.font,,temp);
 			draw_text_run(run, x, y, style.textPrimary);

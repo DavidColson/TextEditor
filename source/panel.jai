@@ -13,7 +13,6 @@ Panel :: struct {
 	document: *Document;
 	rect: Rect; // @todo remove
 	optionsMenuOpen: bool;
-	scrollPos := 0; // @todo: remove
 
 	// cursors
 	cursor: Cursor;
@@ -49,73 +48,49 @@ panel_reset_dialogs :: (panel: *Panel) {
 	panel.activeDialog = .NONE;
 }
 
-
-// @todo: These will need to be rewritten to use the new UI scrolling
-// simplest option is that after signal_from_box() for the code box, call a function which updates the cursor based
-// on the new scroll position
-// panel scroll to line should basically lookup the box using it's key, which is stable, and then just set the view target manually
-
-panel_scroll_with_mouse :: (panel: *Panel, mouseDelta: int) {
-	// @todo: smooth lerp animations on this
-	// have a rawscroll value, and then a lerped value that we lerp toward every frame
-	panel.scrollPos += mouseDelta;
-	numLines := document_get_num_lines(panel.document);
-	panel.scrollPos = clamp(panel.scrollPos, -(my_font.character_height * numLines) + my_font.character_height * 5, 0);
-
-	// keep the cursor on the screen when we scroll
-	if abs(Input.mouse_delta_z) > 0 {
-		startVisibleLine, endVisibleLine := panel_calculate_visible_lines(panel);
-		cursorLine := document_cursor_get_line(*panel.cursor.head);
-		if cursorLine < startVisibleLine {
-			move_to_line_visual(panel, cursorLine, startVisibleLine);
-			panel.cursor.anchor = panel.cursor.head;
-		}
-		else if cursorLine > endVisibleLine {
-			move_to_line_visual(panel, cursorLine, endVisibleLine-1);
-			panel.cursor.anchor = panel.cursor.head;
-		}
-	}
-}
-
 // targetLine will be the top edge of the panel, such that target line = 0 will leave you scrolled
 // up as high as you can go. Will allow you to scroll off the end as far as a couple lines are still visible
 panel_scroll_to_line :: (panel: *Panel, targetLine: s64) {
-	startVisibleLine := -panel.scrollPos / my_font.character_height;
-	numLinesDocument := document_get_num_lines(panel.document);
+	// @todo: when we have more than one panel, you will need to 
+	// specify which code box you want, in which panel
+	success, box := find_box("code");
+	if success {
+		metrics := get_font_metrics(box.font, xx box.fontSize);
 
-	// @todo: these need to be parameterized styling values for the UI
-	headerPadding := 8;
-	headerHeight := my_font.character_height + headerPadding;
-	heightForCode := panel.rect.h - headerHeight;
-	maxScroll := cast(s64) (numLinesDocument * my_font.character_height + heightForCode - 2); 
+		startVisibleLine := -box.viewOffset.y / metrics.lineSpacing;
+		numLinesDocument := document_get_num_lines(panel.document);
 
-	delta := targetLine - startVisibleLine;
-	panel.scrollPos -= my_font.character_height * delta;
-	panel.scrollPos = clamp(panel.scrollPos, -maxScroll, 0);
+		delta := targetLine - startVisibleLine;
+		box.viewOffsetTarget.y -= delta * metrics.lineSpacing;
+		box.viewOffsetTarget.y = clamp(box.viewOffsetTarget.y, box.viewBounds.y, 0);
+	}
 }
 
 panel_calculate_visible_lines :: (panel: *Panel, clamped := false) -> s64, s64 {
-	numLines := document_get_num_lines(panel.document);
-	// @todo: these need to be parameterized styling values for the UI
-	headerPadding := 8;
-	headerHeight := my_font.character_height + headerPadding;
-	heightForCode := panel.rect.h - headerHeight;
-	startVisibleLines := clamp(-panel.scrollPos / my_font.character_height, 0, numLines - 1);
-	endVisibleLinesUnclamped := startVisibleLines + cast(s64)heightForCode / my_font.character_height;
-	endVisibleLines := clamp(endVisibleLinesUnclamped, 0, numLines - 1);
+	success, box := find_box("code");
+	if success {
+		documentLines := document_get_num_lines(panel.document);
+		metrics := get_font_metrics(box.font, xx box.fontSize);
 
-	if clamped {
-		return startVisibleLines, endVisibleLines;
+		startVisibleLines := clamp(cast(s64) (-box.viewOffset.y / metrics.lineSpacing), 0, documentLines - 1);
+		endVisibleLinesUnclamped := clamp(startVisibleLines + cast(s64)box.rect.h / metrics.lineSpacing + 1, 0, documentLines - 1);
+		endVisibleLines := clamp(endVisibleLinesUnclamped, 0, documentLines - 1);
+
+		if clamped {
+			return startVisibleLines, endVisibleLines;
+		}
+		else {
+			return startVisibleLines, endVisibleLinesUnclamped;
+		}
 	}
-	else {
-		return startVisibleLines, endVisibleLinesUnclamped;
-	}
+	return 0, 0;
 }
 
 panel_get_page_size :: (panel: *Panel) -> s64 {
-	// @todo: these need to be parameterized styling values for the UI
-	headerPadding := 8;
-	headerHeight := my_font.character_height + headerPadding;
-	heightForCode := panel.rect.h - headerHeight;
-	return cast(s64) (heightForCode / my_font.character_height);
+	success, box := find_box("code");
+	if success {
+		metrics := get_font_metrics(box.font, xx box.fontSize);
+		return cast(s64) (box.rect.h / metrics.lineSpacing);
+	}
+	return 0;
 }

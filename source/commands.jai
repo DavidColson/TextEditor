@@ -616,7 +616,8 @@ start_document_search :: (using panel: *Panel, args: []string) {
 	panel.activeDialog = .SEARCH;
 	panel.searchInput.onEditCallback = document_search_on_edit;
 	panel.searchInput.userData = cast(*void) panel;
-	panel.previousScrollState = scrollPos;
+	// @todo: need a replacement with new scrolling system
+	// panel.previousScrollState = scrollPos;
 }
 
 confirm_document_search :: (using panel: *Panel, args: []string) {
@@ -631,7 +632,8 @@ confirm_document_search :: (using panel: *Panel, args: []string) {
 }
 
 end_document_search :: (using panel: *Panel) { 
-	panel.scrollPos = panel.previousScrollState; 
+	// @todo: need a replacement with new scrolling system
+	// panel.scrollPos = panel.previousScrollState; 
 	input_field_reset_keeping_memory(*panel.searchInput);
 	panel.searchInput.onEditCallback = null;
 	panel.searchInput.userData = null;

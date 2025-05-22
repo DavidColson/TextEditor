@@ -17,6 +17,9 @@ RendererState :: struct {
 	groups: [MAX_GROUPS]Group;
 	numGroups: s32;
 
+	setScissor:bool;
+	scissor: Rect;
+
 	testBitmap: Bitmap;
 }
 renderState: RendererState;
@@ -31,6 +34,7 @@ Group :: struct {
 	instanceEnd: s32;
 	texture: *Bitmap;
 	shader: GLuint;
+	scissorRect: Rect;
 }
 
 Instance :: struct {
@@ -71,6 +75,7 @@ init_renderer :: (_window: Window_Type) {
 
 	glViewport(0, 0, xx windowWidth, xx windowHeight);
 
+	clear_scissor();
 	numInstances = 0;
 	numGroups = 0;
 
@@ -143,6 +148,8 @@ init_renderer :: (_window: Window_Type) {
 		glEnable(GL_BLEND);
 		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);  
 	}
+
+    glEnable(GL_SCISSOR_TEST);
 }
 
 render_frame :: () {
@@ -161,6 +168,10 @@ render_frame :: () {
 	for 0..numGroups-1 {
 		instance := *groups[it];
 		glUseProgram(instance.shader);
+
+		scissor := groups[it].scissorRect;
+
+		glScissor(xx scissor.x, xx (windowHeight - (scissor.h+scissor.y)), xx scissor.w, xx scissor.h);
 
 		// per component blending for subpixel text rendering
 		if instance.shader == textProgram {
@@ -194,23 +205,41 @@ render_frame :: () {
 	numGroups = 0;
 }
 
+set_scissor :: (rect: Rect) {
+	using renderState;
+	setScissor = true;
+	scissor = rect;
+}
+
+clear_scissor :: () {
+	using renderState;
+	setScissor = true;
+	scissor = .{0, 0, xx windowWidth, xx windowHeight};
+}
+
 submit_instance :: (instance: Instance) {
 	using renderState;
 	if numInstances == 0 {
 		// start a new group
 		shaderHandle := standardProgram;
 		if instance.shader == .TEXT then shaderHandle = textProgram;
-		groups[numGroups] = .{numInstances, 0, instance.texture, shaderHandle};
+		groups[numGroups] = .{numInstances, 0, instance.texture, shaderHandle, scissor};
 		numGroups += 1;
 	}
-	if numInstances && (instance.texture != instances[numInstances-1].texture || instance.shader != instances[numInstances-1].shader) {
+	if numInstances && (
+		// conditions to start new group
+		setScissor ||
+		instance.texture != instances[numInstances-1].texture ||
+		instance.shader != instances[numInstances-1].shader) {
+
 		// end previous group
 		groups[numGroups-1].instanceEnd = numInstances;
 		// start new group
 		shaderHandle := standardProgram;
 		if instance.shader == .TEXT then shaderHandle = textProgram;
-		groups[numGroups] = .{numInstances, 0, instance.texture, shaderHandle};
+		groups[numGroups] = .{numInstances, 0, instance.texture, shaderHandle, scissor};
 		numGroups += 1;
+		setScissor = false;
 	}
 	instances[numInstances] = instance;
 	numInstances += 1;

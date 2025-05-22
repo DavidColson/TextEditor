@@ -96,6 +96,7 @@ UIBoxFlags :: enum_flags {
 	FLOATING_Y;
 	FIXED_WIDTH;
 	FIXED_HEIGHT;
+	CLIP_CONTENTS;
 }
 
 UIAxis :: enum {
@@ -150,6 +151,12 @@ init_ui :: () {
 	uiState.frameIndex = 0;
 
 	reset_parameter_stacks();
+}
+
+find_box :: (strKey: string) -> bool, *UIBox {
+	key := key_from_string(strKey);
+	box,success := table_find(*uiState.boxTable, key);
+	return success, box;
 }
 
 box :: (flags: UIBoxFlags, strKey: string) -> *UIBox {
@@ -295,7 +302,8 @@ signal_from_box :: (box: *UIBox) -> UISignal {
 
 			case .MOUSE_WHEEL;
                 if it.wheel_delta && box_contains_cursor {
-					box.viewOffsetTarget.y += it.wheel_delta * 9;
+					metrics := get_font_metrics(box.font, xx box.fontSize);
+					box.viewOffsetTarget.y += (it.wheel_delta/it.typical_wheel_delta)*metrics.lineSpacing*3;
 					box.viewOffsetTarget.y = clamp(box.viewOffsetTarget.y, box.viewBounds.y, 0);
 					box.viewOffsetTarget.x = clamp(box.viewOffsetTarget.x, box.viewBounds.x, 0);
 					remove it;
@@ -358,10 +366,6 @@ end_ui :: () {
 	for :depth_first uiState.rootbox {
 		box := it;
 
-
-		if box.keyStr == "code" {
-			print("target: (%,%), offset: (%,%)\n", box.viewOffsetTarget.x, box.viewOffsetTarget.y, box.viewOffset.x, box.viewOffset.y);
-		}
 		// scroll animations
 		box.viewOffset.x += cast(float) deltaTime * style.scrollAnimRate * (box.viewOffsetTarget.x - box.viewOffset.x);
 		box.viewOffset.y += cast(float) deltaTime * style.scrollAnimRate * (box.viewOffsetTarget.y - box.viewOffset.y);
@@ -395,6 +399,10 @@ end_ui :: () {
 			});
 		}
 
+		if box.flags & .CLIP_CONTENTS {
+			set_scissor(box.rect);
+		}
+
 		if box.flags & .DRAW_TEXT {
 			// find position of text?
 			box.textRun = generate_text_run(box.text, xx box.fontSize, box.font,,temp);
@@ -416,6 +424,11 @@ end_ui :: () {
 
 		if box.customDrawFunction {
 			box.customDrawFunction(box, box.customDrawUdata);
+		}
+
+		// @todo: how do we do things after the children have been processed?
+		if box.flags & .CLIP_CONTENTS {
+			clear_scissor();
 		}
 
 		if box.flags & .DRAW_BORDER {
