@@ -488,6 +488,45 @@ custom_draw_code :: (box: *UIBox, udata: *void) {
 			draw_text_run(run, x, y, style.textPrimary);
 			y += metrics.lineSpacing;
 		}
+
+		// Draw cursor
+		cursorLine := document_cursor_get_line(*panel.cursor.head);
+		if panel.activeDialog != .SEARCH && cursorLine >= startVisibleLines && cursorLine <= endVisibleLines {
+			line := linesOnScreen[cursorLine - startVisibleLines];
+			line.count = panel.cursor.head.documentOffset - document_get_line_start(panel.document, cursorLine);
+
+			// figuring out the width of the cursor requires knowing which vertical column of text
+			// we're in, including previous tabs
+			col:=0;
+			for line {
+				if it != #char "\t" {
+					col += 1;
+				} else {
+					charsToTabstop := box.font.tabSize - col % box.font.tabSize;
+					col += charsToTabstop;
+				}
+			}
+			cursorChar := document_cursor_get_char(*panel.cursor.head);
+			cursorRun := generate_text_run(cast(string) u8.[cursorChar], xx box.fontSize, box.font, col,,temp);
+
+			cursorX := box.rect.x + gutterWidth + generate_text_run(line, xx box.fontSize, box.font,,temp).width;
+			cursorY := (box.rect.y  + startOffset + box.viewOffset.y) - metrics.typicalDescender + metrics.lineSpacing * (cursorLine-startVisibleLines-1);
+
+			submit_instance(.{
+				dstRect = .{
+					cursorX,
+					cursorY,
+					cursorRun.width,
+					xx metrics.lineSpacing
+				},
+				color = ifx editorMode == .INSERT then .{1.0, 1.0, 1.0, 1.0} else style.textPrimary,
+				shader = .RECTS
+			});
+
+			if cursorChar != 0 {
+				draw_text_run(cursorRun, cursorX, box.rect.y + startOffset + box.viewOffset.y + metrics.lineSpacing*cursorLine, style.backgroundMid);
+			}
+		}
 	}
 }
 

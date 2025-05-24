@@ -169,7 +169,7 @@ get_font_metrics :: (font: *Font, size: int) -> FontMetrics {
 	return fontStyle.metrics;
 }
 
-generate_text_run :: (text: string, size: int, font: *Font) -> TextRun {
+generate_text_run :: (text: string, size: int, font: *Font, startCol := 0) -> TextRun {
 	textCopy := text;
 	nCodepoints := 0;
 	while textCopy.count > 0 {
@@ -188,7 +188,7 @@ generate_text_run :: (text: string, size: int, font: *Font) -> TextRun {
 	prevGlyphIndex: u32 = 0;
 	i := 0;
 	x := 0.0;
-	col := 0;
+	col := startCol;
 	while textCopy.count > 0 {
 		utf32,success := utf8_next_character(*textCopy);
 		if success == .CONVERSION_OK {
@@ -214,16 +214,19 @@ generate_text_run :: (text: string, size: int, font: *Font) -> TextRun {
 			} ;
 
 			// tab handling
+			width: float;
 			if utf32 != #char "\t" {
+				width = glyphData.advance;
 				x += glyphData.advance;
 				col += 1;
 			} else {
 				charsToTabstop := font.tabSize - col % font.tabSize;
+				width = charsToTabstop * glyphData.advance;
 				x += charsToTabstop * glyphData.advance;
 				col += charsToTabstop;
 			}
 
-			result.width += glyphData.advance;
+			result.width += width;
 			result.height = max(glyphData.subRect.h, result.height);
 
 			prevGlyphIndex = glyphIndex;
