@@ -33,6 +33,7 @@ style: struct {
 
 	textPrimary := #run hex_to_color_vec4("C3C7D0");
 	textSecondary := #run hex_to_color_vec4("5C6370");
+	textSelection := #run hex_to_color_vec4("434d60");
 
 	borders := #run hex_to_color_vec4("5C6476");
 
@@ -431,11 +432,8 @@ build_ui :: () {
 		// box(.DRAW_BACKGROUND); 
 	}
 
-	// Following this you can introduce scrolling as a feature for boxes for the code window
-
 	// after this we will explore the picker/finder widgets
 
-	// maybe this should be "ui_end_frame"
 	end_ui();
 
 	render_frame();
@@ -448,6 +446,7 @@ custom_draw_code :: (box: *UIBox, udata: *void) {
 	if panel.document {
 		metrics := get_font_metrics(box.font, xx box.fontSize);
 		documentLines := document_get_num_lines(panel.document);
+		cursorLine := document_cursor_get_line(*panel.cursor.head);
 
 		startVisibleLines : s64;
 		endVisibleLines : s64;
@@ -473,6 +472,9 @@ custom_draw_code :: (box: *UIBox, udata: *void) {
 			}
 		}
 
+		textAreaX := box.rect.x + gutterWidth;
+		textAreaY := box.rect.y + startOffset + box.viewOffset.y;
+
 		// @todo: refactor to use document cursors to walk through text rather than get_line_content for every line
 		linesOnScreen: [..]string;
 		linesOnScreen.allocator = temp;
@@ -480,9 +482,24 @@ custom_draw_code :: (box: *UIBox, udata: *void) {
 			array_add(*linesOnScreen, document_get_line_content(panel.document, xx it));
 		}
 
-		// now actually draw the text
-		x :float = box.rect.x + gutterWidth;
-		y :float = box.rect.y + startOffset + box.viewOffset.y;
+		// Draw cursor selection
+		if panel.activeDialog != .SEARCH && cursorLine >= startVisibleLines && cursorLine <= endVisibleLines {
+			if panel.cursor.head.documentOffset != panel.cursor.anchor.documentOffset {
+				draw_cursor_range(box.font,
+									xx box.fontSize,
+									textAreaX,
+									textAreaY,
+									panel.cursor.head,
+									panel.cursor.anchor,
+									linesOnScreen,
+									startVisibleLines,
+									true);
+			}
+		}
+
+		// Draw the text
+		x :float = textAreaX;
+		y :float = textAreaY;
 		for line: linesOnScreen {
 			run := generate_text_run(line, xx box.fontSize, box.font,,temp);
 			draw_text_run(run, x, y, style.textPrimary);
@@ -490,7 +507,6 @@ custom_draw_code :: (box: *UIBox, udata: *void) {
 		}
 
 		// Draw cursor
-		cursorLine := document_cursor_get_line(*panel.cursor.head);
 		if panel.activeDialog != .SEARCH && cursorLine >= startVisibleLines && cursorLine <= endVisibleLines {
 			line := linesOnScreen[cursorLine - startVisibleLines];
 			line.count = panel.cursor.head.documentOffset - document_get_line_start(panel.document, cursorLine);
@@ -509,8 +525,8 @@ custom_draw_code :: (box: *UIBox, udata: *void) {
 			cursorChar := document_cursor_get_char(*panel.cursor.head);
 			cursorRun := generate_text_run(cast(string) u8.[cursorChar], xx box.fontSize, box.font, col,,temp);
 
-			cursorX := box.rect.x + gutterWidth + generate_text_run(line, xx box.fontSize, box.font,,temp).width;
-			cursorY := (box.rect.y  + startOffset + box.viewOffset.y) - metrics.typicalDescender + metrics.lineSpacing * (cursorLine-startVisibleLines-1);
+			cursorX := textAreaX + generate_text_run(line, xx box.fontSize, box.font,,temp).width;
+			cursorY := textAreaY - metrics.typicalDescender + metrics.lineSpacing * (cursorLine-startVisibleLines-1);
 
 			submit_instance(.{
 				dstRect = .{
@@ -524,9 +540,48 @@ custom_draw_code :: (box: *UIBox, udata: *void) {
 			});
 
 			if cursorChar != 0 {
-				draw_text_run(cursorRun, cursorX, box.rect.y + startOffset + box.viewOffset.y + metrics.lineSpacing*cursorLine, style.backgroundMid);
+				draw_text_run(cursorRun, cursorX, textAreaY + metrics.lineSpacing*cursorLine, style.backgroundMid);
 			}
 		}
+	}
+}
+
+draw_cursor_range :: (font: *Font, fontSize: int, textAreaX: float, textAreaY: float, cursor1: DocumentCursor, cursor2: DocumentCursor, linesOnScreen: []string, startVisibleLine: s64, includeCursor := false) {
+	metrics := get_font_metrics(font, fontSize);
+	rangeStart, rangeEnd := convert_cursors_to_coordinate_range(cursor1, cursor2, includeCursor);
+	lineWidths: [..] s32;
+	lineWidths.allocator = temp;
+	endVisibleLine := startVisibleLine + linesOnScreen.count;
+	if rangeStart.line < startVisibleLine || rangeEnd.line > endVisibleLine {
+		return;
+	}
+	for rangeStart.line..rangeEnd.line {
+		line := linesOnScreen[it - startVisibleLine];
+		lineWidth := generate_text_run(line, fontSize, font,,temp).width;
+
+		isFirstLine:= it == rangeStart.line;
+		isLastLine:= it == rangeEnd.line;
+
+		selectionX := 0;
+		selectionW := lineWidth;
+		if isFirstLine {
+			selectionX = xx generate_text_run(string.{rangeStart.col,line.data}, fontSize, font,,temp).width;
+			selectionW = lineWidth - selectionX;
+		}
+		if isLastLine {
+			selectionW = generate_text_run(string.{rangeEnd.col,line.data}, fontSize, font,,temp).width - selectionX;
+		}
+
+		submit_instance(.{
+			dstRect = .{
+				cast(float)(textAreaX + selectionX),
+				cast(float)(textAreaY - metrics.typicalDescender + metrics.lineSpacing * (it-startVisibleLine-1)),
+				cast(float)selectionW,
+				cast(float)metrics.lineSpacing
+			},
+			color = style.textSelection,
+			shader = .RECTS
+		});
 	}
 }
 

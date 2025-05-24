@@ -243,7 +243,7 @@ draw_file_finder :: (panelRect: Rect, finder: *FileFinder) {
 	}
 }
 
-draw_cursor_range :: (textAreaX: s64, textAreaY: s64, cursor1: DocumentCursor, cursor2: DocumentCursor, linesOnScreen: []string, startVisibleLine: s64, includeCursor := false) {
+draw_cursor_range_old :: (textAreaX: s64, textAreaY: s64, cursor1: DocumentCursor, cursor2: DocumentCursor, linesOnScreen: []string, startVisibleLine: s64, includeCursor := false) {
     Simp.set_shader_for_color();
 	rangeStart, rangeEnd := convert_cursors_to_coordinate_range(cursor1, cursor2, includeCursor);
 	lineWidths: [..] s32;
@@ -333,14 +333,14 @@ draw_panel :: (panel: *Panel) {
 		if panel.activeDialog != .SEARCH && cursorLine >= startVisibleLines && cursorLine <= endVisibleLines {
 			Simp.set_shader_for_color();
 			if panel.cursor.head.documentOffset != panel.cursor.anchor.documentOffset {
-				draw_cursor_range(textRegionX, textRegionY, panel.cursor.head, panel.cursor.anchor, linesOnScreen, startVisibleLines, true);
+				draw_cursor_range_old(textRegionX, textRegionY, panel.cursor.head, panel.cursor.anchor, linesOnScreen, startVisibleLines, true);
 			}
 		}
 
 		// draw search results
 		if panel.activeDialog == .SEARCH {
 			for panel.results {
-				draw_cursor_range(textRegionX, textRegionY, it.start, it.end, linesOnScreen, startVisibleLines);
+				draw_cursor_range_old(textRegionX, textRegionY, it.start, it.end, linesOnScreen, startVisibleLines);
 			}
 		}
 
