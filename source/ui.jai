@@ -675,6 +675,48 @@ spacer :: (size: UISize) {
 
 scope_padding :: (size: UISize) #expand { spacer(size); `defer spacer(size); }
 
+scroll_bar :: () {
+	scope_height(parent_pct(1.0, 0.0));
+	scope_width(parent_pct(1.0, 0.0));
+
+	// padding
+	surroundPadding := em(0.3, 1.0); 
+	set_next_width(em(1.2, 0.0));
+	set_next_height(parent_pct(1.0, 0.0));
+	column_begin(); defer column_end();
+	spacer(surroundPadding); defer spacer(surroundPadding);
+	row_begin(); defer row_end();
+	spacer(surroundPadding); defer spacer(surroundPadding);
+	
+	// background bar
+	palette := top_palette();
+	palette.background = style.backgroundLight;
+	set_next_palette(palette);
+	cornerRad := top_font_size()*0.3;
+	set_next_corner_radius(.{cornerRad, cornerRad, cornerRad, cornerRad});
+	scrollbarOuter := box(.DRAW_BACKGROUND);
+
+	// scroll handle
+	set_next_parent(scrollbarOuter);
+	palette.background = style.backgroundLighter;
+	set_next_palette(palette);
+	set_next_height(parent_pct(0.3, 1.0));
+	set_next_corner_radius(.{cornerRad, cornerRad, cornerRad, cornerRad});
+	scrollbarInner := box(.DRAW_BACKGROUND);
+
+	// @todo:
+	// figure out the handle percent based on screen size and document size
+	// Allow dragging handle
+	// return the offset to the caller to use
+}
+
+// @todo: widgets:
+// [ ] - context menu item
+// [ ] - Table stuff
+// [ ] - Text input box
+// [ ] - Checkbox
+// [ ] - 
+
 // Size helpers
 
 px :: (value: float, strictness: float) -> UISize #expand { return .{ .PIXELS, value, strictness }; }

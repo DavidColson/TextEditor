@@ -29,6 +29,7 @@ style: struct {
 	backgroundDark := #run hex_to_color_vec4("1C1F25");
 	backgroundMid := #run hex_to_color_vec4("282C34");
 	backgroundLight := #run hex_to_color_vec4("3B414C");
+	backgroundLighter := #run hex_to_color_vec4("4e5665");
 	highlight := #run hex_to_color_vec4("C678DD");
 
 	textPrimary := #run hex_to_color_vec4("C3C7D0");
@@ -413,17 +414,29 @@ build_ui :: () {
 			row_end();
 		}
 
-		// code
-		set_next_font(fontCode);
+
+		// code container
 		set_next_width(parent_pct(1.0, 0.0));
 		set_next_height(parent_pct(1.0, 0.0));
-		codeBox := box(.CLIP_CONTENTS, "code"); 
-		codeBox.customDrawFunction = custom_draw_code;
-		codeBox.customDrawUdata = cast(*void) panel;
+		set_next_child_layout_axis(.X);
+		container := box(0);
+		{
+			scope_parent(container);
 
-		metrics := get_font_metrics(codeBox.font, xx codeBox.fontSize);
-		codeBox.viewBounds.y = cast(float) -(metrics.lineSpacing * document_get_num_lines(panel.document)) + metrics.lineSpacing * 5;
-		signal_from_box(codeBox);
+			// code
+			set_next_font(fontCode);
+			set_next_width(parent_pct(1.0, 0.0));
+			set_next_height(parent_pct(1.0, 0.0));
+			codeBox := box(.CLIP_CONTENTS, "code"); 
+			codeBox.customDrawFunction = custom_draw_code;
+			codeBox.customDrawUdata = cast(*void) panel;
+
+			metrics := get_font_metrics(codeBox.font, xx codeBox.fontSize);
+			codeBox.viewBounds.y = cast(float) -(metrics.lineSpacing * document_get_num_lines(panel.document)) + metrics.lineSpacing * 5;
+			signal_from_box(codeBox);
+
+			scroll_bar();
+		}
 
 		// search
 		// set_next_palette(palette);
