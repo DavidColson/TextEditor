@@ -675,7 +675,7 @@ spacer :: (size: UISize) {
 
 scope_padding :: (size: UISize) #expand { spacer(size); `defer spacer(size); }
 
-scroll_bar :: () {
+scroll_bar :: (scrollOffset: float, scrollRegionSize:float, visibleRange: float) {
 	scope_height(parent_pct(1.0, 0.0));
 	scope_width(parent_pct(1.0, 0.0));
 
@@ -694,18 +694,23 @@ scroll_bar :: () {
 	set_next_palette(palette);
 	cornerRad := top_font_size()*0.3;
 	set_next_corner_radius(.{cornerRad, cornerRad, cornerRad, cornerRad});
+	set_next_child_layout_axis(.Y);
 	scrollbarOuter := box(.DRAW_BACKGROUND);
+
+	// space before handle
+	set_next_parent(scrollbarOuter);
+	set_next_height(parent_pct(abs(scrollOffset/(scrollRegionSize-visibleRange)), 1.0));
+	box(0);
 
 	// scroll handle
 	set_next_parent(scrollbarOuter);
 	palette.background = style.backgroundLighter;
 	set_next_palette(palette);
-	set_next_height(parent_pct(0.3, 1.0));
+	set_next_height(parent_pct(abs(visibleRange/scrollRegionSize), 1.0));
 	set_next_corner_radius(.{cornerRad, cornerRad, cornerRad, cornerRad});
 	scrollbarInner := box(.DRAW_BACKGROUND);
 
 	// @todo:
-	// figure out the handle percent based on screen size and document size
 	// Allow dragging handle
 	// return the offset to the caller to use
 }

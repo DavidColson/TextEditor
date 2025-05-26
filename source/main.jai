@@ -431,11 +431,13 @@ build_ui :: () {
 			codeBox.customDrawFunction = custom_draw_code;
 			codeBox.customDrawUdata = cast(*void) panel;
 
+			numDocumentLines := document_get_num_lines(panel.document);
 			metrics := get_font_metrics(codeBox.font, xx codeBox.fontSize);
-			codeBox.viewBounds.y = cast(float) -(metrics.lineSpacing * document_get_num_lines(panel.document)) + metrics.lineSpacing * 5;
+			codeBox.viewBounds.y = cast(float, -(metrics.lineSpacing * numDocumentLines) + metrics.lineSpacing * 5);
 			signal_from_box(codeBox);
 
-			scroll_bar();
+			// extra three lines of space due to the extra lines we render off screen 
+			scroll_bar(codeBox.viewOffset.y, codeBox.viewBounds.y - codeBox.rect.h + metrics.lineSpacing*3, codeBox.rect.h);
 		}
 
 		// search
