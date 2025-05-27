@@ -10,7 +10,7 @@ UIBox :: struct {
 	tail: *UIBox;
 	parent: *UIBox;
 
-	// per frame information
+	// per frame information (must be cleared in box())
 	text: string;
 	textRun: TextRun;
 	textAlignment: UITextAlign;
@@ -37,6 +37,7 @@ UIBox :: struct {
 	viewBounds: Vector2;
 	hotTimer: float;
 	activeTimer: float;
+	dragPrevPos: Vector2;
 }
 
 UIState :: struct {
@@ -79,6 +80,8 @@ UISignal :: struct {
 	hovering: bool;
 	pressed: bool;
 	released: bool;
+	holding: bool;
+	dragDelta: Vector2;
 }
 
 UIBoxFlags :: enum_flags {
@@ -284,14 +287,30 @@ signal_from_box :: (box: *UIBox) -> UISignal {
 				if box.flags & .MOUSE_CLICKABLE && it.key_pressed && it.key_code == .MOUSE_BUTTON_LEFT && box_contains_cursor { 
 					uiState.activeBoxKey = box.key;
 					signal.pressed = true;
+					box.dragPrevPos = .{xx x,xx y};
 					remove it;
 				}
-				// left click release
-				else if box.flags & .MOUSE_CLICKABLE && !it.key_pressed && it.key_code == .MOUSE_BUTTON_LEFT && box_contains_cursor { 
+				// left click release inside box
+				if box.flags & .MOUSE_CLICKABLE
+					&& !it.key_pressed
+					&& it.key_code == .MOUSE_BUTTON_LEFT
+					&& uiState.activeBoxKey == box.key
+					&& box_contains_cursor { 
+
 					signal.released = true;
-					if uiState.activeBoxKey == box.key {
-						uiState.activeBoxKey = key_zero();
-					}
+					uiState.activeBoxKey = key_zero();
+					remove it;
+				}
+
+				// left click release outside box
+				if box.flags & .MOUSE_CLICKABLE
+					&& !it.key_pressed
+					&& it.key_code == .MOUSE_BUTTON_LEFT
+					&& uiState.activeBoxKey == box.key
+					&& !box_contains_cursor { 
+
+					uiState.hotBoxKey = key_zero();
+					uiState.activeBoxKey = key_zero();
 					remove it;
 				}
 
@@ -309,6 +328,14 @@ signal_from_box :: (box: *UIBox) -> UISignal {
 					remove it;
 				}
 		}
+	}
+
+	// calculate dragging delta if we are the active box
+	if box.key == uiState.activeBoxKey {
+		xDist := x - box.dragPrevPos.x;
+		yDist := y - box.dragPrevPos.y;
+		signal.dragDelta = .{xDist, yDist};
+		box.dragPrevPos = .{xx x,xx y};
 	}
 
 	return signal;
@@ -675,7 +702,7 @@ spacer :: (size: UISize) {
 
 scope_padding :: (size: UISize) #expand { spacer(size); `defer spacer(size); }
 
-scroll_bar :: (scrollOffset: float, scrollRegionSize:float, visibleRange: float) {
+scroll_bar :: (scrollOffset: float, scrollRegionSize:float, visibleRange: float) -> Vector2 {
 	scope_height(parent_pct(1.0, 0.0));
 	scope_width(parent_pct(1.0, 0.0));
 
@@ -708,11 +735,10 @@ scroll_bar :: (scrollOffset: float, scrollRegionSize:float, visibleRange: float)
 	set_next_palette(palette);
 	set_next_height(parent_pct(abs(visibleRange/scrollRegionSize), 1.0));
 	set_next_corner_radius(.{cornerRad, cornerRad, cornerRad, cornerRad});
-	scrollbarInner := box(.DRAW_BACKGROUND);
+	// this box should be interactive with hot effects
+	scrollbarInner := box(.DRAW_BACKGROUND | .MOUSE_CLICKABLE, "todokey");
 
-	// @todo:
-	// Allow dragging handle
-	// return the offset to the caller to use
+	return signal_from_box(scrollbarInner).dragDelta;
 }
 
 // @todo: widgets:

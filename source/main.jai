@@ -437,7 +437,20 @@ build_ui :: () {
 			signal_from_box(codeBox);
 
 			// extra three lines of space due to the extra lines we render off screen 
-			scroll_bar(codeBox.viewOffset.y, codeBox.viewBounds.y - codeBox.rect.h + metrics.lineSpacing*3, codeBox.rect.h);
+			scrollRegionSize := codeBox.viewBounds.y - codeBox.rect.h + metrics.lineSpacing*3;
+			dragDelta := scroll_bar(codeBox.viewOffset.y, scrollRegionSize, codeBox.rect.h);
+
+			codeBox.viewOffset += dragDelta * clamp(scrollRegionSize/codeBox.rect.h, -100.0, 100.0);
+			codeBox.viewOffset.y = clamp(codeBox.viewOffset.y, codeBox.viewBounds.y, 0);
+			codeBox.viewOffset.x = clamp(codeBox.viewOffset.x, codeBox.viewBounds.x, 0);
+
+			codeBox.viewOffsetTarget += dragDelta * clamp(scrollRegionSize/codeBox.rect.h, -100.0, 100.0);
+			codeBox.viewOffsetTarget.y = clamp(codeBox.viewOffsetTarget.y, codeBox.viewBounds.y, 0);
+			codeBox.viewOffsetTarget.x = clamp(codeBox.viewOffsetTarget.x, codeBox.viewBounds.x, 0);
+			// @todo: 
+
+			// active/hot effects on the scroll bar
+			// tooltips are broken
 		}
 
 		// search
