@@ -404,94 +404,7 @@ end_ui :: () {
 		if abs(box.viewOffset.y - box.viewOffsetTarget.y) > 0.0 then requestRedraw = true;
 	}
 
-
-	// send draw calls to renderer
-	for :depth_first uiState.rootbox {
-		box := it;
-
-		if box.flags & .DRAW_BACKGROUND {
-			color := box.palette.background;
-
-			if box.flags & .DRAW_HOT_EFFECTS && uiState.hotBoxKey != key_zero() && box.key == uiState.hotBoxKey {
-				color = box.palette.hot;
-			}
-			if box.flags & .DRAW_ACTIVE_EFFECTS && uiState.activeBoxKey != key_zero() && box.key == uiState.activeBoxKey {
-				color = box.palette.active;
-			}
-
-			submit_instance(.{
-				dstRect = box.rect,
-				color = color,
-				cornerRadii = box.cornerRadius,
-			});
-		}
-
-		if box.flags & .CLIP_CONTENTS {
-			set_scissor(box.rect);
-		}
-
-		if box.flags & .DRAW_TEXT {
-			// find position of text?
-			box.textRun = generate_text_run(box.text, xx box.fontSize, box.font,,temp);
-			metrics := get_font_metrics(box.font, xx box.fontSize);
-			yPos := floor(box.rect.y + box.rect.h/2.0) + floor(box.fontSize/2.0) - 1.0;
-			xPos := box.rect.x;
-
-			if box.textAlignment == {
-				case .LEFT;
-					xPos += box.textPadding;
-				case .CENTER;
-					xPos = box.rect.x + Min((box.rect.w/2.0) - box.textRun.width/2.0, box.rect.w);
-				case .RIGHT;
-					xPos = box.rect.x + Min(box.rect.w - box.textRun.width - box.textPadding, box.rect.w);
-			}
-			xPos = floor(xPos);
-			draw_text_run(box.textRun, xPos, yPos, box.palette.text);
-		}
-
-		if box.customDrawFunction {
-			box.customDrawFunction(box, box.customDrawUdata);
-		}
-
-		// @todo: how do we do things after the children have been processed?
-		if box.flags & .CLIP_CONTENTS {
-			clear_scissor();
-		}
-
-		if box.flags & .DRAW_BORDER {
-			submit_instance(.{
-				dstRect = box.rect,
-				color = box.palette.border,
-				cornerRadii = box.cornerRadius,
-				borderThickness = box.borderThickness
-			});
-		}
-
-		if box.flags & .DRAW_SIDE_TOP {
-			submit_instance(.{
-				dstRect = .{box.rect.x, box.rect.y - floor(box.borderThickness/2), box.rect.w, box.borderThickness},
-				color = box.palette.border,
-			});
-		}
-		if box.flags & .DRAW_SIDE_BOTTOM {
-			submit_instance(.{
-				dstRect = .{box.rect.x, box.rect.y + box.rect.h - floor(box.borderThickness/2), box.rect.w, box.borderThickness},
-				color = box.palette.border,
-			});
-		}
-		if box.flags & .DRAW_SIDE_LEFT {
-			submit_instance(.{
-				dstRect = .{box.rect.x - floor(box.borderThickness/2), box.rect.y, box.borderThickness, box.rect.h},
-				color = box.palette.border,
-			});
-		}
-		if box.flags & .DRAW_SIDE_RIGHT {
-			submit_instance(.{
-				dstRect = .{box.rect.x + box.rect.w - floor(box.borderThickness/2), box.rect.y, box.borderThickness, box.rect.h},
-				color = box.palette.border,
-			});
-		}
-	}
+	render_ui_recursive(uiState.rootbox);
 
 	if uiState.activeContextMenu != key_zero() && uiState.nextActiveContextMenu == key_zero() {
 		uiState.contextMenu = null;
@@ -758,6 +671,99 @@ child_sum :: (strictness: float) -> UISize #expand { return .{ .SUM_OF_CHILDREN,
 
 
 #scope_file
+
+// rendering the tree
+
+render_ui_recursive :: (box: *UIBox) {
+	if box.flags & .DRAW_BACKGROUND {
+		color := box.palette.background;
+
+		if box.flags & .DRAW_HOT_EFFECTS && uiState.hotBoxKey != key_zero() && box.key == uiState.hotBoxKey {
+			color = box.palette.hot;
+		}
+		if box.flags & .DRAW_ACTIVE_EFFECTS && uiState.activeBoxKey != key_zero() && box.key == uiState.activeBoxKey {
+			color = box.palette.active;
+		}
+
+		submit_instance(.{
+			dstRect = box.rect,
+			color = color,
+			cornerRadii = box.cornerRadius,
+		});
+	}
+
+	if box.flags & .CLIP_CONTENTS {
+		set_scissor(box.rect);
+	}
+
+	if box.flags & .DRAW_TEXT {
+		// find position of text?
+		box.textRun = generate_text_run(box.text, xx box.fontSize, box.font,,temp);
+		metrics := get_font_metrics(box.font, xx box.fontSize);
+		yPos := floor(box.rect.y + box.rect.h/2.0) + floor(box.fontSize/2.0) - 1.0;
+		xPos := box.rect.x;
+
+		if box.textAlignment == {
+			case .LEFT;
+				xPos += box.textPadding;
+			case .CENTER;
+				xPos = box.rect.x + Min((box.rect.w/2.0) - box.textRun.width/2.0, box.rect.w);
+			case .RIGHT;
+				xPos = box.rect.x + Min(box.rect.w - box.textRun.width - box.textPadding, box.rect.w);
+		}
+		xPos = floor(xPos);
+		draw_text_run(box.textRun, xPos, yPos, box.palette.text);
+	}
+
+	if box.customDrawFunction {
+		box.customDrawFunction(box, box.customDrawUdata);
+	}
+
+	// draw children
+	child := box.head;
+	while child {
+		render_ui_recursive(child);
+		child = child.next;
+	}
+
+	if box.flags & .CLIP_CONTENTS {
+		clear_scissor();
+	}
+
+	if box.flags & .DRAW_BORDER {
+		submit_instance(.{
+			dstRect = box.rect,
+			color = box.palette.border,
+			cornerRadii = box.cornerRadius,
+			borderThickness = box.borderThickness
+		});
+	}
+
+	if box.flags & .DRAW_SIDE_TOP {
+		submit_instance(.{
+			dstRect = .{box.rect.x, box.rect.y - floor(box.borderThickness/2), box.rect.w, box.borderThickness},
+			color = box.palette.border,
+		});
+	}
+	if box.flags & .DRAW_SIDE_BOTTOM {
+		submit_instance(.{
+			dstRect = .{box.rect.x, box.rect.y + box.rect.h - floor(box.borderThickness/2), box.rect.w, box.borderThickness},
+			color = box.palette.border,
+		});
+	}
+	if box.flags & .DRAW_SIDE_LEFT {
+		submit_instance(.{
+			dstRect = .{box.rect.x - floor(box.borderThickness/2), box.rect.y, box.borderThickness, box.rect.h},
+			color = box.palette.border,
+		});
+	}
+	if box.flags & .DRAW_SIDE_RIGHT {
+		submit_instance(.{
+			dstRect = .{box.rect.x + box.rect.w - floor(box.borderThickness/2), box.rect.y, box.borderThickness, box.rect.h},
+			color = box.palette.border,
+		});
+	}
+}
 
 // Layout algorithm
 

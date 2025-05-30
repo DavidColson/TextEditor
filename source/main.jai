@@ -450,7 +450,6 @@ build_ui :: () {
 			// @todo: 
 
 			// active/hot effects on the scroll bar
-			// tooltips are broken
 		}
 
 		// search
