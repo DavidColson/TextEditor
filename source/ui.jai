@@ -649,7 +649,7 @@ scroll_bar :: (scrollOffset: float, scrollRegionSize:float, visibleRange: float)
 	set_next_height(parent_pct(abs(visibleRange/scrollRegionSize), 1.0));
 	set_next_corner_radius(.{cornerRad, cornerRad, cornerRad, cornerRad});
 	// this box should be interactive with hot effects
-	scrollbarInner := box(.DRAW_BACKGROUND | .MOUSE_CLICKABLE, "todokey");
+	scrollbarInner := box(.DRAW_BACKGROUND | .MOUSE_CLICKABLE | .DRAW_HOT_EFFECTS | .DRAW_ACTIVE_EFFECTS, "todokey");
 
 	return signal_from_box(scrollbarInner).dragDelta;
 }

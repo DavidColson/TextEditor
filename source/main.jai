@@ -30,7 +30,9 @@ style: struct {
 	backgroundMid := #run hex_to_color_vec4("282C34");
 	backgroundLight := #run hex_to_color_vec4("3B414C");
 	backgroundLighter := #run hex_to_color_vec4("4e5665");
-	highlight := #run hex_to_color_vec4("C678DD");
+
+	hotHighlight := #run hex_to_color_vec4("636f85");
+	activeHighlight := #run hex_to_color_vec4("7e90bd");
 
 	textPrimary := #run hex_to_color_vec4("C3C7D0");
 	textSecondary := #run hex_to_color_vec4("5C6370");
@@ -222,8 +224,8 @@ build_ui :: () {
 	scope_palette(.{
 		text = style.textPrimary,
 		background=style.backgroundMid,
-		hot=style.backgroundDark,
-		active=style.highlight,
+		hot=style.hotHighlight,
+		active=style.activeHighlight,
 		border=style.borders
 	});
 	scope_text_padding(top_font_size() * 0.2);
@@ -392,12 +394,6 @@ build_ui :: () {
 						return signal_from_box(row);
 					}
 
-					palette := top_palette();
-					palette.background = style.backgroundLight;
-					palette.hot = style.backgroundMid;
-					palette.active = style.highlight;
-					push_palette(palette);
-
 					if menu_item(style.iconNumList, "Line Numbers", 0).pressed {
 						lineNumbers = !lineNumbers;
 					}
@@ -447,9 +443,6 @@ build_ui :: () {
 			codeBox.viewOffsetTarget += dragDelta * clamp(scrollRegionSize/codeBox.rect.h, -100.0, 100.0);
 			codeBox.viewOffsetTarget.y = clamp(codeBox.viewOffsetTarget.y, codeBox.viewBounds.y, 0);
 			codeBox.viewOffsetTarget.x = clamp(codeBox.viewOffsetTarget.x, codeBox.viewBounds.x, 0);
-			// @todo: 
-
-			// active/hot effects on the scroll bar
 		}
 
 		// search
