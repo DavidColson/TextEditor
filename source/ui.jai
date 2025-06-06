@@ -622,9 +622,9 @@ scroll_bar :: (scrollOffset: float, scrollRegionSize:float, visibleRange: float)
 	// padding
 	surroundPadding := em(0.3, 1.0); 
 	set_next_width(em(1.2, 0.0));
-	set_next_height(parent_pct(1.0, 0.0));
 	column_begin(); defer column_end();
 	spacer(surroundPadding); defer spacer(surroundPadding);
+	set_next_height(px(visibleRange-top_font_size()*0.6, 0.0));
 	row_begin(); defer row_end();
 	spacer(surroundPadding); defer spacer(surroundPadding);
 	
@@ -635,20 +635,22 @@ scroll_bar :: (scrollOffset: float, scrollRegionSize:float, visibleRange: float)
 	cornerRad := top_font_size()*0.3;
 	set_next_corner_radius(.{cornerRad, cornerRad, cornerRad, cornerRad});
 	set_next_child_layout_axis(.Y);
-	scrollbarOuter := box(.DRAW_BACKGROUND);
+	scrollbarOuter := box(.DRAW_BACKGROUND, "scrollback");
+
+	handleSizePct := max(abs(visibleRange/scrollRegionSize), 0.05);
+	spaceBeforePct := (1.0-handleSizePct) * abs(scrollOffset/scrollRegionSize);
 
 	// space before handle
 	set_next_parent(scrollbarOuter);
-	set_next_height(parent_pct(abs(scrollOffset/(scrollRegionSize-visibleRange)), 1.0));
+	set_next_height(parent_pct(spaceBeforePct, 1.0));
 	box(0);
 
 	// scroll handle
 	set_next_parent(scrollbarOuter);
 	palette.background = style.backgroundLighter;
 	set_next_palette(palette);
-	set_next_height(parent_pct(abs(visibleRange/scrollRegionSize), 1.0));
+	set_next_height(parent_pct(handleSizePct, 1.0));
 	set_next_corner_radius(.{cornerRad, cornerRad, cornerRad, cornerRad});
-	// this box should be interactive with hot effects
 	scrollbarInner := box(.DRAW_BACKGROUND | .MOUSE_CLICKABLE | .DRAW_HOT_EFFECTS | .DRAW_ACTIVE_EFFECTS, "todokey");
 
 	return signal_from_box(scrollbarInner).dragDelta;

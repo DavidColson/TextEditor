@@ -432,24 +432,26 @@ build_ui :: () {
 			codeBox.viewBounds.y = cast(float, -(metrics.lineSpacing * numDocumentLines) + metrics.lineSpacing * 5);
 			signal_from_box(codeBox);
 
-			// extra three lines of space due to the extra lines we render off screen 
-			scrollRegionSize := codeBox.viewBounds.y - codeBox.rect.h + metrics.lineSpacing*3;
-			dragDelta := scroll_bar(codeBox.viewOffset.y, scrollRegionSize, codeBox.rect.h);
+			dragDelta := scroll_bar(codeBox.viewOffset.y, codeBox.viewBounds.y, codeBox.rect.h);
 
-			codeBox.viewOffset += dragDelta * clamp(scrollRegionSize/codeBox.rect.h, -100.0, 100.0);
+			codeBox.viewOffset += dragDelta * clamp(codeBox.viewBounds.y/codeBox.rect.h, -100.0, 100.0);
 			codeBox.viewOffset.y = clamp(codeBox.viewOffset.y, codeBox.viewBounds.y, 0);
 			codeBox.viewOffset.x = clamp(codeBox.viewOffset.x, codeBox.viewBounds.x, 0);
 
-			codeBox.viewOffsetTarget += dragDelta * clamp(scrollRegionSize/codeBox.rect.h, -100.0, 100.0);
+			codeBox.viewOffsetTarget += dragDelta * clamp(codeBox.viewBounds.y/codeBox.rect.h, -100.0, 100.0);
 			codeBox.viewOffsetTarget.y = clamp(codeBox.viewOffsetTarget.y, codeBox.viewBounds.y, 0);
 			codeBox.viewOffsetTarget.x = clamp(codeBox.viewOffsetTarget.x, codeBox.viewBounds.x, 0);
 		}
 
 		// search
-		// set_next_palette(palette);
-		// set_next_width(parent_pct(1.0, 1.0));
-		// set_next_height(em(2.0, 1.0));
-		// box(.DRAW_BACKGROUND); 
+		if panel.activeDialog == .SEARCH {
+			palette = top_palette();
+			palette.background = style.backgroundLight;
+			set_next_palette(palette);
+			set_next_width(parent_pct(1.0, 1.0));
+			set_next_height(em(2.0, 1.0));
+			box(.DRAW_BACKGROUND | .DRAW_SIDE_TOP); 
+		}
 	}
 
 	// after this we will explore the picker/finder widgets
