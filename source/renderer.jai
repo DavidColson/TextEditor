@@ -155,11 +155,13 @@ init_renderer :: (_window: Window_Type) {
 render_frame :: () {
 	using renderState;
 
+	glClearColor(style.backgroundDark.x, style.backgroundDark.y, style.backgroundDark.z, 1.0);
+	glClear(GL_COLOR_BUFFER_BIT);
+
+	if numGroups == 0 then return;
+
 	// end the final group
 	groups[numGroups-1].instanceEnd = numInstances;
-
-    glClearColor(style.backgroundDark.x, style.backgroundDark.y, style.backgroundDark.z, 1.0);
-	glClear(GL_COLOR_BUFFER_BIT);
 
 	glBindVertexArray(vao);
 	glBindBuffer(GL_ARRAY_BUFFER, instanceVbo);

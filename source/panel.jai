@@ -53,7 +53,7 @@ panel_reset_dialogs :: (panel: *Panel) {
 panel_scroll_to_line :: (panel: *Panel, targetLine: s64) {
 	// @todo: when we have more than one panel, you will need to 
 	// specify which code box you want, in which panel
-	success, box := find_box("code");
+	success, box := find_box(ui_key("code"));
 	if success {
 		metrics := get_font_metrics(box.font, xx box.fontSize);
 
@@ -67,7 +67,7 @@ panel_scroll_to_line :: (panel: *Panel, targetLine: s64) {
 }
 
 panel_calculate_visible_lines :: (panel: *Panel, clamped := false) -> s64, s64 {
-	success, box := find_box("code");
+	success, box := find_box(ui_key("code"));
 	if success {
 		documentLines := document_get_num_lines(panel.document);
 		metrics := get_font_metrics(box.font, xx box.fontSize);
@@ -87,7 +87,7 @@ panel_calculate_visible_lines :: (panel: *Panel, clamped := false) -> s64, s64 {
 }
 
 panel_get_page_size :: (panel: *Panel) -> s64 {
-	success, box := find_box("code");
+	success, box := find_box(ui_key("code"));
 	if success {
 		metrics := get_font_metrics(box.font, xx box.fontSize);
 		return cast(s64) (box.rect.h / metrics.lineSpacing);

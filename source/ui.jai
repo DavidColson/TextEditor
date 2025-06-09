@@ -51,7 +51,8 @@ UIState :: struct {
 	tooltip: *UIBox;
 
 	// Persistent UI data
-	boxTable: Table(UIKey, *UIBox);
+	standardFontSize := 15;
+	boxTable: Table(UIKey, *UIBox, given_compare_function=compare_key, given_hash_function=x=>get_hash(x.keyVal));
 	freeListHead: *UIBox;
 	freeListTail: *UIBox;
 	contextMenu: *UIBox; // at some point it may be desirable to have a "popup" stack like imgui?
@@ -63,16 +64,6 @@ UIState :: struct {
 	frameIndex: u64;
 
 	events: [..]Input.Event;
-
-	// Generated parameter stacks
-	#insert -> string {
-		builder: String_Builder;
-		init_string_builder(*builder);
-		for PARAMETERS {
-			print_to_builder(*builder, "%1Stack : ParameterStack(%2);\n", it.name, it.type);
-		}
-		return builder_to_string(*builder);
-	}
 }
 uiState: UIState;
 
@@ -136,7 +127,10 @@ UIPalette :: struct {
 	border: Vector4;
 }
 
-UIKey :: u64;
+UIKey :: struct {
+	keyVal:u64;
+	keyStr: string; // debug, @todo remove in release?
+}
 
 defaultPalette :: UIPalette.{
 	background = #run hex_to_color_vec4("282c34"),
@@ -152,43 +146,22 @@ init_ui :: () {
 	init(*uiState.boxTable, 4096);
 
 	uiState.frameIndex = 0;
-
-	reset_parameter_stacks();
 }
 
-find_box :: (strKey: string) -> bool, *UIBox {
-	key := key_from_string(strKey);
+find_box :: (key: UIKey) -> bool, *UIBox {
 	box,success := table_find(*uiState.boxTable, key);
 	return success, box;
 }
 
-box :: (flags: UIBoxFlags, strKey: string) -> *UIBox {
-	result := box(flags, key_from_string(strKey));
-	if result.flags & .DRAW_TEXT {
-		result.text = display_string_from_key_string(strKey);
-	}
-	result.keyStr = strKey;
-	return result;
-}
 
-box :: (flags: UIBoxFlags, strKeyFormat: string, args: .. Any) -> *UIBox {
-	keyStr := tprint(strKeyFormat, ..args);
-	result := box(flags, key_from_string(keyStr));
-	if result.flags & .DRAW_TEXT {
-		result.text = display_string_from_key_string(keyStr);
-	}
-	result.keyStr = keyStr;
-	return result;
-}
-
-box :: (flags: UIBoxFlags, key: UIKey = cast(UIKey)0) -> *UIBox {
+box :: (flags: UIBoxFlags, key: UIKey = ui_key_nil) -> *UIBox {
 	// attempt to get the box from persistent data using it's key
 	box,success := table_find(*uiState.boxTable, key);
 
 	// if it can't be found it's new
 	if !success {
 		// transient box, we'll allocate in the frame allocator (cleared at the end of the frame)
-		if key == key_zero() {
+		if key == ui_key_nil {
 			box = New(UIBox,, uiState.frameAlloc);
 		}
 		else {
@@ -219,9 +192,6 @@ box :: (flags: UIBoxFlags, key: UIKey = cast(UIKey)0) -> *UIBox {
 	box.parent = null;
 	box.key = key;
 	box.flags = flags;
-	box.palette = top_palette();
-	box.parent = top_parent();
-	box.childLayoutAxis = top_child_layout_axis();
 	box.customDrawFunction = null;
 	box.lastTouchedFrame = uiState.frameIndex;
 
@@ -231,40 +201,6 @@ box :: (flags: UIBoxFlags, key: UIKey = cast(UIKey)0) -> *UIBox {
 		box.parent.childCount += 1;
 	}
 
-	// populate the box with data from stacks
-	if !is_fixed_x_default() {
-		box.fixedPosition[UIAxis.X] = top_fixed_x();
-		box.flags |= .FLOATING_X;
-	}
-	if !is_fixed_y_default() {
-		box.fixedPosition[UIAxis.Y] = top_fixed_y();
-		box.flags |= .FLOATING_Y;
-	}
-
-	if !is_fixed_width_default() {
-		box.fixedSize[UIAxis.X] = top_fixed_width();
-		box.flags |= .FIXED_WIDTH;
-	}
-	else {
-		box.size[UIAxis.X] = top_width();
-	}
-
-	if !is_fixed_height_default() {
-		box.fixedSize[UIAxis.Y] = top_fixed_height();
-		box.flags |= .FIXED_HEIGHT;
-	}
-	else {
-		box.size[UIAxis.Y] = top_height();
-	}
-
-	box.cornerRadius = top_corner_radius();
-	box.textPadding = top_text_padding();
-	box.textAlignment = top_text_alignment();
-	box.fontSize = top_font_size();
-	box.font = top_font();
-	box.borderThickness = top_border_thickness();
-
-	auto_pop_parameter_stacks();
 	return box;
 }
 
@@ -298,7 +234,7 @@ signal_from_box :: (box: *UIBox) -> UISignal {
 					&& box_contains_cursor { 
 
 					signal.released = true;
-					uiState.activeBoxKey = key_zero();
+					uiState.activeBoxKey = ui_key_nil;
 					remove it;
 				}
 
@@ -309,13 +245,13 @@ signal_from_box :: (box: *UIBox) -> UISignal {
 					&& uiState.activeBoxKey == box.key
 					&& !box_contains_cursor { 
 
-					uiState.hotBoxKey = key_zero();
-					uiState.activeBoxKey = key_zero();
+					uiState.hotBoxKey = ui_key_nil;
+					uiState.activeBoxKey = ui_key_nil;
 					remove it;
 				}
 
 				// clicking somewhere outside of context menu
-				if uiState.contextMenu && uiState.activeContextMenu != key_zero() && !contains_point(uiState.contextMenu.rect, xx x, xx y) && it.key_pressed {
+				if uiState.contextMenu && uiState.activeContextMenu != ui_key_nil && !contains_point(uiState.contextMenu.rect, xx x, xx y) && it.key_pressed {
 					context_menu_close();
 				}
 
@@ -342,20 +278,20 @@ signal_from_box :: (box: *UIBox) -> UISignal {
 }
 
 begin_ui :: () {
-	set_next_fixed_x(0);
-	set_next_fixed_y(0);
-	set_next_fixed_width(xx windowWidth);
-	set_next_fixed_height(xx windowHeight);
+	// set_next_fixed_x(0);
+	// set_next_fixed_y(0);
+	// set_next_fixed_width(xx windowWidth);
+	// set_next_fixed_height(xx windowHeight);
 	uiState.rootbox = box(0); 
-	uiState.hotBoxKey = key_zero();
+	uiState.hotBoxKey = ui_key_nil;
 	uiState.tooltip = null;
-	push_parent(uiState.rootbox);
+	// push_parent(uiState.rootbox);
 }
 
 end_ui :: () {
 	// yeet any unused boxes
 	for uiState.boxTable {
-		if it.lastTouchedFrame < uiState.frameIndex || it.key == key_zero() {
+		if it.lastTouchedFrame < uiState.frameIndex || it.key == ui_key_nil {
 			table_remove(*uiState.boxTable, it.key);
 			linked_list_insert(*uiState.freeListHead, *uiState.freeListTail, uiState.freeListTail, it);
 		}
@@ -375,8 +311,9 @@ end_ui :: () {
 	floatingRoots := *UIBox.[uiState.tooltip, uiState.contextMenu];
 	for floatingRoots {
 		if it != null {
-			xBounds := uiState.rootbox.rect.w - top_font_size()*0.3; // padding
-			yBounds := uiState.rootbox.rect.h - top_font_size()*0.3; // padding
+			// @todo: replace standard font size here with an em calculation macro
+			xBounds := uiState.rootbox.rect.w - uiState.standardFontSize*0.3; // padding
+			yBounds := uiState.rootbox.rect.h - uiState.standardFontSize*0.3; // padding
 			xShiftDown := max(it.rect.x, 0) - it.rect.x;
 			xShiftUp := min(it.rect.x+it.rect.w, xBounds) - (it.rect.x+it.rect.w);
 			it.rect.x += xShiftDown + xShiftUp;
@@ -406,15 +343,14 @@ end_ui :: () {
 
 	render_ui_recursive(uiState.rootbox);
 
-	if uiState.activeContextMenu != key_zero() && uiState.nextActiveContextMenu == key_zero() {
+	if uiState.activeContextMenu != ui_key_nil && uiState.nextActiveContextMenu == ui_key_nil {
 		uiState.contextMenu = null;
-		uiState.activeContextMenu = key_zero();
+		uiState.activeContextMenu = ui_key_nil;
 	}
-	else if uiState.activeContextMenu == key_zero() && uiState.nextActiveContextMenu != key_zero() {
+	else if uiState.activeContextMenu == ui_key_nil && uiState.nextActiveContextMenu != ui_key_nil {
 		uiState.activeContextMenu = uiState.nextActiveContextMenu;
 	}
 
-	reset_parameter_stacks();
 	reset(*uiState.frameArena, overwrite_memory=true);
 	array_reset_keeping_memory(*uiState.events);
 	uiState.frameIndex += 1;
@@ -454,21 +390,26 @@ depth_first :: (box: *UIBox, body: Code, flags: For_Flags) #expand {
 
 // keying
 
-key_zero :: () -> UIKey {
-	return cast(UIKey)0;
+ui_key_nil :: UIKey.{0,""};
+
+ui_key :: (str: string) -> UIKey {
+	if str.count == 0 then return ui_key_nil; 
+	return .{fnv1a_hash(str.data, str.count), str};
 }
 
-key_from_string :: (str: string) -> UIKey {
-	if str.count == 0 then return key_zero(); 
-	return cast(UIKey)fnv1a_hash(str.data, str.count);
-}
-
-key_from_string :: (formatStr: string, args: ..Any) -> UIKey {
+ui_key :: (formatStr: string, args: ..Any) -> UIKey {
 	keyString := tprint(formatStr, ..args);
-	return key_from_string(keyString);
+	return ui_key(keyString);
 }
 
-display_string_from_key_string :: (str: string) -> string {
+operator== :: (key1: UIKey, key2: UIKey) -> bool {
+	return key1.keyVal == key2.keyVal;
+}
+compare_key :: (key1: UIKey, key2: UIKey) -> bool {
+	return key1.keyVal == key2.keyVal;
+}
+
+display_string_from_key :: (str: string) -> string {
     index := find_index_from_left(str, "##");
 	if index < 0
 		return str;
@@ -478,55 +419,55 @@ display_string_from_key_string :: (str: string) -> string {
 // Basic widgets
 
 label :: (text: string) -> UISignal, *UIBox {
-	label := box(.DRAW_TEXT, text);
+	label := box(.DRAW_TEXT, ui_key(text));
 	return signal_from_box(label), label;
 }
 
 label :: (textFormat: string, args: ..Any) -> UISignal, *UIBox {
-	label := box(.DRAW_TEXT, textFormat, ..args);
+	label := box(.DRAW_TEXT, ui_key(textFormat, ..args));
 	return signal_from_box(label), label;
 }
 
 button :: (text: string) -> UISignal {
-	button := box(.DRAW_BACKGROUND | .DRAW_TEXT | .DRAW_HOT_EFFECTS | .DRAW_ACTIVE_EFFECTS | .MOUSE_CLICKABLE, text);
+	button := box(.DRAW_BACKGROUND | .DRAW_TEXT | .DRAW_HOT_EFFECTS | .DRAW_ACTIVE_EFFECTS | .MOUSE_CLICKABLE, ui_key(text));
 	return signal_from_box(button);
 }
 
-tooltip_begin :: (anchorBoxKey:UIKey = cast(UIKey)0, anchorOffset: Vector2 = .{0.0,0.0}) {
-	push_parent(uiState.rootbox);
-
-	anchor,success := table_find(*uiState.boxTable, anchorBoxKey);
-	if success {
-		set_next_fixed_x(xx (anchor.rect.x + anchorOffset.x));
-		set_next_fixed_y(xx (anchor.rect.y + anchorOffset.y));
-	}
-	else {
-		x, y, success := get_mouse_pointer_position(window, false);
-		set_next_fixed_x(xx (x + 20));
-		set_next_fixed_y(xx (y + 20));
-	}
-
-	set_next_width(child_sum(1.0));
-	set_next_height(child_sum(1.0));
-	set_next_child_layout_axis(.Y);
-	cornerRad := top_font_size()*0.4;
-	set_next_corner_radius(.{cornerRad, cornerRad, cornerRad, cornerRad});
-	uiState.tooltip = box(.DRAW_BACKGROUND | .DRAW_BORDER, "tooltip");
-	push_parent(uiState.tooltip);
-	spacer(em(0.5, 1.0));
-
-	set_next_width(child_sum(1.0));
-	set_next_height(child_sum(1.0));
-	row_begin();
-	spacer(em(0.5, 1.0));
+tooltip_begin :: (anchorBoxKey:UIKey = ui_key_nil, anchorOffset: Vector2 = .{0.0,0.0}) {
+	// push_parent(uiState.rootbox);
+	//
+	// anchor,success := table_find(*uiState.boxTable, anchorBoxKey);
+	// if success {
+	// 	set_next_fixed_x(xx (anchor.rect.x + anchorOffset.x));
+	// 	set_next_fixed_y(xx (anchor.rect.y + anchorOffset.y));
+	// }
+	// else {
+	// 	x, y, success := get_mouse_pointer_position(window, false);
+	// 	set_next_fixed_x(xx (x + 20));
+	// 	set_next_fixed_y(xx (y + 20));
+	// }
+	//
+	// set_next_width(child_sum(1.0));
+	// set_next_height(child_sum(1.0));
+	// set_next_child_layout_axis(.Y);
+	// cornerRad := top_font_size()*0.4;
+	// set_next_corner_radius(.{cornerRad, cornerRad, cornerRad, cornerRad});
+	// uiState.tooltip = box(.DRAW_BACKGROUND | .DRAW_BORDER, "tooltip");
+	// push_parent(uiState.tooltip);
+	// spacer(em(0.5, 1.0));
+	//
+	// set_next_width(child_sum(1.0));
+	// set_next_height(child_sum(1.0));
+	// row_begin();
+	// spacer(em(0.5, 1.0));
 }
 
 tooltip_end :: () {
-	spacer(em(0.5, 1.0));
-	row_end();
-	spacer(em(0.5, 1.0));
-	pop_parent(); // tooltip box
-	pop_parent(); // rootbox parent
+	// spacer(em(0.5, 1.0));
+	// row_end();
+	// spacer(em(0.5, 1.0));
+	// pop_parent(); // tooltip box
+	// pop_parent(); // rootbox parent
 }
 
 is_context_menu_open :: (key: UIKey) -> bool {
@@ -538,122 +479,125 @@ context_menu_open :: (key: UIKey) {
 }
 
 context_menu_close :: () {
-	uiState.nextActiveContextMenu = key_zero();
+	uiState.nextActiveContextMenu = ui_key_nil;
 }
 
-context_menu_begin :: (key: UIKey, anchorBoxKey:UIKey = cast(UIKey)0, anchorOffset: Vector2 = .{0.0,0.0}) -> bool {
-	if uiState.activeContextMenu == key {
-		push_parent(uiState.rootbox);
-		anchor,success := table_find(*uiState.boxTable, anchorBoxKey);
-		if success {
-			set_next_fixed_x(xx (anchor.rect.x + anchorOffset.x));
-			set_next_fixed_y(xx (anchor.rect.y + anchorOffset.y));
-		}
-		else {
-			x, y, success := get_mouse_pointer_position(window, false);
-			set_next_fixed_x(xx (x + 20));
-			set_next_fixed_y(xx (y + 20));
-		}
-		set_next_width(child_sum(1.0));
-		set_next_height(child_sum(1.0));
-		set_next_child_layout_axis(.Y);
-		cornerRad := top_font_size()*0.4;
-		set_next_corner_radius(.{cornerRad, cornerRad, cornerRad, cornerRad});
-		uiState.contextMenu = box(.DRAW_BACKGROUND | .DRAW_BORDER, "context");
-		push_parent(uiState.contextMenu);
-		spacer(em(0.5, 1.0));
-
-		set_next_width(child_sum(1.0));
-		set_next_height(child_sum(1.0));
-		row_begin();
-		spacer(em(0.5, 1.0));
-		return true;
-	}
+context_menu_begin :: (key: UIKey, anchorBoxKey:UIKey = .{0,""}, anchorOffset: Vector2 = .{0.0,0.0}) -> bool {
+	// if uiState.activeContextMenu == key {
+	// 	push_parent(uiState.rootbox);
+	// 	anchor,success := table_find(*uiState.boxTable, anchorBoxKey);
+	// 	if success {
+	// 		set_next_fixed_x(xx (anchor.rect.x + anchorOffset.x));
+	// 		set_next_fixed_y(xx (anchor.rect.y + anchorOffset.y));
+	// 	}
+	// 	else {
+	// 		x, y, success := get_mouse_pointer_position(window, false);
+	// 		set_next_fixed_x(xx (x + 20));
+	// 		set_next_fixed_y(xx (y + 20));
+	// 	}
+	// 	set_next_width(child_sum(1.0));
+	// 	set_next_height(child_sum(1.0));
+	// 	set_next_child_layout_axis(.Y);
+	// 	cornerRad := top_font_size()*0.4;
+	// 	set_next_corner_radius(.{cornerRad, cornerRad, cornerRad, cornerRad});
+	// 	uiState.contextMenu = box(.DRAW_BACKGROUND | .DRAW_BORDER, "context");
+	// 	push_parent(uiState.contextMenu);
+	// 	spacer(em(0.5, 1.0));
+	//
+	// 	set_next_width(child_sum(1.0));
+	// 	set_next_height(child_sum(1.0));
+	// 	row_begin();
+	// 	spacer(em(0.5, 1.0));
+	// 	return true;
+	// }
 	return false;
 }
 
 context_menu_end :: () {
-	spacer(em(0.5, 1.0));
-	row_end();
-	spacer(em(0.5, 1.0));
-	pop_parent(); // context menu box
-	pop_parent(); // rootbox parent
+	// spacer(em(0.5, 1.0));
+	// row_end();
+	// spacer(em(0.5, 1.0));
+	// pop_parent(); // context menu box
+	// pop_parent(); // rootbox parent
 }
 
 row_begin :: (key := "") {
-	set_next_child_layout_axis(.X);
-	row := box(0, key);
-	push_parent(row);
+	// set_next_child_layout_axis(.X);
+	// row := box(0, key);
+	// push_parent(row);
 }
 
 row_end :: () -> UISignal {
-	box := pop_parent();
-	return signal_from_box(box);
+	// box := pop_parent();
+	// return signal_from_box(box);
+	return .{};
 }
 
 column_begin :: (key := "") {
-	set_next_child_layout_axis(.Y);
-	col := box(0, key);
-	push_parent(col);
+	// set_next_child_layout_axis(.Y);
+	// col := box(0, key);
+	// push_parent(col);
 }
 
 column_end :: () -> UISignal {
-	box := pop_parent();
-	return signal_from_box(box);
+	// box := pop_parent();
+	// return signal_from_box(box);
+	return .{};
 }
 
 spacer :: (size: UISize) {
-	if top_parent().childLayoutAxis == .X {
-		set_next_width(size);
-		box(0); 
-	}
-	else {
-		set_next_height(size);
-		box(0); 
-	}
+	// if top_parent().childLayoutAxis == .X {
+	// 	set_next_width(size);
+	// 	box(0); 
+	// }
+	// else {
+	// 	set_next_height(size);
+	// 	box(0); 
+	// }
 }
 
-scope_padding :: (size: UISize) #expand { spacer(size); `defer spacer(size); }
+// scope_padding :: (size: UISize) #expand { spacer(size); `defer spacer(size); }
 
 scroll_bar :: (scrollOffset: float, scrollRegionSize:float, visibleRange: float) -> Vector2 {
-	scope_height(parent_pct(1.0, 0.0));
-	scope_width(parent_pct(1.0, 0.0));
-
-	// padding
-	surroundPadding := em(0.3, 1.0); 
-	set_next_width(em(1.2, 0.0));
-	column_begin(); defer column_end();
-	spacer(surroundPadding); defer spacer(surroundPadding);
-	set_next_height(px(visibleRange-top_font_size()*0.6, 0.0));
-	row_begin(); defer row_end();
-	spacer(surroundPadding); defer spacer(surroundPadding);
-	
-	// background bar
-	palette := top_palette();
-	palette.background = style.backgroundLight;
-	set_next_palette(palette);
-	cornerRad := top_font_size()*0.3;
-	set_next_corner_radius(.{cornerRad, cornerRad, cornerRad, cornerRad});
-	set_next_child_layout_axis(.Y);
-	scrollbarOuter := box(.DRAW_BACKGROUND, "scrollback");
-
-	handleSizePct := max(abs(visibleRange/scrollRegionSize), 0.05);
-	spaceBeforePct := (1.0-handleSizePct) * abs(scrollOffset/scrollRegionSize);
-
-	// space before handle
-	set_next_parent(scrollbarOuter);
-	set_next_height(parent_pct(spaceBeforePct, 1.0));
-	box(0);
-
-	// scroll handle
-	set_next_parent(scrollbarOuter);
-	palette.background = style.backgroundLighter;
-	set_next_palette(palette);
-	set_next_height(parent_pct(handleSizePct, 1.0));
-	set_next_corner_radius(.{cornerRad, cornerRad, cornerRad, cornerRad});
-	scrollbarInner := box(.DRAW_BACKGROUND | .MOUSE_CLICKABLE | .DRAW_HOT_EFFECTS | .DRAW_ACTIVE_EFFECTS, "todokey");
-
-	return signal_from_box(scrollbarInner).dragDelta;
+	// scope_height(parent_pct(1.0, 0.0));
+	// scope_width(parent_pct(1.0, 0.0));
+	//
+	// // padding
+	// surroundPadding := em(0.3, 1.0); 
+	// set_next_width(em(1.2, 0.0));
+	// column_begin(); defer column_end();
+	// spacer(surroundPadding); defer spacer(surroundPadding);
+	// set_next_height(px(visibleRange-top_font_size()*0.6, 0.0));
+	// row_begin(); defer row_end();
+	// spacer(surroundPadding); defer spacer(surroundPadding);
+	// 
+	// // background bar
+	// palette := top_palette();
+	// palette.background = style.backgroundLight;
+	// set_next_palette(palette);
+	// cornerRad := top_font_size()*0.3;
+	// set_next_corner_radius(.{cornerRad, cornerRad, cornerRad, cornerRad});
+	// set_next_child_layout_axis(.Y);
+	// scrollbarOuter := box(.DRAW_BACKGROUND, "scrollback");
+	//
+	// handleSizePct := max(abs(visibleRange/scrollRegionSize), 0.05);
+	// spaceBeforePct := (1.0-handleSizePct) * abs(scrollOffset/scrollRegionSize);
+	//
+	// // space before handle
+	// set_next_parent(scrollbarOuter);
+	// set_next_height(parent_pct(spaceBeforePct, 1.0));
+	// box(0);
+	//
+	// // scroll handle
+	// set_next_parent(scrollbarOuter);
+	// palette.background = style.backgroundLighter;
+	// set_next_palette(palette);
+	// set_next_height(parent_pct(handleSizePct, 1.0));
+	// set_next_corner_radius(.{cornerRad, cornerRad, cornerRad, cornerRad});
+	// scrollbarInner := box(.DRAW_BACKGROUND | .MOUSE_CLICKABLE | .DRAW_HOT_EFFECTS | .DRAW_ACTIVE_EFFECTS, "todokey");
+	//
+	// return signal_from_box(scrollbarInner).dragDelta;
+	return .{0.0, 0.0};
 }
 
 // @todo: widgets:
@@ -680,10 +624,10 @@ render_ui_recursive :: (box: *UIBox) {
 	if box.flags & .DRAW_BACKGROUND {
 		color := box.palette.background;
 
-		if box.flags & .DRAW_HOT_EFFECTS && uiState.hotBoxKey != key_zero() && box.key == uiState.hotBoxKey {
+		if box.flags & .DRAW_HOT_EFFECTS && uiState.hotBoxKey != ui_key_nil && box.key == uiState.hotBoxKey {
 			color = box.palette.hot;
 		}
-		if box.flags & .DRAW_ACTIVE_EFFECTS && uiState.activeBoxKey != key_zero() && box.key == uiState.activeBoxKey {
+		if box.flags & .DRAW_ACTIVE_EFFECTS && uiState.activeBoxKey != ui_key_nil && box.key == uiState.activeBoxKey {
 			color = box.palette.active;
 		}
 
@@ -769,235 +713,8 @@ render_ui_recursive :: (box: *UIBox) {
 
 // Layout algorithm
 
-compute_layout :: (root: *UIBox, axis: UIAxis) {
-	compute_standalone_sizes(root, axis);
-	compute_upward_dependant_sizes(root, axis);
-	compute_downward_dependant_sizes(root, axis);
-	enforce_layout_constraints(root, axis);
-	compute_positions(root, axis);
-}
-
-compute_standalone_sizes :: (root: *UIBox, axis: UIAxis) {
-	if root.size[axis].kind == {
-		case .PIXELS;
-			root.fixedSize[axis] = root.size[axis].value;
-		case .TEXT_CONTENT;
-			padding := root.size[axis].value;
-			root.textRun = generate_text_run(root.text, xx root.fontSize, root.font,,temp);
-			textSize := 0.0;
-			if axis == .X {
-				textSize = root.textRun.width;
-			}
-			else {
-				textSize = root.fontSize;
-			}
-			root.fixedSize[axis] = textSize + padding + root.textPadding * 2;
-		case;
-	}
-
-	// recurse children
-	first := root.head;
-	while first {
-		compute_standalone_sizes(first, axis);
-		first = first.next;
-	}
-}
-
-compute_upward_dependant_sizes :: (root: *UIBox, axis: UIAxis) {
-	if root.size[axis].kind == {
-		case .PERCENT_OF_PARENT;
-			// go up through list of parents searching for a fixed size
-			fixedParent: *UIBox;
-			box := root.parent;
-			while box {
-				fixed := UIBoxFlags.FIXED_WIDTH;
-				if axis == .Y then fixed = .FIXED_HEIGHT; 
-
-				if box.flags & fixed ||
-					box.size[axis].kind == .PIXELS || 
-					box.size[axis].kind == .TEXT_CONTENT || 
-					box.size[axis].kind == .PERCENT_OF_PARENT { 
-					fixedParent = box;
-					break;
-				}
-				box = box.parent;
-			}
-			root.fixedSize[axis] = fixedParent.fixedSize[axis] * root.size[axis].value;
-		case;
-	}
-
-	// recurse the children after, since they will depend on the parent
-	first := root.head;
-	while first {
-		compute_upward_dependant_sizes(first, axis);
-		first = first.next;
-	}
-}
-
-compute_downward_dependant_sizes :: (root: *UIBox, axis: UIAxis) {
-	// we depend on the children's sizes, so we'll recurse the children first
-	first := root.head;
-	while first {
-		compute_downward_dependant_sizes(first, axis);
-		first = first.next;
-	}
-
-	if root.size[axis].kind == {
-		case .SUM_OF_CHILDREN;
-			// Sum over children sizes
-			sum := 0.0;
-			child := root.head;
-			while child {
-				floating := UIBoxFlags.FLOATING_X;
-				if axis == .Y then floating = .FLOATING_Y; 
-
-				if !(child.flags & floating) {
-					if root.childLayoutAxis == axis {
-						sum += child.fixedSize[axis];
-					}
-					else {
-						sum = max(sum, child.fixedSize[axis]);
-					}
-				}
-				child = child.next;
-			}
-			root.fixedSize[axis] = sum;
-		case;
-	}
-}
-
-enforce_layout_constraints :: (root: *UIBox, axis: UIAxis) {
-	// Verify the sum of the children do not extend past the size of the parent, and if they do correct some
-
-	// raddbg has an "allowoverflow" flag which skips these checks, might need that at some point?
-
-	// along non layout axis
-	if axis != root.childLayoutAxis {
-		// simply check if the child size is larger than the parent, and if so, reduce the child size until it's correct
-		allowedSize := root.fixedSize[axis];
-
-		child := root.head;
-		while child {
-			floating := UIBoxFlags.FLOATING_X;
-			if axis == .Y then floating = .FLOATING_Y; 
-
-			if !(child.flags & floating) {
-				violation := child.fixedSize[axis] - allowedSize;
-				maxFixup := child.fixedSize[axis];
-				fixup := clamp(violation, 0, maxFixup);
-				if fixup > 0 {
-					child.fixedSize[axis] -= fixup;
-				}
-			}
-			child = child.next;
-		}
-	}
-
-	// along layout axis
-	if axis == root.childLayoutAxis {
-		totalAllowedSize := root.fixedSize[axis];
-		totalSize := 0.0;
-		totalWeightedSize := 0.0;
-
-		child := root.head;
-		while child {
-			floating := UIBoxFlags.FLOATING_X;
-			if axis == .Y then floating = .FLOATING_Y; 
-
-			if !(child.flags & floating) {
-				totalSize += child.fixedSize[axis];
-				totalWeightedSize += child.fixedSize[axis] * (1.0-child.size[axis].strictness);
-			}
-			child = child.next;
-		}
-
-		// the children go outside of the parent, need to subtract some amount from each child, 
-		// weighted by the strictness of their size policies
-		violation := totalSize - totalAllowedSize;
-		if violation > 0 {
-			childFixupSum := 0.0;
-			childFixups := NewArray(root.childCount, float,, uiState.frameAlloc);
-
-			// calculate the possible adjustment for each child based on strictness
-			// if strictness is 1, then there is no fixup possible here
-			childId := 0;
-			child := root.head;
-			while child {
-				floating := UIBoxFlags.FLOATING_X;
-				if axis == .Y then floating = .FLOATING_Y; 
-
-				if !(child.flags & floating) {
-					fixupSizeThisChild := child.fixedSize[axis] * (1.0-child.size[axis].strictness);
-					fixupSizeThisChild = max(0.0, fixupSizeThisChild);
-					childFixups[childId] = fixupSizeThisChild;
-					childFixupSum += fixupSizeThisChild;
-				}
-				childId += 1;
-				child = child.next;
-			}
-
-			childId = 0;
-			child = root.head;
-			while child {
-				floating := UIBoxFlags.FLOATING_X;
-				if axis == .Y then floating = .FLOATING_Y; 
-
-				if !(child.flags & floating) {
-					// total weighted size is the size of all the available fixup space
-					// so this is what percentage of that needs to be corrected
-					fixupPct := violation / totalWeightedSize;
-					fixupPct = clamp(fixupPct, 0.0, 1.0);
-					child.fixedSize[axis] -= childFixups[childId] * fixupPct;
-				}
-
-				childId += 1;
-				child = child.next;
-			}
-		}
-	}
-
-	// @todo: raddbg goes back and undoes the fixups for parent percent boxes where the root allows overflow
-	// you would do that here if you need that
-
-	// do children now
-	child := root.head;
-	while child {
-		enforce_layout_constraints(child, axis);
-		child = child.next;
-	}
-}
-
-compute_positions :: (root: *UIBox, axis: UIAxis) {
-	// depth first iterate through all boxes
-	for :depth_first root {
-		box := it;
-		layoutPosition := 0.0;
-
-		// loop through the children of this box
-		child := box.head;
-		while child {
-			floating := UIBoxFlags.FLOATING_X;
-			if axis == .Y then floating = .FLOATING_Y; 
-
-			if !(child.flags & floating) {
-				child.fixedPosition[axis] = layoutPosition;
-				if box.childLayoutAxis == axis {
-					layoutPosition += child.fixedSize[axis];
-				}
-			}
-
-			// actually set the final rect
-			if axis == .X {
-				child.rect.x = round(box.rect.x + child.fixedPosition[axis]);
-				child.rect.w = round(child.fixedSize[axis]);
-			}
-			else {
-				child.rect.y = round(box.rect.y + child.fixedPosition[axis]);
-				child.rect.h = round(child.fixedSize[axis]);
-			}
-			child = child.next;
-		}
-	}
+compute_layout :: (root: *UIBox, axis: UIAxis) {	
+	// @TODO: layout elements
 }
 
 // Linked list functions
@@ -1048,104 +765,5 @@ linked_list_remove :: (head: **$T, tail: **T, toRemove: *T) {
 	}
 	else {
 		<<tail = toRemove.prev; // toRemove was last
-	}
-}
-
-// Parameter stack functions code generation
-
-PARAMETERS :: Parameter.[
-	.{ "parent", 			"*UIBox", 		"null" },
-	.{ "child_layout_axis", "UIAxis", 		"UIAxis.X" },
-	.{ "fixed_x", 			"float", 		"0" },
-	.{ "fixed_y", 			"float", 		"0" },
-	.{ "fixed_width", 		"float", 		"0" },
-	.{ "fixed_height", 		"float", 		"0" },
-	.{ "width", 			"UISize", 		"px(1.0, 1.0)" },
-	.{ "height", 			"UISize", 		"px(1.0, 1.0)" },
-	.{ "text_padding", 		"float", 		"5" },
-	.{ "text_alignment",	"UITextAlign", 	".LEFT" },
-	.{ "font",		 		"*Font", 		"fontUI" },
-	.{ "font_size", 		"float", 		"15" },
-	.{ "palette", 			"UIPalette", 	"defaultPalette" },
-	.{ "corner_radius", 	"Vector4", 		".{0.0, 0.0, 0.0, 0.0}" },
-	.{ "border_thickness", 	"float", 		"1.0" }
-];
-
-#scope_export
-
-Parameter :: struct {
-	name: string;
-	type: string;
-	default: string;
-}
-
-ParameterStack :: struct ($T: Type) {
-	stack: [32]T;
-	top: s32 = 0;
-	autoPop: bool = false;
-}
-
-is_empty :: (stack: *ParameterStack($T)) -> bool { 
-	return stack.top == 1; // initial value is the default, so stack is empty if it's just the initial value
-}
-
-get_top :: (stack: *ParameterStack($T)) -> T {
-	return stack.stack[stack.top-1];
-}
-
-push :: (stack: *ParameterStack($T), v: T) {
-	stack.stack[stack.top] = v;
-	stack.top += 1;
-}
-
-pop :: (stack: *ParameterStack($T)) -> T {
-	if !is_empty(stack) {
-		stack.top -= 1;
-		return stack.stack[stack.top];
-	}
-	return stack.stack[0];
-}
-
-set_next :: (stack: *ParameterStack($T), v: T) {
-	stack.stack[stack.top] = v;
-	stack.top += 1;
-	stack.autoPop = true;
-}
-
-#insert -> string {
-	builder: String_Builder;
-	init_string_builder(*builder);
-
-	for PARAMETERS {
-		print_to_builder(*builder, "is_%1_default :: () -> bool { return is_empty(*uiState.%1Stack); }\n", it.name, it.type);
-		print_to_builder(*builder, "top_%1 :: () -> %2 { return get_top(*uiState.%1Stack); }\n", it.name, it.type);
-		print_to_builder(*builder, "pop_%1 :: () -> %2 { return pop(*uiState.%1Stack); }\n", it.name, it.type);
-		print_to_builder(*builder, "push_%1 :: (%1: %2) { push(*uiState.%1Stack, %1); }\n", it.name, it.type);
-		print_to_builder(*builder, "set_next_%1 :: (%1: %2) { set_next(*uiState.%1Stack, %1); }\n", it.name, it.type);
-		print_to_builder(*builder, "scope_%1 :: (%1: %2) #expand { push_%1(%1); `defer pop_%1(); }\n\n", it.name, it.type);
-	}
-	return builder_to_string(*builder);
-}
-#scope_file
-
-reset_parameter_stacks :: () {
-	#insert -> string {
-		builder: String_Builder;
-		init_string_builder(*builder);
-		for PARAMETERS {
-			print_to_builder(*builder, "uiState.%1Stack.stack[0] = %2;uiState.%1Stack.top = 1;uiState.%1Stack.autoPop = false;\n", it.name, it.default);
-		}
-		return builder_to_string(*builder);
-	}
-}
-
-auto_pop_parameter_stacks :: () {
-	#insert -> string {
-		builder: String_Builder;
-		init_string_builder(*builder);
-		for PARAMETERS {
-			print_to_builder(*builder, "if uiState.%1Stack.autoPop { pop(*uiState.%1Stack); uiState.%1Stack.autoPop = false; }\n", it.name);
-		}
-		return builder_to_string(*builder);
 	}
 }
