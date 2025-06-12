@@ -242,15 +242,28 @@ build_ui :: () {
 	// should look like this:
 	codeBox := box(ui_key("code"), .{
 		flags=.DRAW_BACKGROUND,
-		layout=.{childLayoutAxis=.X, width=fixed(100), height=fixed(150)},
+		layout=.{width=fixed(100), height=fixed(150)},
 	});
 
 	secondBox := box(ui_key("box2"), .{
 		flags=.DRAW_BACKGROUND,
 		layout=.{childLayoutAxis=.X, width=fixed(200), height=fixed(100)},
+		palette=.{background=.{1.0, 0.0, 0.0, 1.0}}
 	});
 	{
-		// children go here
+		push_parent(secondBox); defer pop_parent();
+
+		box(ui_key_nil, .{
+			flags=.DRAW_BACKGROUND,
+			layout=.{width=fixed(40), height=fixed(30)},
+			palette=.{background=.{0.0, 1.0, 0.0, 1.0}}
+		});
+
+		box(ui_key_nil, .{
+			flags=.DRAW_BACKGROUND,
+			layout=.{width=fixed(50), height=fixed(80)},
+			palette=.{background=.{0.0, 0.0, 1.0, 1.0}}
+		});
 	}
 
 	end_ui();

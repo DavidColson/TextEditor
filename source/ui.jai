@@ -2,9 +2,10 @@
 UIBoxDeclaration :: struct {
 	flags: UIBoxFlags;
 	layout: UILayoutData;
-	cornerRadius: Vector4;
 	palette: UIPalette;
+	cornerRadius: Vector4;
 	borderThickness: float;
+	fontSize: float;
 }
 
 UIBox :: struct {
@@ -27,7 +28,6 @@ UIBox :: struct {
 	textAlignment: UITextAlign;
 	textPadding: float;
 	font: *Font;
-	fontSize: float;
 	childCount: s32;
 	fixedPosition: [UIAxis.COUNT]float; // parent relative
 	fixedSize: [UIAxis.COUNT]float;
@@ -48,9 +48,9 @@ UIBox :: struct {
 
 UILayoutData :: struct {
 	childLayoutAxis: UIAxis;
-	height: UISize;
 	width: UISize;
-#place height;
+	height: UISize;
+#place width;
     size: [2]UISize = ---;
 }
 
@@ -119,6 +119,8 @@ UIPalette :: struct {
 	active: Vector4;
 	text: Vector4;
 	border: Vector4;
+#place background;
+	colors: [5]Vector4 = ---;
 }
 
 UIKey :: struct {
@@ -140,7 +142,7 @@ UIState :: struct {
 
 	// Persistent UI data
 	defaultPalette: UIPalette;
-	defaultFontSize := 15;
+	defaultFontSize := 15.0;
 	boxTable: Table(UIKey, *UIBox, given_compare_function=compare_key, given_hash_function=x=>get_hash(x.keyVal));
 	freeListHead: *UIBox;
 	freeListTail: *UIBox;
@@ -209,9 +211,26 @@ box :: (key: UIKey = ui_key_nil, data: UIBoxDeclaration) -> *UIBox {
 	box.parent = top_parent();
 	box.key = key;
 	box.declaration = data;
-	box.palette = uiState.defaultPalette; // @todo: I want a better system to have overrides for specific colors in the default palette
 	box.customDrawFunction = null;
 	box.lastTouchedFrame = uiState.frameIndex;
+
+	// override palette defaults if specified
+	box.palette = uiState.defaultPalette;
+	for 0..size_of(UIPalette)/size_of(Vector4)-1 {
+		if  data.palette.colors[it].x != 0 || 
+			data.palette.colors[it].y != 0 ||
+			data.palette.colors[it].z != 0 ||
+			data.palette.colors[it].w != 0
+		{
+			box.palette.colors[it] = data.palette.colors[it];
+		}
+	}
+
+	// override font defaults
+	box.fontSize = uiState.defaultFontSize;
+	if data.fontSize != 0 {
+		box.fontSize = data.fontSize;
+	}
 
 	// insert into parent's list of children
 	if box.parent {
@@ -328,9 +347,8 @@ end_ui :: () {
 	for floatingRoots {
 		if it != null {
 			// @todo: replace standard font size here with an em calculation macro
-			// @todo: the box should store it's own font size actually, which defaults to the default
-			xBounds := uiState.rootbox.rect.w - uiState.defaultFontSize*0.3; // padding
-			yBounds := uiState.rootbox.rect.h - uiState.defaultFontSize*0.3; // padding
+			xBounds := uiState.rootbox.rect.w - it.fontSize*0.3; // padding
+			yBounds := uiState.rootbox.rect.h - it.fontSize*0.3; // padding
 			xShiftDown := max(it.rect.x, 0) - it.rect.x;
 			xShiftUp := min(it.rect.x+it.rect.w, xBounds) - (it.rect.x+it.rect.w);
 			it.rect.x += xShiftDown + xShiftUp;
