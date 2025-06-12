@@ -1,6 +1,13 @@
-UIBox :: struct {
+
+UIBoxDeclaration :: struct {
 	flags: UIBoxFlags;
-	keyStr: string;
+	layout: UILayoutData;
+	cornerRadius: Vector4;
+	palette: UIPalette;
+	borderThickness: float;
+}
+
+UIBox :: struct {
 	key: UIKey;
 
 	// tree
@@ -10,6 +17,10 @@ UIBox :: struct {
 	tail: *UIBox;
 	parent: *UIBox;
 
+	// new stuff
+	using declaration: UIBoxDeclaration;
+
+	// old stuff
 	// per frame information (must be cleared in box())
 	text: string;
 	textRun: TextRun;
@@ -18,16 +29,11 @@ UIBox :: struct {
 	font: *Font;
 	fontSize: float;
 	childCount: s32;
-	childLayoutAxis: UIAxis;
-	size: [UIAxis.COUNT]UISize;
 	fixedPosition: [UIAxis.COUNT]float; // parent relative
 	fixedSize: [UIAxis.COUNT]float;
 	rect: Rect;
-	palette: UIPalette;
 	customDrawFunction: (*UIBox, *void);
 	customDrawUdata: *void;
-	cornerRadius: Vector4;
-	borderThickness: float;
 
 	// persistent data
 	firstTouchedFrame: u64;
@@ -40,32 +46,13 @@ UIBox :: struct {
 	dragPrevPos: Vector2;
 }
 
-UIState :: struct {
-	arena: Flat_Pool;
-	alloc: Allocator;
-	frameArena: Flat_Pool;
-	frameAlloc: Allocator;
-
-	// Per frame UI data
-	rootbox: *UIBox;
-	tooltip: *UIBox;
-
-	// Persistent UI data
-	standardFontSize := 15;
-	boxTable: Table(UIKey, *UIBox, given_compare_function=compare_key, given_hash_function=x=>get_hash(x.keyVal));
-	freeListHead: *UIBox;
-	freeListTail: *UIBox;
-	contextMenu: *UIBox; // at some point it may be desirable to have a "popup" stack like imgui?
-	activeContextMenu: UIKey;
-	nextActiveContextMenu: UIKey;
-	hotBoxKey: UIKey;
-	activeBoxKey: UIKey;
-
-	frameIndex: u64;
-
-	events: [..]Input.Event;
+UILayoutData :: struct {
+	childLayoutAxis: UIAxis;
+	height: UISize;
+	width: UISize;
+#place height;
+    size: [2]UISize = ---;
 }
-uiState: UIState;
 
 UISignal :: struct {
 	hovering: bool;
@@ -99,24 +86,31 @@ UIAxis :: enum {
 	COUNT;
 }
 
-UISizeKind :: enum {
+UISize :: struct {
+	type: UISizeType;
+	percent: float;
+	min: float;
+	max: float;
+}
+
+fixed :: (pixels: float) -> UISize { return .{type=.FIXED, min=pixels, max=pixels};}
+fit :: (min: float = 0.0, max: float=0.0) -> UISize { return .{type=.FIT, min=min, max=max};}
+grow :: (min: float = 0.0, max: float=0.0) -> UISize { return .{type=.GROW, min=min, max=max};}
+percent :: (percent: float) -> UISize { return .{type=.PERCENT, percent=percent};}
+
+UISizeType :: enum {
 	NULL;
-	PIXELS;
-	TEXT_CONTENT;
-	PERCENT_OF_PARENT;
-	SUM_OF_CHILDREN;
+	FIXED;
+	TEXT;
+	PERCENT;
+	FIT;
+	GROW;
 }
 
 UITextAlign :: enum {
 	LEFT;
 	CENTER;
 	RIGHT;
-}
-
-UISize :: struct {
-	kind: UISizeKind;
-	value: float;
-	strictness: float;
 }
 
 UIPalette :: struct {
@@ -132,11 +126,35 @@ UIKey :: struct {
 	keyStr: string; // debug, @todo remove in release?
 }
 
-defaultPalette :: UIPalette.{
-	background = #run hex_to_color_vec4("282c34"),
-	border = #run hex_to_color_vec4("EEEEEE")
-};
+UIState :: struct {
+	arena: Flat_Pool;
+	alloc: Allocator;
+	frameArena: Flat_Pool;
+	frameAlloc: Allocator;
 
+	// Per frame UI data
+	rootbox: *UIBox;
+	tooltip: *UIBox;
+	parentStack: [32]*UIBox;
+	parentStackTop: s32 = 1;
+
+	// Persistent UI data
+	defaultPalette: UIPalette;
+	defaultFontSize := 15;
+	boxTable: Table(UIKey, *UIBox, given_compare_function=compare_key, given_hash_function=x=>get_hash(x.keyVal));
+	freeListHead: *UIBox;
+	freeListTail: *UIBox;
+	contextMenu: *UIBox; // at some point it may be desirable to have a "popup" stack like imgui?
+	activeContextMenu: UIKey;
+	nextActiveContextMenu: UIKey;
+	hotBoxKey: UIKey;
+	activeBoxKey: UIKey;
+
+	frameIndex: u64;
+
+	events: [..]Input.Event;
+}
+uiState: UIState;
 
 init_ui :: () {
 	uiState.alloc = Allocator.{ proc = flat_pool_allocator_proc, data = *uiState.arena };
@@ -153,8 +171,7 @@ find_box :: (key: UIKey) -> bool, *UIBox {
 	return success, box;
 }
 
-
-box :: (flags: UIBoxFlags, key: UIKey = ui_key_nil) -> *UIBox {
+box :: (key: UIKey = ui_key_nil, data: UIBoxDeclaration) -> *UIBox {
 	// attempt to get the box from persistent data using it's key
 	box,success := table_find(*uiState.boxTable, key);
 
@@ -189,9 +206,10 @@ box :: (flags: UIBoxFlags, key: UIKey = ui_key_nil) -> *UIBox {
 	box.prev = null;
 	box.head = null;
 	box.tail = null;
-	box.parent = null;
+	box.parent = top_parent();
 	box.key = key;
-	box.flags = flags;
+	box.declaration = data;
+	box.palette = uiState.defaultPalette; // @todo: I want a better system to have overrides for specific colors in the default palette
 	box.customDrawFunction = null;
 	box.lastTouchedFrame = uiState.frameIndex;
 
@@ -278,14 +296,12 @@ signal_from_box :: (box: *UIBox) -> UISignal {
 }
 
 begin_ui :: () {
-	// set_next_fixed_x(0);
-	// set_next_fixed_y(0);
-	// set_next_fixed_width(xx windowWidth);
-	// set_next_fixed_height(xx windowHeight);
-	uiState.rootbox = box(0); 
+	uiState.rootbox = box(ui_key_nil, .{
+		layout=.{childLayoutAxis=.Y, width=fixed(xx windowWidth), height=fixed(xx windowHeight)},
+	}); 
 	uiState.hotBoxKey = ui_key_nil;
 	uiState.tooltip = null;
-	// push_parent(uiState.rootbox);
+	push_parent(uiState.rootbox);
 }
 
 end_ui :: () {
@@ -312,8 +328,9 @@ end_ui :: () {
 	for floatingRoots {
 		if it != null {
 			// @todo: replace standard font size here with an em calculation macro
-			xBounds := uiState.rootbox.rect.w - uiState.standardFontSize*0.3; // padding
-			yBounds := uiState.rootbox.rect.h - uiState.standardFontSize*0.3; // padding
+			// @todo: the box should store it's own font size actually, which defaults to the default
+			xBounds := uiState.rootbox.rect.w - uiState.defaultFontSize*0.3; // padding
+			yBounds := uiState.rootbox.rect.h - uiState.defaultFontSize*0.3; // padding
 			xShiftDown := max(it.rect.x, 0) - it.rect.x;
 			xShiftUp := min(it.rect.x+it.rect.w, xBounds) - (it.rect.x+it.rect.w);
 			it.rect.x += xShiftDown + xShiftUp;
@@ -354,6 +371,7 @@ end_ui :: () {
 	reset(*uiState.frameArena, overwrite_memory=true);
 	array_reset_keeping_memory(*uiState.events);
 	uiState.frameIndex += 1;
+	uiState.parentStackTop = 1;
 }
 
 // depth first UI tree iterator
@@ -388,6 +406,25 @@ depth_first :: (box: *UIBox, body: Code, flags: For_Flags) #expand {
 	}
 }
 
+// parent stack
+
+push_parent :: (box: *UIBox) {
+	uiState.parentStack[uiState.parentStackTop] = box;
+	uiState.parentStackTop += 1;
+}
+
+pop_parent :: () -> *UIBox {
+	if uiState.parentStackTop == 1 {
+		uiState.parentStackTop -= 1;
+		return uiState.parentStack[uiState.parentStackTop]; 
+	}
+	return uiState.parentStack[0];
+}
+
+top_parent :: () -> *UIBox {
+	return uiState.parentStack[uiState.parentStackTop-1]; 
+}
+
 // keying
 
 ui_key_nil :: UIKey.{0,""};
@@ -419,17 +456,17 @@ display_string_from_key :: (str: string) -> string {
 // Basic widgets
 
 label :: (text: string) -> UISignal, *UIBox {
-	label := box(.DRAW_TEXT, ui_key(text));
+	label := box(ui_key(text), .{flags=.DRAW_TEXT});
 	return signal_from_box(label), label;
 }
 
 label :: (textFormat: string, args: ..Any) -> UISignal, *UIBox {
-	label := box(.DRAW_TEXT, ui_key(textFormat, ..args));
+	label := box(ui_key(textFormat, ..args), .{flags=.DRAW_TEXT});
 	return signal_from_box(label), label;
 }
 
 button :: (text: string) -> UISignal {
-	button := box(.DRAW_BACKGROUND | .DRAW_TEXT | .DRAW_HOT_EFFECTS | .DRAW_ACTIVE_EFFECTS | .MOUSE_CLICKABLE, ui_key(text));
+	button := box(ui_key(text), .{flags=.DRAW_BACKGROUND | .DRAW_TEXT | .DRAW_HOT_EFFECTS | .DRAW_ACTIVE_EFFECTS | .MOUSE_CLICKABLE});
 	return signal_from_box(button);
 }
 
@@ -714,7 +751,66 @@ render_ui_recursive :: (box: *UIBox) {
 // Layout algorithm
 
 compute_layout :: (root: *UIBox, axis: UIAxis) {	
-	// @TODO: layout elements
+	compute_standalone_sizes(root, axis);
+	compute_positions(root, axis);
+}
+
+compute_standalone_sizes :: (root: *UIBox, axis: UIAxis) {
+	if root.layout.size[axis].type == {
+		case .FIXED;
+			root.fixedSize[axis] = root.layout.size[axis].min;
+		case .TEXT;
+			root.textRun = generate_text_run(root.text, xx root.fontSize, root.font,,temp);
+			textSize := 0.0;
+			if axis == .X {
+				textSize = root.textRun.width;
+			}
+			else {
+				textSize = root.fontSize;
+			}
+			root.fixedSize[axis] = textSize + root.textPadding * 2;
+		case;
+	}
+
+	// recurse children
+	first := root.head;
+	while first {
+		compute_standalone_sizes(first, axis);
+		first = first.next;
+	}
+}
+
+compute_positions :: (root: *UIBox, axis: UIAxis) {
+	// depth first iterate through all boxes
+	for :depth_first root {
+		box := it;
+		layoutPosition := 0.0;
+
+		// loop through the children of this box
+		child := box.head;
+		while child {
+			floating := UIBoxFlags.FLOATING_X;
+			if axis == .Y then floating = .FLOATING_Y; 
+
+			if !(child.flags & floating) {
+				child.fixedPosition[axis] = layoutPosition;
+				if box.layout.childLayoutAxis == axis {
+					layoutPosition += child.fixedSize[axis];
+				}
+			}
+
+			// actually set the final rect
+			if axis == .X {
+				child.rect.x = round(box.rect.x + child.fixedPosition[axis]);
+				child.rect.w = round(child.fixedSize[axis]);
+			}
+			else {
+				child.rect.y = round(box.rect.y + child.fixedPosition[axis]);
+				child.rect.h = round(child.fixedSize[axis]);
+			}
+			child = child.next;
+		}
+	}
 }
 
 // Linked list functions

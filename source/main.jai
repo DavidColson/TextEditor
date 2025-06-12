@@ -219,10 +219,39 @@ build_ui :: () {
 	panel := *focusedPanel;
 	panelRect := panel.rect;
 
+	uiState.defaultPalette = .{
+		text = style.textPrimary,
+		background=style.backgroundMid,
+		hot=style.hotHighlight,
+		active=style.activeHighlight,
+		border=style.borders
+	};
+
 	// new UI system todo:
-	// Box takes struct parameters, in sections
-	// Box takes some basic layout information such as padding and layour direction
-	// we do some basic layout
+	// Box takes struct parameters, in sections, (define something like UIBoxDefinition)
+	// start with a box with fixed sizing X and Y, and a layout direction (compute standalone sizes)
+	// 
+	// layout algorithm just lays them out incrementally along the desired axis (compute positions)
+	// add padding and child gap information
+	// introduce "fit" sizing mode (implemented as a downward dependant iteration like children sum)
+	// introduce "fill" sizing mode (implemented as upward dependant iteration)
+	// introduce "text" sizing mode 
+	// introduce "percent of parent" sizing mode
+		// (this has no strictness, it's just a direct percent of the parent size, upward dependant iteration)
+	
+	// should look like this:
+	codeBox := box(ui_key("code"), .{
+		flags=.DRAW_BACKGROUND,
+		layout=.{childLayoutAxis=.X, width=fixed(100), height=fixed(150)},
+	});
+
+	secondBox := box(ui_key("box2"), .{
+		flags=.DRAW_BACKGROUND,
+		layout=.{childLayoutAxis=.X, width=fixed(200), height=fixed(100)},
+	});
+	{
+		// children go here
+	}
 
 	end_ui();
 
