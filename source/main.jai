@@ -229,10 +229,8 @@ build_ui :: () {
 
 	// new UI system todo:
 	// Box takes struct parameters, in sections, (define something like UIBoxDefinition)
-	// start with a box with fixed sizing X and Y, and a layout direction (compute standalone sizes)
 	// 
 	// layout algorithm just lays them out incrementally along the desired axis (compute positions)
-	// add padding and child gap information
 	// introduce "fit" sizing mode (implemented as a downward dependant iteration like children sum)
 	// introduce "fill" sizing mode (implemented as upward dependant iteration)
 	// introduce "text" sizing mode 
@@ -247,7 +245,13 @@ build_ui :: () {
 
 	secondBox := box(ui_key("box2"), .{
 		flags=.DRAW_BACKGROUND,
-		layout=.{childLayoutAxis=.X, width=fixed(200), height=fixed(100)},
+		layout=.{
+			childLayoutAxis=.X,
+			width=fixed(200),
+			height=fixed(100),
+			padding=.{5.0, 5.0, 5.0, 5.0},
+			childGap=9.0
+		},
 		palette=.{background=.{1.0, 0.0, 0.0, 1.0}}
 	});
 	{

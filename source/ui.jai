@@ -48,6 +48,8 @@ UIBox :: struct {
 
 UILayoutData :: struct {
 	childLayoutAxis: UIAxis;
+	padding: Vector4;
+	childGap: float;
 	width: UISize;
 	height: UISize;
 #place width;
@@ -802,7 +804,7 @@ compute_positions :: (root: *UIBox, axis: UIAxis) {
 	// depth first iterate through all boxes
 	for :depth_first root {
 		box := it;
-		layoutPosition := 0.0;
+		layoutPosition := box.layout.padding.component[axis*2];
 
 		// loop through the children of this box
 		child := box.head;
@@ -813,7 +815,7 @@ compute_positions :: (root: *UIBox, axis: UIAxis) {
 			if !(child.flags & floating) {
 				child.fixedPosition[axis] = layoutPosition;
 				if box.layout.childLayoutAxis == axis {
-					layoutPosition += child.fixedSize[axis];
+					layoutPosition += child.fixedSize[axis] + box.layout.childGap;
 				}
 			}
 
