@@ -247,7 +247,7 @@ build_ui :: () {
 		flags=.DRAW_BACKGROUND,
 		layout=.{
 			childLayoutAxis=.X,
-			width=fit(),
+			width=fixed(300),
 			height=fit(),
 			padding=.{5.0, 5.0, 5.0, 5.0},
 			childGap=5.0
@@ -259,13 +259,19 @@ build_ui :: () {
 
 		box(ui_key_nil, .{
 			flags=.DRAW_BACKGROUND,
-			layout=.{width=fixed(40), height=fixed(30)},
+			layout=.{width=grow(), height=fixed(30)},
 			palette=.{background=.{0.0, 1.0, 0.0, 1.0}}
+		});
+		
+		box(ui_key_nil, .{
+			flags=.DRAW_BACKGROUND,
+			layout=.{width=grow(), height=grow()},
+			palette=.{background=.{0.0, 1.0, 1.0, 1.0}}
 		});
 
 		box(ui_key_nil, .{
 			flags=.DRAW_BACKGROUND,
-			layout=.{width=fixed(50), height=fixed(80)},
+			layout=.{width=percent(0.2), height=fixed(80)},
 			palette=.{background=.{0.0, 0.0, 1.0, 1.0}}
 		});
 	}

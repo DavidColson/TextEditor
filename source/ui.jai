@@ -772,8 +772,9 @@ render_ui_recursive :: (box: *UIBox) {
 // Layout algorithm
 
 compute_layout :: (root: *UIBox, axis: UIAxis) {	
-	compute_standalone_sizes(root, axis);
-	compute_downward_dependant_sizes(root, axis);
+	compute_standalone_sizes(root, axis); // text, fixed 
+	compute_downward_dependant_sizes(root, axis); // fit sizing
+	compute_upward_dependant_sizes(root, axis); // growable/percent
 	compute_positions(root, axis);
 }
 
@@ -799,6 +800,81 @@ compute_standalone_sizes :: (root: *UIBox, axis: UIAxis) {
 	while first {
 		compute_standalone_sizes(first, axis);
 		first = first.next;
+	}
+}
+
+compute_upward_dependant_sizes :: (root: *UIBox, axis: UIAxis) {
+	// figure out if there are any growable boxes in this parent
+	// while also expanding percent boxes into their parent
+	countGrowBoxes := 0;
+	smallestSize:float = FLOAT32_INFINITY;
+	child := root.head;
+	while child {
+		if child.layout.size[axis].type == {
+			case .GROW; 
+				countGrowBoxes += 1;
+				smallestSize = min(smallestSize, child.fixedSize[axis]);
+			case .PERCENT;
+				padding := root.layout.padding.component[axis*2] + root.layout.padding.component[axis*2+1];
+				childGaps := ifx root.layout.childLayoutAxis == axis then root.layout.childGap * (root.childCount-1) else 0.0;
+				child.fixedSize[axis] = (root.fixedSize[axis]-padding-childGaps) * child.layout.size[axis].percent;
+		}
+		child = child.next;
+	}
+
+	// Calculate the remaining space in this box for things to grow into
+	// note all sizing polices are done for this box at this point
+	remainingSpace := root.fixedSize[axis];
+	remainingSpace -= root.layout.padding.component[axis*2] + root.layout.padding.component[axis*2+1];
+	if root.layout.childLayoutAxis == axis {
+		remainingSpace -= root.layout.childGap * (root.childCount-1);
+		child := root.head;
+		while child {
+			remainingSpace -= child.fixedSize[axis];
+			child = child.next;
+		}
+	}
+
+	// iterate through the children increasing their sizes from smallest to largest to use the remaining space
+	while remainingSpace > 0.0 && countGrowBoxes > 0 {
+		secondSmallest:float = FLOAT32_INFINITY;
+		spaceToAdd := remainingSpace;
+
+		child := root.head;
+		while child {
+			if child.layout.size[axis].type == .GROW {
+				if child.fixedSize[axis] < smallestSize {
+					secondSmallest = smallestSize;
+					smallestSize = child.fixedSize[axis];
+				}
+
+				if child.fixedSize[axis] > smallestSize {
+					secondSmallest = min(secondSmallest, child.fixedSize[axis]);
+					spaceToAdd = secondSmallest - smallestSize;
+				}
+			}
+			child = child.next;
+		}
+
+		spaceToAdd = min(spaceToAdd, remainingSpace / countGrowBoxes);
+
+		child = root.head;
+		while child {
+			if child.layout.size[axis].type == .GROW {
+				if child.fixedSize[axis] == smallestSize {
+					child.fixedSize[axis] += spaceToAdd;
+					remainingSpace -= spaceToAdd;
+				}
+			}
+			child = child.next;
+		}
+	}
+
+	// Finally continue the chain of computation to the dependant children
+	child = root.head;
+	while child {
+		compute_upward_dependant_sizes(child, axis);
+		child = child.next;
 	}
 }
 
