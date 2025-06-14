@@ -247,10 +247,10 @@ build_ui :: () {
 		flags=.DRAW_BACKGROUND,
 		layout=.{
 			childLayoutAxis=.X,
-			width=fixed(200),
-			height=fixed(100),
+			width=fit(),
+			height=fit(),
 			padding=.{5.0, 5.0, 5.0, 5.0},
-			childGap=9.0
+			childGap=5.0
 		},
 		palette=.{background=.{1.0, 0.0, 0.0, 1.0}}
 	});

@@ -48,7 +48,7 @@ UIBox :: struct {
 
 UILayoutData :: struct {
 	childLayoutAxis: UIAxis;
-	padding: Vector4;
+	padding: Vector4; // left, right, top, bottom
 	childGap: float;
 	width: UISize;
 	height: UISize;
@@ -211,6 +211,7 @@ box :: (key: UIKey = ui_key_nil, data: UIBoxDeclaration) -> *UIBox {
 	box.head = null;
 	box.tail = null;
 	box.parent = top_parent();
+	box.childCount = 0;
 	box.key = key;
 	box.declaration = data;
 	box.customDrawFunction = null;
@@ -772,6 +773,7 @@ render_ui_recursive :: (box: *UIBox) {
 
 compute_layout :: (root: *UIBox, axis: UIAxis) {	
 	compute_standalone_sizes(root, axis);
+	compute_downward_dependant_sizes(root, axis);
 	compute_positions(root, axis);
 }
 
@@ -797,6 +799,53 @@ compute_standalone_sizes :: (root: *UIBox, axis: UIAxis) {
 	while first {
 		compute_standalone_sizes(first, axis);
 		first = first.next;
+	}
+}
+
+compute_downward_dependant_sizes :: (root: *UIBox, axis: UIAxis) { 
+	// recurse children first as we depend on them
+	first := root.head;
+	while first {
+		compute_downward_dependant_sizes(first, axis);
+		first = first.next;
+	}
+
+	size := root.layout.size[axis];
+	if size.type == {
+		case .FIT;
+			sum := 0.0;
+			child := root.head;
+			while child {
+				floating := UIBoxFlags.FLOATING_X;
+				if axis == .Y then floating = .FLOATING_Y; 
+
+				if !(child.flags & floating) {
+					if root.layout.childLayoutAxis == axis {
+						sum += child.fixedSize[axis];
+					}
+					else {
+						sum = max(sum, child.fixedSize[axis]);
+					}
+				}
+				child = child.next;
+			}
+			padding := root.layout.padding.component[axis*2] + root.layout.padding.component[axis*2+1];
+			root.fixedSize[axis] = sum + padding;
+			if root.layout.childLayoutAxis == axis {
+				root.fixedSize[axis] += root.layout.childGap * (root.childCount-1);
+			}
+
+			// apply limits
+			if size.min != 0.0 && size.max != 0.0 {
+				root.fixedSize[axis] = clamp(root.fixedSize[axis], root.layout.size[axis].min, root.layout.size[axis].max);
+			}
+			else if size.min == 0.0 && size.max != 0.0 {
+				root.fixedSize[axis] = min(root.fixedSize[axis], root.layout.size[axis].max);
+			}
+			else if size.min != 0.0 && size.max == 0.0 {
+				root.fixedSize[axis] = max(root.fixedSize[axis], root.layout.size[axis].min);
+			}
+		case;
 	}
 }
 
