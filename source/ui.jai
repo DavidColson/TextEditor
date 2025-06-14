@@ -375,9 +375,8 @@ end_ui :: () {
 	floatingRoots := *UIBox.[uiState.tooltip, uiState.contextMenu];
 	for floatingRoots {
 		if it != null {
-			// @todo: replace standard font size here with an em calculation macro
-			xBounds := uiState.rootbox.rect.w - it.fontSize*0.3; // padding
-			yBounds := uiState.rootbox.rect.h - it.fontSize*0.3; // padding
+			xBounds := uiState.rootbox.rect.w - em(0.3, it.fontSize); // padding
+			yBounds := uiState.rootbox.rect.h - em(0.3, it.fontSize); // padding
 			xShiftDown := max(it.rect.x, 0) - it.rect.x;
 			xShiftUp := min(it.rect.x+it.rect.w, xBounds) - (it.rect.x+it.rect.w);
 			it.rect.x += xShiftDown + xShiftUp;
@@ -520,7 +519,7 @@ button :: (text: string) -> UISignal {
 tooltip_begin :: (anchorBoxKey:UIKey = ui_key_nil, anchorOffset: Vector2 = .{0.0,0.0}) {
 	push_parent(uiState.rootbox);
 
-	anchor,success := table_find(*uiState.boxTable, anchorBoxKey);
+	success, anchor := find_box(anchorBoxKey);
 	fixedX, fixedY := 0.0;
 	if success {
 		fixedX = anchor.rect.x + anchorOffset.x;
@@ -538,11 +537,11 @@ tooltip_begin :: (anchorBoxKey:UIKey = ui_key_nil, anchorOffset: Vector2 = .{0.0
 			childLayoutAxis = .X,
 			width=fit(),
 			height=fit(),
-			padding=padding_all(0.5*uiState.defaultFontSize)
+			padding=padding_all(em(0.5))
 		},
 		palette=.{ background=style.backgroundLight },
 		borderThickness=1.0,
-		cornerRadius=corner_rad_all(uiState.defaultFontSize*0.4),
+		cornerRadius=corner_rad_all(em(0.4)),
 		fixedX = fixedX,
 		fixedY = fixedY,
 	});
@@ -567,81 +566,93 @@ context_menu_close :: () {
 	uiState.nextActiveContextMenu = ui_key_nil;
 }
 
-context_menu_begin :: (key: UIKey, anchorBoxKey:UIKey = .{0,""}, anchorOffset: Vector2 = .{0.0,0.0}) -> bool {
-	// if uiState.activeContextMenu == key {
-	// 	push_parent(uiState.rootbox);
-	// 	anchor,success := table_find(*uiState.boxTable, anchorBoxKey);
-	// 	if success {
-	// 		set_next_fixed_x(xx (anchor.rect.x + anchorOffset.x));
-	// 		set_next_fixed_y(xx (anchor.rect.y + anchorOffset.y));
-	// 	}
-	// 	else {
-	// 		x, y, success := get_mouse_pointer_position(window, false);
-	// 		set_next_fixed_x(xx (x + 20));
-	// 		set_next_fixed_y(xx (y + 20));
-	// 	}
-	// 	set_next_width(child_sum(1.0));
-	// 	set_next_height(child_sum(1.0));
-	// 	set_next_child_layout_axis(.Y);
-	// 	cornerRad := top_font_size()*0.4;
-	// 	set_next_corner_radius(.{cornerRad, cornerRad, cornerRad, cornerRad});
-	// 	uiState.contextMenu = box(.DRAW_BACKGROUND | .DRAW_BORDER, "context");
-	// 	push_parent(uiState.contextMenu);
-	// 	spacer(em(0.5, 1.0));
-	//
-	// 	set_next_width(child_sum(1.0));
-	// 	set_next_height(child_sum(1.0));
-	// 	row_begin();
-	// 	spacer(em(0.5, 1.0));
-	// 	return true;
-	// }
+context_menu_begin :: (key: UIKey, width: UISize, anchorBoxKey:UIKey = .{0,""}, anchorOffset: Vector2 = .{0.0,0.0}) -> bool {
+	if uiState.activeContextMenu == key {
+		push_parent(uiState.rootbox);
+
+		success, anchor := find_box(anchorBoxKey);
+		fixedX, fixedY := 0.0;
+		if success {
+			fixedX = anchor.rect.x + anchorOffset.x;
+			fixedY = anchor.rect.y + anchorOffset.y;
+		}
+		else {
+			x, y, success := get_mouse_pointer_position(window, false);
+			fixedX = cast(float, x + 20);
+			fixedY = cast(float, y + 20);
+		}
+
+		uiState.contextMenu = box(ui_key("context"), .{
+			flags=.DRAW_BACKGROUND | .DRAW_BORDER,
+			layout=.{ 
+				childLayoutAxis = .Y,
+				width=width,
+				height=fit(),
+				padding=padding_all(em(0.5)),
+				childGap=em(0.2),
+			},
+			palette=.{ background=style.backgroundLight },
+			borderThickness=1.0,
+			cornerRadius=corner_rad_all(em(0.4)),
+			fixedX = fixedX,
+			fixedY = fixedY,
+		});
+
+		push_parent(uiState.contextMenu);
+		return true;
+	}
 	return false;
 }
 
+context_menu_item :: (text: string, icon: string) -> UISignal {
+	id := top_parent().childCount;
+	row := box(ui_key("menuitem%", id), .{
+		flags=.DRAW_BACKGROUND | .DRAW_HOT_EFFECTS | .MOUSE_CLICKABLE,
+		layout=.{ 
+			childLayoutAxis = .X,
+			width=grow(),
+			height=fit(),
+		},
+		palette=.{background = style.backgroundLight}
+	});
+	{
+		push_parent(row); defer pop_parent();
+
+		// icon
+		if icon.count {
+			box(ui_key(icon), .{
+				flags=.DRAW_TEXT,
+				layout=.{ width=fixed(em(2.0)), height=text_content() },
+				font=fontIcons
+			});
+		}
+		else {
+			box(ui_key_nil, .{ layout=.{ width=fixed(em(2.0)) }, });
+		}
+
+		// text
+		box(ui_key("%##%", text, id), .{
+			flags=.DRAW_TEXT,
+			layout=.{ width=text_content(), height=text_content() },
+		});
+	}
+	return signal_from_box(row);
+}
+
+
 context_menu_end :: () {
-	// spacer(em(0.5, 1.0));
-	// row_end();
-	// spacer(em(0.5, 1.0));
-	// pop_parent(); // context menu box
-	// pop_parent(); // rootbox parent
+	pop_parent();
+	pop_parent();
 }
 
-row_begin :: (key := "") {
-	// set_next_child_layout_axis(.X);
-	// row := box(0, key);
-	// push_parent(row);
+spacer :: (axis: UIAxis, size: UISize) {
+	if axis == .X {
+		box(ui_key_nil, .{ layout=.{ width=size } });
+	}
+	else {
+		box(ui_key_nil, .{ layout=.{ height=size } });
+	}
 }
-
-row_end :: () -> UISignal {
-	// box := pop_parent();
-	// return signal_from_box(box);
-	return .{};
-}
-
-column_begin :: (key := "") {
-	// set_next_child_layout_axis(.Y);
-	// col := box(0, key);
-	// push_parent(col);
-}
-
-column_end :: () -> UISignal {
-	// box := pop_parent();
-	// return signal_from_box(box);
-	return .{};
-}
-
-spacer :: (size: UISize) {
-	// if top_parent().childLayoutAxis == .X {
-	// 	set_next_width(size);
-	// 	box(0); 
-	// }
-	// else {
-	// 	set_next_height(size);
-	// 	box(0); 
-	// }
-}
-
-// scope_padding :: (size: UISize) #expand { spacer(size); `defer spacer(size); }
 
 scroll_bar :: (scrollOffset: float, scrollRegionSize:float, visibleRange: float) -> Vector2 {
 	// scope_height(parent_pct(1.0, 0.0));
@@ -698,7 +709,9 @@ fixed :: (pixels: float) -> UISize { return .{type=.FIXED, min=pixels, max=pixel
 fit :: (min: float = 0.0, max: float=0.0) -> UISize { return .{type=.FIT, min=min, max=max};}
 grow :: (min: float = 0.0, max: float=0.0) -> UISize { return .{type=.GROW, min=min, max=max};}
 percent :: (percent: float) -> UISize { return .{type=.PERCENT, percent=percent};}
-text :: () -> UISize { return .{type=.TEXT};}
+text_content :: () -> UISize { return .{type=.TEXT};}
+
+em :: (size: float, fontSize: float = 0.0) -> float { return ifx fontSize == 0.0 then size*uiState.defaultFontSize else size*fontSize; }
 
 corner_rad_all :: (v: float) -> Vector4 {return .{v,v,v,v};}
 padding_all :: (v: float) -> Vector4 {return .{v,v,v,v};}
@@ -872,35 +885,47 @@ compute_upward_dependant_sizes :: (root: *UIBox, axis: UIAxis) {
 		}
 	}
 
-	// iterate through the children increasing their sizes from smallest to largest to use the remaining space
-	while remainingSpace > 0.0 && growableBoxes.count > 0 {
-		smallestSize:float = growableBoxes[0].fixedSize[axis];
-		secondSmallest:float = FLOAT32_INFINITY;
-		spaceToAdd := remainingSpace;
+	if root.layout.childLayoutAxis == axis {
+		// iterate through the children increasing their sizes from smallest to largest
+		// to use the remaining space in the layout axis
+		while remainingSpace > 0.0 && growableBoxes.count > 0 {
+			smallestSize:float = growableBoxes[0].fixedSize[axis];
+			secondSmallest:float = FLOAT32_INFINITY;
+			spaceToAdd := remainingSpace;
 
-		for child:growableBoxes {
-			if child.fixedSize[axis] < smallestSize {
-				secondSmallest = smallestSize;
-				smallestSize = child.fixedSize[axis];
+			for child:growableBoxes {
+				if child.fixedSize[axis] < smallestSize {
+					secondSmallest = smallestSize;
+					smallestSize = child.fixedSize[axis];
+				}
+
+				if child.fixedSize[axis] > smallestSize {
+					secondSmallest = min(secondSmallest, child.fixedSize[axis]);
+					spaceToAdd = secondSmallest - smallestSize;
+				}
 			}
 
-			if child.fixedSize[axis] > smallestSize {
-				secondSmallest = min(secondSmallest, child.fixedSize[axis]);
-				spaceToAdd = secondSmallest - smallestSize;
+			spaceToAdd = min(spaceToAdd, remainingSpace / growableBoxes.count);
+
+			for child:growableBoxes {
+				prevSize := child.fixedSize[axis];
+				if child.fixedSize[axis] == smallestSize {
+					child.fixedSize[axis] += spaceToAdd;
+					if child.layout.size[axis].max != 0.0 && child.fixedSize[axis] >= child.layout.size[axis].max {
+						child.fixedSize[axis] = child.layout.size[axis].max;
+						remove child;
+					}
+					remainingSpace -= child.fixedSize[axis] - prevSize;
+				}
 			}
 		}
-
-		spaceToAdd = min(spaceToAdd, remainingSpace / growableBoxes.count);
-
+	}
+	else {
+		// this is the case for off axis growing, it's much simpler
 		for child:growableBoxes {
-			prevSize := child.fixedSize[axis];
-			if child.fixedSize[axis] == smallestSize {
-				child.fixedSize[axis] += spaceToAdd;
-				if child.layout.size[axis].max != 0.0 && child.fixedSize[axis] >= child.layout.size[axis].max {
-					child.fixedSize[axis] = child.layout.size[axis].max;
-					remove child;
-				}
-				remainingSpace -= child.fixedSize[axis] - prevSize;
+			child.fixedSize[axis] += (remainingSpace - child.fixedSize[axis]);
+			if child.layout.size[axis].max != 0.0 && child.fixedSize[axis] >= child.layout.size[axis].max {
+				child.fixedSize[axis] = child.layout.size[axis].max;
 			}
 		}
 	}

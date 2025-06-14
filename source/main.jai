@@ -228,7 +228,7 @@ build_ui :: () {
 	};
 	uiState.defaultFont = fontUI;
 	uiState.defaultFontSize = style.fontSize * dpiScale;
-	uiState.defaultTextPadding = uiState.defaultFontSize * 0.2;
+	uiState.defaultTextPadding = em(0.2);
 
 
 	
@@ -245,7 +245,7 @@ build_ui :: () {
 				childLayoutAxis = .X,
 				width=percent(1),
 				height=fit(),
-				padding= padding_all(0.3*uiState.defaultFontSize)
+				padding= padding_all(em(0.3))
 			},
 			palette=.{ background=style.backgroundLight },
 			borderThickness=1.0
@@ -263,23 +263,22 @@ build_ui :: () {
 			}
 			box(ui_key(modeText), .{
 				flags=.DRAW_BACKGROUND | .DRAW_TEXT,
-				layout=.{ width=text(), height=text() },
+				layout=.{ width=text_content(), height=text_content() },
 				palette=.{ background=style.backgroundDark },
 			});
 
-			// spacer
-			box(ui_key_nil, .{ layout=.{ width=fixed(uiState.defaultFontSize * 0.5) } });
+			spacer(.X, fixed(em(0.5)));
 
 			// filename
 			fileLabel := box(ui_key(path_filename(panel.document.path)), .{
 				flags=.DRAW_TEXT,
-				layout=.{ width=text(), height=text() },
+				layout=.{ width=text_content(), height=text_content() },
 			});
 			if signal_from_box(fileLabel).hovering {
-				tooltip_begin(fileLabel.key, .{0.0, uiState.defaultFontSize * 1.9});
+				tooltip_begin(fileLabel.key, .{0.0, em(1.9)});
 				box(ui_key(panel.document.path), .{
 					flags=.DRAW_TEXT,
-					layout=.{ width=text(), height=text() },
+					layout=.{ width=text_content(), height=text_content() },
 				});
 				tooltip_end();
 			}
@@ -289,8 +288,8 @@ build_ui :: () {
 				// @todo: it would be useful to have box center alignment to solve this issue
 				box(ui_key(style.iconLock), .{
 					flags=.DRAW_TEXT,
-					layout=.{ width=text(), height=fixed(uiState.defaultFontSize+uiState.defaultTextPadding*2.0) },
-					fontSize=uiState.defaultFontSize*0.7,
+					layout=.{ width=text_content(), height=fixed(uiState.defaultFontSize+uiState.defaultTextPadding*2.0) },
+					fontSize=em(0.7),
 					font=fontIcons
 				});
 			}
@@ -300,31 +299,31 @@ build_ui :: () {
 				// @todo: it would be useful to have box center alignment to solve this issue
 				box(ui_key(style.iconCircle), .{
 					flags=.DRAW_TEXT,
-					layout=.{ width=text(), height=fixed(uiState.defaultFontSize+uiState.defaultTextPadding*2.0) },
-					fontSize=uiState.defaultFontSize*0.7,
+					layout=.{ width=text_content(), height=fixed(uiState.defaultFontSize+uiState.defaultTextPadding*2.0) },
+					fontSize=em(0.7),
 					font=fontIcons
 				});
 			}
 
-			box(ui_key_nil, .{ layout=.{ width=grow() } });
+			spacer(.X, grow());
 
 			// pending keys
 			pendingKeys := string.{keyMap.pendingKeyString.count, keyMap.pendingKeyString.data};
 			box(ui_key(pendingKeys), .{
 				flags=.DRAW_TEXT,
-				layout=.{ width=text(), height=text() },
+				layout=.{ width=text_content(), height=text_content() },
 			});
 
-			box(ui_key_nil, .{ layout=.{ width=fixed(uiState.defaultFontSize*2.0) } });
+			spacer(.X, fixed(em(2.0)));
 
 			// location
 			cursorCoordinate := document_cursor_get_coordinate(*panel.cursor.head);
 			box(ui_key("Ln: % Col: % Byte: %", cursorCoordinate.line+1, cursorCoordinate.col, panel.cursor.head.documentOffset), .{
 				flags=.DRAW_TEXT,
-				layout=.{ width=text(), height=text() },
+				layout=.{ width=text_content(), height=text_content() },
 			});
 
-			box(ui_key_nil, .{ layout=.{ width=fixed(uiState.defaultFontSize*2.0) } });
+			spacer(.X, fixed(em(2.0)));
 
 			// line endings
 			lineEndingText := "[Mixed]";
@@ -339,29 +338,29 @@ build_ui :: () {
 			}
 			box(ui_key(lineEndingText), .{
 				flags=.DRAW_TEXT,
-				layout=.{ width=text(), height=text() },
+				layout=.{ width=text_content(), height=text_content() },
 			});
 
-			box(ui_key_nil, .{ layout=.{ width=fixed(uiState.defaultFontSize*2.0) } });
+			spacer(.X, fixed(em(2.0)));
 
 			// file type
 			box(ui_key("Jai"), .{
 				flags=.DRAW_TEXT,
-				layout=.{ width=text(), height=text() },
+				layout=.{ width=text_content(), height=text_content() },
 			});
 
-			box(ui_key_nil, .{ layout=.{ width=fixed(uiState.defaultFontSize*2.0) } });
+			spacer(.X, fixed(em(2.0)));
 
 			// panel options button
 			panelOptsKey := ui_key("panelopts");
 			if is_context_menu_open(panelOptsKey) { 
 				button := box(ui_key(style.iconVerticalEllipsis), .{
 					flags=.DRAW_BACKGROUND | .DRAW_TEXT | .MOUSE_CLICKABLE,
-					layout=.{ width=fixed(uiState.defaultFontSize*1.5), height=text() },
+					layout=.{ width=fixed(em(1.5)), height=text_content() },
 					palette=.{background=style.activeHighlight},
 					font=fontIcons,
 					textAlignment=.CENTER,
-					cornerRadius=corner_rad_all(uiState.defaultFontSize*0.3)
+					cornerRadius=corner_rad_all(em(0.3))
 				});
 				if signal_from_box(button).pressed {
 					context_menu_close();
@@ -370,14 +369,27 @@ build_ui :: () {
 			else {
 				button := box(ui_key(style.iconVerticalEllipsis), .{
 					flags=.DRAW_BACKGROUND | .DRAW_TEXT | .DRAW_HOT_EFFECTS | .MOUSE_CLICKABLE,
-					layout=.{ width=fixed(uiState.defaultFontSize*1.5), height=text() },
+					layout=.{ width=fixed(em(1.5)), height=text_content() },
 					font=fontIcons,
 					textAlignment=.CENTER,
-					cornerRadius=corner_rad_all(uiState.defaultFontSize*0.3)
+					cornerRadius=corner_rad_all(em(0.3))
 				});
 				if signal_from_box(button).pressed {
 					context_menu_open(panelOptsKey);
 				}
+			}
+
+			if context_menu_begin(key=panelOptsKey,
+									width=fixed(em(12.0)),
+									anchorBoxKey=ui_key(style.iconVerticalEllipsis),
+									anchorOffset=.{0.0, em(1.9)}) {
+
+				if context_menu_item("Line Numbers", style.iconNumList).pressed {
+					lineNumbers != lineNumbers;
+				}
+				context_menu_item("View Line Endings", "");
+				context_menu_item("Line Wrapping", style.iconAlignLeft);
+				context_menu_end();
 			}
 		}
 	}
