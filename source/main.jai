@@ -245,7 +245,7 @@ build_ui :: () {
 				childLayoutAxis = .X,
 				width=percent(1),
 				height=fit(),
-				padding=.{0.3*uiState.defaultFontSize, 0.3*uiState.defaultFontSize, 0.3*uiState.defaultFontSize, 0.3*uiState.defaultFontSize}
+				padding= padding_all(0.3*uiState.defaultFontSize)
 			},
 			palette=.{ background=style.backgroundLight },
 			borderThickness=1.0
@@ -271,10 +271,18 @@ build_ui :: () {
 			box(ui_key_nil, .{ layout=.{ width=fixed(uiState.defaultFontSize * 0.5) } });
 
 			// filename
-			box(ui_key(path_filename(panel.document.path)), .{
+			fileLabel := box(ui_key(path_filename(panel.document.path)), .{
 				flags=.DRAW_TEXT,
 				layout=.{ width=text(), height=text() },
 			});
+			if signal_from_box(fileLabel).hovering {
+				tooltip_begin(fileLabel.key, .{0.0, uiState.defaultFontSize * 1.9});
+				box(ui_key(panel.document.path), .{
+					flags=.DRAW_TEXT,
+					layout=.{ width=text(), height=text() },
+				});
+				tooltip_end();
+			}
 
 			// lock icon @todo: implement for real
 			if false {
@@ -353,7 +361,7 @@ build_ui :: () {
 					palette=.{background=style.activeHighlight},
 					font=fontIcons,
 					textAlignment=.CENTER,
-					cornerRadius=.{uiState.defaultFontSize*0.3, uiState.defaultFontSize*0.3, uiState.defaultFontSize*0.3, uiState.defaultFontSize*0.3}
+					cornerRadius=corner_rad_all(uiState.defaultFontSize*0.3)
 				});
 				if signal_from_box(button).pressed {
 					context_menu_close();
@@ -365,7 +373,7 @@ build_ui :: () {
 					layout=.{ width=fixed(uiState.defaultFontSize*1.5), height=text() },
 					font=fontIcons,
 					textAlignment=.CENTER,
-					cornerRadius=.{uiState.defaultFontSize*0.3, uiState.defaultFontSize*0.3, uiState.defaultFontSize*0.3, uiState.defaultFontSize*0.3}
+					cornerRadius=corner_rad_all(uiState.defaultFontSize*0.3)
 				});
 				if signal_from_box(button).pressed {
 					context_menu_open(panelOptsKey);

@@ -2,6 +2,8 @@
 UIBoxDeclaration :: struct {
 	flags: UIBoxFlags;
 	layout: UILayoutData;
+	fixedX: float;
+	fixedY: float;
 	palette: UIPalette;
 	cornerRadius: Vector4;
 	borderThickness: float;
@@ -92,12 +94,6 @@ UISize :: struct {
 	max: float;
 }
 
-fixed :: (pixels: float) -> UISize { return .{type=.FIXED, min=pixels, max=pixels};}
-fit :: (min: float = 0.0, max: float=0.0) -> UISize { return .{type=.FIT, min=min, max=max};}
-grow :: (min: float = 0.0, max: float=0.0) -> UISize { return .{type=.GROW, min=min, max=max};}
-percent :: (percent: float) -> UISize { return .{type=.PERCENT, percent=percent};}
-text :: () -> UISize { return .{type=.TEXT};}
-
 UISizeType :: enum {
 	NULL;
 	FIXED;
@@ -140,7 +136,6 @@ UIState :: struct {
 	parentStack: [32]*UIBox;
 	parentStackTop: s32 = 1;
 
-	// box defaults
 	defaultPalette: UIPalette;
 	defaultFont: *Font;
 	defaultFontSize := 15.0;
@@ -219,6 +214,18 @@ box :: (key: UIKey = ui_key_nil, data: UIBoxDeclaration) -> *UIBox {
 	box.declaration = data;
 	box.customDrawFunction = null;
 	box.lastTouchedFrame = uiState.frameIndex;
+
+	// Assert if a floating box has size policy grow or percent, others are all valid
+	if data.fixedX != 0.0 {
+		box.fixedPosition[UIAxis.X] = data.fixedX;
+		box.flags |= .FLOATING_X;
+		assert(box.layout.size[UIAxis.X].type != .GROW || box.layout.size[UIAxis.X].type != .PERCENT, "Grow and percent sized boxes cannot be floating, they need some defined size"); 
+	}
+	if data.fixedY != 0.0 {
+		box.fixedPosition[UIAxis.Y] = data.fixedY;
+		box.flags |= .FLOATING_Y;
+		assert(box.layout.size[UIAxis.Y].type != .GROW || box.layout.size[UIAxis.Y].type != .PERCENT, "Grow and percent sized boxes cannot be floating, they need some defined size"); 
+	}
 
 	if box.flags & .DRAW_TEXT {
 		box.text = display_string_from_key(box.key.keyStr);
@@ -454,7 +461,7 @@ push_parent :: (box: *UIBox) {
 }
 
 pop_parent :: () -> *UIBox {
-	if uiState.parentStackTop == 1 {
+	if uiState.parentStackTop != 1 {
 		uiState.parentStackTop -= 1;
 		return uiState.parentStack[uiState.parentStackTop]; 
 	}
@@ -511,40 +518,41 @@ button :: (text: string) -> UISignal {
 }
 
 tooltip_begin :: (anchorBoxKey:UIKey = ui_key_nil, anchorOffset: Vector2 = .{0.0,0.0}) {
-	// push_parent(uiState.rootbox);
-	//
-	// anchor,success := table_find(*uiState.boxTable, anchorBoxKey);
-	// if success {
-	// 	set_next_fixed_x(xx (anchor.rect.x + anchorOffset.x));
-	// 	set_next_fixed_y(xx (anchor.rect.y + anchorOffset.y));
-	// }
-	// else {
-	// 	x, y, success := get_mouse_pointer_position(window, false);
-	// 	set_next_fixed_x(xx (x + 20));
-	// 	set_next_fixed_y(xx (y + 20));
-	// }
-	//
-	// set_next_width(child_sum(1.0));
-	// set_next_height(child_sum(1.0));
-	// set_next_child_layout_axis(.Y);
-	// cornerRad := top_font_size()*0.4;
-	// set_next_corner_radius(.{cornerRad, cornerRad, cornerRad, cornerRad});
-	// uiState.tooltip = box(.DRAW_BACKGROUND | .DRAW_BORDER, "tooltip");
-	// push_parent(uiState.tooltip);
-	// spacer(em(0.5, 1.0));
-	//
-	// set_next_width(child_sum(1.0));
-	// set_next_height(child_sum(1.0));
-	// row_begin();
-	// spacer(em(0.5, 1.0));
+	push_parent(uiState.rootbox);
+
+	anchor,success := table_find(*uiState.boxTable, anchorBoxKey);
+	fixedX, fixedY := 0.0;
+	if success {
+		fixedX = anchor.rect.x + anchorOffset.x;
+		fixedY = anchor.rect.y + anchorOffset.y;
+	}
+	else {
+		x, y, success := get_mouse_pointer_position(window, false);
+		fixedX = cast(float, x + 20);
+		fixedY = cast(float, y + 20);
+	}
+
+	uiState.tooltip = box(ui_key("tooltip"), .{
+		flags=.DRAW_BACKGROUND | .DRAW_BORDER,
+		layout=.{ 
+			childLayoutAxis = .X,
+			width=fit(),
+			height=fit(),
+			padding=padding_all(0.5*uiState.defaultFontSize)
+		},
+		palette=.{ background=style.backgroundLight },
+		borderThickness=1.0,
+		cornerRadius=corner_rad_all(uiState.defaultFontSize*0.4),
+		fixedX = fixedX,
+		fixedY = fixedY,
+	});
+
+	push_parent(uiState.tooltip);
 }
 
 tooltip_end :: () {
-	// spacer(em(0.5, 1.0));
-	// row_end();
-	// spacer(em(0.5, 1.0));
-	// pop_parent(); // tooltip box
-	// pop_parent(); // rootbox parent
+	pop_parent();
+	pop_parent();
 }
 
 is_context_menu_open :: (key: UIKey) -> bool {
@@ -684,13 +692,17 @@ scroll_bar :: (scrollOffset: float, scrollRegionSize:float, visibleRange: float)
 // [ ] - Checkbox
 // [ ] - 
 
-// Size helpers
+// helpers
 
-px :: (value: float, strictness: float) -> UISize #expand { return .{ .PIXELS, value, strictness }; }
-em :: (value: float, strictness: float) -> UISize #expand { return .{ .PIXELS, value * top_font_size(), strictness }; }
-text_dim :: (padding: float, strictness: float) -> UISize #expand { return .{ .TEXT_CONTENT, padding, strictness }; }
-parent_pct :: (value: float, strictness: float) -> UISize #expand { return .{ .PERCENT_OF_PARENT, value, strictness }; }
-child_sum :: (strictness: float) -> UISize #expand { return .{ .SUM_OF_CHILDREN, 0.0, strictness }; }
+fixed :: (pixels: float) -> UISize { return .{type=.FIXED, min=pixels, max=pixels};}
+fit :: (min: float = 0.0, max: float=0.0) -> UISize { return .{type=.FIT, min=min, max=max};}
+grow :: (min: float = 0.0, max: float=0.0) -> UISize { return .{type=.GROW, min=min, max=max};}
+percent :: (percent: float) -> UISize { return .{type=.PERCENT, percent=percent};}
+text :: () -> UISize { return .{type=.TEXT};}
+
+corner_rad_all :: (v: float) -> Vector4 {return .{v,v,v,v};}
+padding_all :: (v: float) -> Vector4 {return .{v,v,v,v};}
+
 
 
 #scope_file
@@ -851,7 +863,11 @@ compute_upward_dependant_sizes :: (root: *UIBox, axis: UIAxis) {
 		remainingSpace -= root.layout.childGap * (root.childCount-1);
 		child := root.head;
 		while child {
-			remainingSpace -= child.fixedSize[axis];
+			floating := UIBoxFlags.FLOATING_X;
+			if axis == .Y then floating = .FLOATING_Y; 
+			if !(child.flags & floating) {
+				remainingSpace -= child.fixedSize[axis];
+			}
 			child = child.next;
 		}
 	}
