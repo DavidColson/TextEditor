@@ -6,6 +6,7 @@ UIBoxDeclaration :: struct {
 	cornerRadius: Vector4;
 	borderThickness: float;
 	fontSize: float;
+	font: *Font;
 }
 
 UIBox :: struct {
@@ -27,7 +28,6 @@ UIBox :: struct {
 	textRun: TextRun;
 	textAlignment: UITextAlign;
 	textPadding: float;
-	font: *Font;
 	childCount: s32;
 	fixedPosition: [UIAxis.COUNT]float; // parent relative
 	fixedSize: [UIAxis.COUNT]float;
@@ -99,6 +99,7 @@ fixed :: (pixels: float) -> UISize { return .{type=.FIXED, min=pixels, max=pixel
 fit :: (min: float = 0.0, max: float=0.0) -> UISize { return .{type=.FIT, min=min, max=max};}
 grow :: (min: float = 0.0, max: float=0.0) -> UISize { return .{type=.GROW, min=min, max=max};}
 percent :: (percent: float) -> UISize { return .{type=.PERCENT, percent=percent};}
+text :: () -> UISize { return .{type=.TEXT};}
 
 UISizeType :: enum {
 	NULL;
@@ -142,9 +143,12 @@ UIState :: struct {
 	parentStack: [32]*UIBox;
 	parentStackTop: s32 = 1;
 
-	// Persistent UI data
+	// box defaults
 	defaultPalette: UIPalette;
+	defaultFont: *Font;
 	defaultFontSize := 15.0;
+
+	// Persistent UI data
 	boxTable: Table(UIKey, *UIBox, given_compare_function=compare_key, given_hash_function=x=>get_hash(x.keyVal));
 	freeListHead: *UIBox;
 	freeListTail: *UIBox;
@@ -217,6 +221,10 @@ box :: (key: UIKey = ui_key_nil, data: UIBoxDeclaration) -> *UIBox {
 	box.customDrawFunction = null;
 	box.lastTouchedFrame = uiState.frameIndex;
 
+	if box.flags & .DRAW_TEXT {
+		box.text = display_string_from_key(box.key.keyStr);
+	}
+
 	// override palette defaults if specified
 	box.palette = uiState.defaultPalette;
 	for 0..size_of(UIPalette)/size_of(Vector4)-1 {
@@ -230,6 +238,10 @@ box :: (key: UIKey = ui_key_nil, data: UIBoxDeclaration) -> *UIBox {
 	}
 
 	// override font defaults
+	box.font = uiState.defaultFont;
+	if data.font != null {
+		box.font = data.font;
+	}
 	box.fontSize = uiState.defaultFontSize;
 	if data.fontSize != 0 {
 		box.fontSize = data.fontSize;

@@ -226,17 +226,8 @@ build_ui :: () {
 		active=style.activeHighlight,
 		border=style.borders
 	};
+	uiState.defaultFont = fontUI;
 
-	// new UI system todo:
-	// Box takes struct parameters, in sections, (define something like UIBoxDefinition)
-	// 
-	// layout algorithm just lays them out incrementally along the desired axis (compute positions)
-	// introduce "fit" sizing mode (implemented as a downward dependant iteration like children sum)
-	// introduce "fill" sizing mode (implemented as upward dependant iteration)
-	// introduce "text" sizing mode 
-	// introduce "percent of parent" sizing mode
-		// (this has no strictness, it's just a direct percent of the parent size, upward dependant iteration)
-	
 	// should look like this:
 	codeBox := box(ui_key("code"), .{
 		flags=.DRAW_BACKGROUND,
@@ -267,6 +258,12 @@ build_ui :: () {
 			flags=.DRAW_BACKGROUND,
 			layout=.{width=grow(), height=grow()},
 			palette=.{background=.{0.0, 1.0, 1.0, 1.0}}
+		});
+
+		box(ui_key("Hello WORLD"), .{
+			flags=.DRAW_TEXT,
+			layout=.{width=text(), height=text()},
+			palette=.{text=.{0.0, 0.0, 0.0, 1.0}}
 		});
 
 		box(ui_key_nil, .{
