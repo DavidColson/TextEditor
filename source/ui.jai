@@ -7,6 +7,8 @@ UIBoxDeclaration :: struct {
 	borderThickness: float;
 	fontSize: float;
 	font: *Font;
+	textPadding: float;
+	textAlignment: UITextAlign;
 }
 
 UIBox :: struct {
@@ -19,19 +21,14 @@ UIBox :: struct {
 	tail: *UIBox;
 	parent: *UIBox;
 
-	// new stuff
-	using declaration: UIBoxDeclaration;
-
-	// old stuff
 	// per frame information (must be cleared in box())
+	using declaration: UIBoxDeclaration;
 	text: string;
 	textRun: TextRun;
-	textAlignment: UITextAlign;
-	textPadding: float;
 	childCount: s32;
 	fixedPosition: [UIAxis.COUNT]float; // parent relative
 	fixedSize: [UIAxis.COUNT]float;
-	rect: Rect;
+	rect: Rect; // final rect for rendering
 	customDrawFunction: (*UIBox, *void);
 	customDrawUdata: *void;
 
@@ -147,6 +144,8 @@ UIState :: struct {
 	defaultPalette: UIPalette;
 	defaultFont: *Font;
 	defaultFontSize := 15.0;
+	defaultTextPadding := 0.0;
+	defaultTextAlignment:UITextAlign = .LEFT;
 
 	// Persistent UI data
 	boxTable: Table(UIKey, *UIBox, given_compare_function=compare_key, given_hash_function=x=>get_hash(x.keyVal));
@@ -237,14 +236,22 @@ box :: (key: UIKey = ui_key_nil, data: UIBoxDeclaration) -> *UIBox {
 		}
 	}
 
-	// override font defaults
+	// override text/font defaults
 	box.font = uiState.defaultFont;
 	if data.font != null {
 		box.font = data.font;
 	}
 	box.fontSize = uiState.defaultFontSize;
-	if data.fontSize != 0 {
+	if data.fontSize != 0.0 {
 		box.fontSize = data.fontSize;
+	}
+	box.textPadding = uiState.defaultTextPadding;
+	if data.textPadding != 0.0 {
+		box.textPadding = data.textPadding;
+	}
+	box.textAlignment = uiState.defaultTextAlignment;
+	if data.textAlignment != uiState.defaultTextAlignment {
+		box.textAlignment = data.textAlignment;
 	}
 
 	// insert into parent's list of children

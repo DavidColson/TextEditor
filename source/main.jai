@@ -227,50 +227,151 @@ build_ui :: () {
 		border=style.borders
 	};
 	uiState.defaultFont = fontUI;
+	uiState.defaultFontSize = style.fontSize * dpiScale;
+	uiState.defaultTextPadding = uiState.defaultFontSize * 0.2;
 
-	// should look like this:
-	codeBox := box(ui_key("code"), .{
-		flags=.DRAW_BACKGROUND,
-		layout=.{width=fixed(100), height=fixed(150)},
-	});
 
-	secondBox := box(ui_key("box2"), .{
+	
+	panelBox := box(ui_key_nil, .{
 		flags=.DRAW_BACKGROUND,
-		layout=.{
-			childLayoutAxis=.X,
-			width=fixed(300),
-			height=fit(),
-			padding=.{5.0, 5.0, 5.0, 5.0},
-			childGap=5.0
-		},
-		palette=.{background=.{1.0, 0.0, 0.0, 1.0}}
+		layout=.{childLayoutAxis = .Y, width=percent(1), height=percent(1)},
 	});
 	{
-		push_parent(secondBox); defer pop_parent();
+		push_parent(panelBox); defer pop_parent();
 
-		box(ui_key_nil, .{
-			flags=.DRAW_BACKGROUND,
-			layout=.{width=grow(), height=fixed(30)},
-			palette=.{background=.{0.0, 1.0, 0.0, 1.0}}
+		header := box(ui_key_nil, .{
+			flags=.DRAW_BACKGROUND | .DRAW_SIDE_BOTTOM,
+			layout=.{ 
+				childLayoutAxis = .X,
+				width=percent(1),
+				height=fit(),
+				padding=.{0.3*uiState.defaultFontSize, 0.3*uiState.defaultFontSize, 0.3*uiState.defaultFontSize, 0.3*uiState.defaultFontSize}
+			},
+			palette=.{ background=style.backgroundLight },
+			borderThickness=1.0
 		});
-		
-		box(ui_key_nil, .{
-			flags=.DRAW_BACKGROUND,
-			layout=.{width=grow(), height=grow()},
-			palette=.{background=.{0.0, 1.0, 1.0, 1.0}}
-		});
+		{
+			push_parent(header); defer pop_parent();
 
-		box(ui_key("Hello WORLD"), .{
-			flags=.DRAW_TEXT,
-			layout=.{width=text(), height=text()},
-			palette=.{text=.{0.0, 0.0, 0.0, 1.0}}
-		});
+			// mode
+			modeText := "NORMAL";
+			if extendSelections && editorMode == .NORMAL {
+				modeText = "SELECT";
+			}
+			else if editorMode == .INSERT {
+				modeText = "INSERT";
+			}
+			box(ui_key(modeText), .{
+				flags=.DRAW_BACKGROUND | .DRAW_TEXT,
+				layout=.{ width=text(), height=text() },
+				palette=.{ background=style.backgroundDark },
+			});
 
-		box(ui_key_nil, .{
-			flags=.DRAW_BACKGROUND,
-			layout=.{width=percent(0.2), height=fixed(80)},
-			palette=.{background=.{0.0, 0.0, 1.0, 1.0}}
-		});
+			// spacer
+			box(ui_key_nil, .{ layout=.{ width=fixed(uiState.defaultFontSize * 0.5) } });
+
+			// filename
+			box(ui_key(path_filename(panel.document.path)), .{
+				flags=.DRAW_TEXT,
+				layout=.{ width=text(), height=text() },
+			});
+
+			// lock icon @todo: implement for real
+			if false {
+				// @todo: it would be useful to have box center alignment to solve this issue
+				box(ui_key(style.iconLock), .{
+					flags=.DRAW_TEXT,
+					layout=.{ width=text(), height=fixed(uiState.defaultFontSize+uiState.defaultTextPadding*2.0) },
+					fontSize=uiState.defaultFontSize*0.7,
+					font=fontIcons
+				});
+			}
+
+			// icon for file save status
+			if panel.document.unsaved {
+				// @todo: it would be useful to have box center alignment to solve this issue
+				box(ui_key(style.iconCircle), .{
+					flags=.DRAW_TEXT,
+					layout=.{ width=text(), height=fixed(uiState.defaultFontSize+uiState.defaultTextPadding*2.0) },
+					fontSize=uiState.defaultFontSize*0.7,
+					font=fontIcons
+				});
+			}
+
+			box(ui_key_nil, .{ layout=.{ width=grow() } });
+
+			// pending keys
+			pendingKeys := string.{keyMap.pendingKeyString.count, keyMap.pendingKeyString.data};
+			box(ui_key(pendingKeys), .{
+				flags=.DRAW_TEXT,
+				layout=.{ width=text(), height=text() },
+			});
+
+			box(ui_key_nil, .{ layout=.{ width=fixed(uiState.defaultFontSize*2.0) } });
+
+			// location
+			cursorCoordinate := document_cursor_get_coordinate(*panel.cursor.head);
+			box(ui_key("Ln: % Col: % Byte: %", cursorCoordinate.line+1, cursorCoordinate.col, panel.cursor.head.documentOffset), .{
+				flags=.DRAW_TEXT,
+				layout=.{ width=text(), height=text() },
+			});
+
+			box(ui_key_nil, .{ layout=.{ width=fixed(uiState.defaultFontSize*2.0) } });
+
+			// line endings
+			lineEndingText := "[Mixed]";
+			if panel.document.lineEndings == .LF {
+				lineEndingText = "LF";
+			}
+			else if panel.document.lineEndings == .CRLF {
+				lineEndingText = "CRLF";
+			}
+			else if panel.document.lineEndings == .MIXED_MAJORITY_LF {
+				lineEndingText = "[Mixed]";
+			}
+			box(ui_key(lineEndingText), .{
+				flags=.DRAW_TEXT,
+				layout=.{ width=text(), height=text() },
+			});
+
+			box(ui_key_nil, .{ layout=.{ width=fixed(uiState.defaultFontSize*2.0) } });
+
+			// file type
+			box(ui_key("Jai"), .{
+				flags=.DRAW_TEXT,
+				layout=.{ width=text(), height=text() },
+			});
+
+			box(ui_key_nil, .{ layout=.{ width=fixed(uiState.defaultFontSize*2.0) } });
+
+			// panel options button
+			panelOptsKey := ui_key("panelopts");
+			if is_context_menu_open(panelOptsKey) { 
+				button := box(ui_key(style.iconVerticalEllipsis), .{
+					flags=.DRAW_BACKGROUND | .DRAW_TEXT | .MOUSE_CLICKABLE,
+					layout=.{ width=fixed(uiState.defaultFontSize*1.5), height=text() },
+					palette=.{background=style.activeHighlight},
+					font=fontIcons,
+					textAlignment=.CENTER,
+					cornerRadius=.{uiState.defaultFontSize*0.3, uiState.defaultFontSize*0.3, uiState.defaultFontSize*0.3, uiState.defaultFontSize*0.3}
+				});
+				if signal_from_box(button).pressed {
+					context_menu_close();
+				}
+			}
+			else {
+				button := box(ui_key(style.iconVerticalEllipsis), .{
+					flags=.DRAW_BACKGROUND | .DRAW_TEXT | .DRAW_HOT_EFFECTS | .MOUSE_CLICKABLE,
+					layout=.{ width=fixed(uiState.defaultFontSize*1.5), height=text() },
+					font=fontIcons,
+					textAlignment=.CENTER,
+					cornerRadius=.{uiState.defaultFontSize*0.3, uiState.defaultFontSize*0.3, uiState.defaultFontSize*0.3, uiState.defaultFontSize*0.3}
+				});
+				if signal_from_box(button).pressed {
+					context_menu_open(panelOptsKey);
+				}
+			}
+		}
 	}
 
 	end_ui();
