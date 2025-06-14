@@ -501,6 +501,7 @@ display_string_from_key :: (str: string) -> string {
 
 // Basic widgets
 
+// @todo: actually use these
 label :: (text: string) -> UISignal, *UIBox {
 	label := box(ui_key(text), .{flags=.DRAW_TEXT});
 	return signal_from_box(label), label;
@@ -655,45 +656,43 @@ spacer :: (axis: UIAxis, size: UISize) {
 }
 
 scroll_bar :: (scrollOffset: float, scrollRegionSize:float, visibleRange: float) -> Vector2 {
-	// scope_height(parent_pct(1.0, 0.0));
-	// scope_width(parent_pct(1.0, 0.0));
-	//
-	// // padding
-	// surroundPadding := em(0.3, 1.0); 
-	// set_next_width(em(1.2, 0.0));
-	// column_begin(); defer column_end();
-	// spacer(surroundPadding); defer spacer(surroundPadding);
-	// set_next_height(px(visibleRange-top_font_size()*0.6, 0.0));
-	// row_begin(); defer row_end();
-	// spacer(surroundPadding); defer spacer(surroundPadding);
-	// 
-	// // background bar
-	// palette := top_palette();
-	// palette.background = style.backgroundLight;
-	// set_next_palette(palette);
-	// cornerRad := top_font_size()*0.3;
-	// set_next_corner_radius(.{cornerRad, cornerRad, cornerRad, cornerRad});
-	// set_next_child_layout_axis(.Y);
-	// scrollbarOuter := box(.DRAW_BACKGROUND, "scrollback");
-	//
-	// handleSizePct := max(abs(visibleRange/scrollRegionSize), 0.05);
-	// spaceBeforePct := (1.0-handleSizePct) * abs(scrollOffset/scrollRegionSize);
-	//
-	// // space before handle
-	// set_next_parent(scrollbarOuter);
-	// set_next_height(parent_pct(spaceBeforePct, 1.0));
-	// box(0);
-	//
-	// // scroll handle
-	// set_next_parent(scrollbarOuter);
-	// palette.background = style.backgroundLighter;
-	// set_next_palette(palette);
-	// set_next_height(parent_pct(handleSizePct, 1.0));
-	// set_next_corner_radius(.{cornerRad, cornerRad, cornerRad, cornerRad});
-	// scrollbarInner := box(.DRAW_BACKGROUND | .MOUSE_CLICKABLE | .DRAW_HOT_EFFECTS | .DRAW_ACTIVE_EFFECTS, "todokey");
-	//
-	// return signal_from_box(scrollbarInner).dragDelta;
-	return .{0.0, 0.0};
+	container := box(ui_key_nil, .{
+		layout=.{
+			childLayoutAxis = .X,
+			width=fixed(em(1.2)) ,
+			height=grow(),
+			padding=padding_all(em(0.3))
+		},
+	});
+	{
+		push_parent(container); defer pop_parent();
+
+		scrollBarOuter := box(ui_key_nil, .{
+			flags=.DRAW_BACKGROUND,
+			layout=.{childLayoutAxis = .Y, width=grow(), height=grow()},
+			cornerRadius=corner_rad_all(em(0.3)),
+			palette=.{background=style.backgroundLight}
+		});
+		{
+			push_parent(scrollBarOuter); defer pop_parent();
+
+			handleSizePct := max(abs(visibleRange/scrollRegionSize), 0.05);
+			spaceBeforePct := (1.0-handleSizePct) * abs(scrollOffset/scrollRegionSize);
+
+			// space before
+			box(ui_key_nil, .{ layout=.{childLayoutAxis = .X, width=grow(), height=percent(spaceBeforePct)}, });
+
+			// handle
+			scrollHandle := box(ui_key("scrollhandle"), .{
+				flags=.DRAW_BACKGROUND | .MOUSE_CLICKABLE | .DRAW_HOT_EFFECTS | .DRAW_ACTIVE_EFFECTS,
+				layout=.{childLayoutAxis = .X, width=grow(), height=percent(handleSizePct)},
+				palette=.{background=style.backgroundLighter},
+				cornerRadius=corner_rad_all(em(0.3))
+			});
+
+			return signal_from_box(scrollHandle).dragDelta;
+		}
+	}
 }
 
 // @todo: widgets:

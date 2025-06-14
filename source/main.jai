@@ -248,7 +248,7 @@ build_ui :: () {
 				padding= padding_all(em(0.3))
 			},
 			palette=.{ background=style.backgroundLight },
-			borderThickness=1.0
+			borderThickness=2.0
 		});
 		{
 			push_parent(header); defer pop_parent();
@@ -391,6 +391,37 @@ build_ui :: () {
 				context_menu_item("Line Wrapping", style.iconAlignLeft);
 				context_menu_end();
 			}
+		}
+
+		container := box(ui_key_nil, .{
+			flags=.DRAW_BACKGROUND,
+			layout=.{childLayoutAxis = .X, width=grow(), height=grow()},
+		});
+		{
+			push_parent(container); defer pop_parent();
+
+			codeBox := box(ui_key("code"), .{
+				flags=.CLIP_CONTENTS,
+				layout=.{width=grow(), height=grow()},
+				font=fontCode
+			});
+			codeBox.customDrawFunction = custom_draw_code;
+			codeBox.customDrawUdata = cast(*void) panel;
+
+			numDocumentLines := document_get_num_lines(panel.document);
+			metrics := get_font_metrics(codeBox.font, xx codeBox.fontSize);
+			codeBox.viewBounds.y = cast(float, -(metrics.lineSpacing * numDocumentLines) + metrics.lineSpacing * 5);
+			signal_from_box(codeBox);
+
+			dragDelta := scroll_bar(codeBox.viewOffset.y, codeBox.viewBounds.y, codeBox.rect.h);
+
+			codeBox.viewOffset += dragDelta * clamp(codeBox.viewBounds.y/codeBox.rect.h, -100.0, 100.0);
+			codeBox.viewOffset.y = clamp(codeBox.viewOffset.y, codeBox.viewBounds.y, 0);
+			codeBox.viewOffset.x = clamp(codeBox.viewOffset.x, codeBox.viewBounds.x, 0);
+
+			codeBox.viewOffsetTarget += dragDelta * clamp(codeBox.viewBounds.y/codeBox.rect.h, -100.0, 100.0);
+			codeBox.viewOffsetTarget.y = clamp(codeBox.viewOffsetTarget.y, codeBox.viewBounds.y, 0);
+			codeBox.viewOffsetTarget.x = clamp(codeBox.viewOffsetTarget.x, codeBox.viewBounds.x, 0);
 		}
 	}
 
