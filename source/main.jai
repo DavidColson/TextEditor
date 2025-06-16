@@ -171,11 +171,7 @@ main :: () {
 
         for Input.events_this_frame {
             if it.type == .QUIT then pendingQuit = true;
-
 			array_add(*uiState.events, it);
-			// @todo: you will want to refactor this to send input events to the specific UI elements
-			// that are active
-			input_handler(it);
 		}
 
 		process_changes(*watcher);
@@ -186,6 +182,12 @@ main :: () {
 		}
 
 		build_ui();
+
+		// after ui has taken any inputs it wants, we'll give the rest to the default input handler
+		for uiState.events {
+			input_handler(it);
+	}
+		array_reset_keeping_memory(*uiState.events);
 
 		// update notifications
 		nNotificationsToRemove := 0;
@@ -385,7 +387,7 @@ build_ui :: () {
 									anchorOffset=.{0.0, em(1.9)}) {
 
 				if context_menu_item("Line Numbers", style.iconNumList).pressed {
-					lineNumbers != lineNumbers;
+					lineNumbers = !lineNumbers;
 				}
 				context_menu_item("View Line Endings", "");
 				context_menu_item("Line Wrapping", style.iconAlignLeft);

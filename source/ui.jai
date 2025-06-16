@@ -415,7 +415,6 @@ end_ui :: () {
 	}
 
 	reset(*uiState.frameArena, overwrite_memory=true);
-	array_reset_keeping_memory(*uiState.events);
 	uiState.frameIndex += 1;
 	uiState.parentStackTop = 1;
 }
