@@ -438,7 +438,7 @@ depth_first :: (box: *UIBox, body: Code, flags: For_Flags) #expand {
 		// get next box
 		if box.head {
 			// this box has children, so traverse them
-			push_parent(box.next);
+			if box.next then push_parent(box.next);
 			box = box.head;
 		}
 		else {

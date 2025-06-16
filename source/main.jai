@@ -245,7 +245,7 @@ build_ui :: () {
 			flags=.DRAW_BACKGROUND | .DRAW_SIDE_BOTTOM,
 			layout=.{ 
 				childLayoutAxis = .X,
-				width=percent(1),
+				width=grow(),
 				height=fit(),
 				padding= padding_all(em(0.3))
 			},
@@ -425,11 +425,60 @@ build_ui :: () {
 			codeBox.viewOffsetTarget.y = clamp(codeBox.viewOffsetTarget.y, codeBox.viewBounds.y, 0);
 			codeBox.viewOffsetTarget.x = clamp(codeBox.viewOffsetTarget.x, codeBox.viewBounds.x, 0);
 		}
+
+		if panel.activeDialog == .SEARCH {
+			searchContainer := box(ui_key_nil, .{
+				flags=.DRAW_BACKGROUND | .DRAW_SIDE_TOP,
+				layout=.{ 
+					childLayoutAxis = .X,
+					width=grow(),
+					height=fit(),
+					padding= padding_all(em(0.4))
+				},
+				palette=.{ background=style.backgroundLight },
+				borderThickness=1.0
+			});
+			{
+				push_parent(searchContainer); defer pop_parent();
+
+				fontMetrics := get_font_metrics(uiState.defaultFont, xx uiState.defaultFontSize);
+				inputBox := box(ui_key("search_input"), .{
+					flags=.DRAW_BACKGROUND,
+					layout=.{
+						width=grow(),
+						height=fixed(fontMetrics.lineSpacing+em(0.4)),
+					},
+					cornerRadius=corner_rad_all(em(0.2)),
+					palette=.{ background=style.backgroundLighter },
+					font=fontCode
+				});
+				inputBox.customDrawFunction = custom_draw_input_field;
+				inputBox.customDrawUdata = cast(*void, *panel.searchInput);
+
+				// @todo: buttons for regex mode, caps, whole word search etc
+			}
+		}
 	}
 
 	end_ui();
 
 	render_frame();
+}
+
+custom_draw_input_field :: (box: *UIBox, udata: *void) {
+	inputField:*InputField = cast(*InputField)udata;
+
+	// draw the input field text
+	box.textRun = generate_text_run(string.{inputField.text.count, inputField.text.data}, xx box.fontSize, box.font,,temp);
+	metrics := get_font_metrics(box.font, xx box.fontSize);
+	yPos := floor(box.rect.y + box.rect.h/2.0) + floor(box.fontSize/2.0) - 1.0;
+	xPos := box.rect.x;
+
+	xPos += box.textPadding;
+	xPos = floor(xPos);
+	draw_text_run(box.textRun, xPos, yPos, box.palette.text);
+
+	// @todo: draw the cursor
 }
 
 // @todo: probably want to move this somewhere else?
