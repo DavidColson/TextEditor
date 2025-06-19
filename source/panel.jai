@@ -27,7 +27,7 @@ Panel :: struct {
 	searchInput: InputField;
 	currentRegex: Regexp;
 	hasMatches := false;
-	previousScrollState := 0;
+	previousScrollLine := 0;
 	results: []DocumentRange;
 }
 
@@ -46,6 +46,15 @@ panel_reset_dialogs :: (panel: *Panel) {
 		case .SEARCH; end_document_search(panel);
 	}
 	panel.activeDialog = .NONE;
+}
+
+panel_get_current_scrolled_line :: (panel: *Panel) -> s64 {
+	success, box := find_box(ui_key("code"));
+	if success {
+		metrics := get_font_metrics(box.font, xx box.fontSize);
+		return cast(s64, floor(-box.viewOffset.y / metrics.lineSpacing));
+	}
+	return 0;
 }
 
 // targetLine will be the top edge of the panel, such that target line = 0 will leave you scrolled

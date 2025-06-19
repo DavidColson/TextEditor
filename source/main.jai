@@ -552,6 +552,21 @@ custom_draw_code :: (box: *UIBox, udata: *void) {
 			}
 		}
 
+		// draw search results
+		if panel.activeDialog == .SEARCH {
+			for panel.results {
+				draw_cursor_range(box.font,
+									xx box.fontSize,
+									textAreaX,
+									textAreaY,
+									it.start,
+									it.end,
+									linesOnScreen,
+									startVisibleLines,
+									false);
+			}
+		}
+
 		// Draw the text
 		x :float = textAreaX;
 		y :float = textAreaY;
@@ -595,7 +610,7 @@ custom_draw_code :: (box: *UIBox, udata: *void) {
 			});
 
 			if cursorChar != 0 {
-				draw_text_run(cursorRun, cursorX, textAreaY + metrics.lineSpacing*cursorLine, style.backgroundMid);
+				draw_text_run(cursorRun, cursorX, textAreaY + metrics.lineSpacing * (cursorLine-startVisibleLines), style.backgroundMid);
 			}
 		}
 	}
@@ -611,6 +626,9 @@ draw_cursor_range :: (font: *Font, fontSize: int, textAreaX: float, textAreaY: f
 		return;
 	}
 	for rangeStart.line..rangeEnd.line {
+		lineIndex := it - startVisibleLine; 
+		if 0 > lineIndex || lineIndex >= linesOnScreen.count then continue;
+
 		line := linesOnScreen[it - startVisibleLine];
 		lineWidth := generate_text_run(line, fontSize, font,,temp).width;
 
