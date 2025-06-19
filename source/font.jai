@@ -320,8 +320,11 @@ find_or_make_glyph :: (font: *Font, size: int, utf32: u32) -> GlyphData {
 	if newGlyph {
 		FT_Set_Pixel_Sizes(font.face, 0, xx size);
 
-		// Try LOAD_NO_HINTING if you want to allow no hinting
-		error := FT_Load_Glyph(font.face, glyphIndex, FT_LOAD_DEFAULT);
+		// Jai bindings doesn't expose this, but it's critical 
+		// to get correct looking hinting when using subpixel rendering
+		FT_LOAD_TARGET_LCD :: cast(s32, 3 & 15) << 16;
+
+		error := FT_Load_Glyph(font.face, glyphIndex, FT_LOAD_DEFAULT | FT_LOAD_TARGET_LCD);
 		assert(!error);
 
 		FT_Render_Glyph(font.face.glyph, .FT_RENDER_MODE_LCD);

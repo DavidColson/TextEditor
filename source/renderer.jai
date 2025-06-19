@@ -280,8 +280,8 @@ alloc_bitmap :: (bitmap: *Bitmap, w: s32, h: s32, format: BitmapFormat) {
 load_bitmap_to_gpu :: (bitmap: *Bitmap) {
 	glGenTextures(1, *bitmap.texHandle);
 	glBindTexture(GL_TEXTURE_2D, bitmap.texHandle);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S,     GL_CLAMP_TO_BORDER);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T,     GL_CLAMP_TO_BORDER);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S,     GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T,     GL_CLAMP_TO_EDGE);
 	// @todo: probably want to allow this to be customized?
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
@@ -477,7 +477,18 @@ void main()
 	float left   = texelFetchOffset(bitmap, iuv, 0, ivec2(-1, 0)).r;
     float center = texelFetch(bitmap, iuv, 0).r;
     float right  = texelFetchOffset(bitmap, iuv, 0, ivec2( 1, 0)).r;
+	vec3 pixelCoverages = vec3(left, center, right);
+
+	// makes the glyphs slightly bolder, might want to make this configurable?
+	float coverageAdjustment = +0.2;
+	if (coverageAdjustment >= 0) {
+		pixelCoverages = min(pixelCoverages * (1 + coverageAdjustment), 1);
+	} else {
+		pixelCoverages = max((1 - (1 - pixelCoverages) * (1 + -coverageAdjustment)), 0);
+	}
+
 	fragmentColor = color;
-	blendWeights = vec4(left * color.a, center * color.a, right * color.a, 1.0);
+	blendWeights = vec4(pixelCoverages * color.a, color.a);
+
 } 
 END
