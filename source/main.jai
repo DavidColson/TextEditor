@@ -478,7 +478,20 @@ custom_draw_input_field :: (box: *UIBox, udata: *void) {
 	xPos = floor(xPos);
 	draw_text_run(box.textRun, xPos, yPos, box.palette.text);
 
-	// @todo: draw the cursor
+	// calculate cursor position
+	cursorOffsetX := generate_text_run(string.{inputField.cursor, inputField.text.data}, xx box.fontSize, box.font,,temp).width;
+
+	// draw cursor
+	submit_instance(.{
+		dstRect = .{
+			xPos + cursorOffsetX,
+			yPos - metrics.maxAscender,
+			2,
+			cast(float,metrics.lineSpacing - metrics.typicalDescender)
+		},
+		color = ifx editorMode == .INSERT then .{1.0, 1.0, 1.0, 1.0} else style.textPrimary,
+		shader = .RECTS
+	});
 }
 
 // @todo: probably want to move this somewhere else?
