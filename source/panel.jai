@@ -11,7 +11,7 @@ Cursor :: struct {
 
 Panel :: struct {
 	document: *Document;
-	rect: Rect; // @todo remove
+	layoutRect: Rect;
 	optionsMenuOpen: bool;
 
 	// cursors

@@ -127,10 +127,10 @@ main :: () {
         push_notification("Could not initialize the file watcher. Files won't be reloaded. This is likely a bug.");
     }
 
-	focusedPanel.rect.x = 0;
-	focusedPanel.rect.y = 0;
-	focusedPanel.rect.w = xx windowWidth;
-	focusedPanel.rect.h = xx windowHeight;
+	focusedPanel.layoutRect.x = 0;
+	focusedPanel.layoutRect.y = 0;
+	focusedPanel.layoutRect.w = xx windowWidth;
+	focusedPanel.layoutRect.h = xx windowHeight;
 	focusedPanel.activeDialog = .NONE;
 
 	if filesToOpen.count > 0 {
@@ -160,10 +160,10 @@ main :: () {
 
 				resize_backbuffer();
 
-				focusedPanel.rect.x = 0;
-				focusedPanel.rect.y = 0;
-				focusedPanel.rect.w = xx windowWidth;
-				focusedPanel.rect.h = xx windowHeight;
+				focusedPanel.layoutRect.x = 0;
+				focusedPanel.layoutRect.y = 0;
+				focusedPanel.layoutRect.w = xx windowWidth;
+				focusedPanel.layoutRect.h = xx windowHeight;
 
                 if should_reinit my_init_fonts();  // Resize the font for the new window size.
             }
@@ -219,7 +219,6 @@ build_ui :: () {
 	begin_ui();
 
 	panel := *focusedPanel;
-	panelRect := panel.rect;
 
 	uiState.defaultPalette = .{
 		text = style.textPrimary,
@@ -232,11 +231,9 @@ build_ui :: () {
 	uiState.defaultFontSize = style.fontSize * dpiScale;
 	uiState.defaultTextPadding = em(0.2);
 
-
-	
-	panelBox := box(ui_key_nil, .{
+	panelBox := box(ui_key("panel1"), .{
 		flags=.DRAW_BACKGROUND,
-		layout=.{childLayoutAxis = .Y, width=percent(1), height=percent(1)},
+		layout=.{childLayoutAxis = .Y, width=fixed(panel.layoutRect.w), height=fixed(panel.layoutRect.h)},
 	});
 	{
 		push_parent(panelBox); defer pop_parent();
@@ -395,12 +392,12 @@ build_ui :: () {
 			}
 		}
 
-		container := box(ui_key_nil, .{
+		codeContainer := box(ui_key("hello"), .{
 			flags=.DRAW_BACKGROUND,
 			layout=.{childLayoutAxis = .X, width=grow(), height=grow()},
 		});
 		{
-			push_parent(container); defer pop_parent();
+			push_parent(codeContainer); defer pop_parent();
 
 			codeBox := box(ui_key("code"), .{
 				flags=.CLIP_CONTENTS,
@@ -446,16 +443,81 @@ build_ui :: () {
 					flags=.DRAW_BACKGROUND,
 					layout=.{
 						width=grow(),
-						height=fixed(fontMetrics.lineSpacing+em(0.4)),
+						height=fixed(fontMetrics.lineSpacing+em(0.8)),
 					},
 					cornerRadius=corner_rad_all(em(0.2)),
 					palette=.{ background=style.backgroundLighter },
-					font=fontCode
+					font=fontCode,
+					textPadding=em(0.5)
 				});
 				inputBox.customDrawFunction = custom_draw_input_field;
 				inputBox.customDrawUdata = cast(*void, *panel.searchInput);
 
 				// @todo: buttons for regex mode, caps, whole word search etc
+			}
+		}
+
+		if panel.activeDialog == .COMMAND_PICKER {
+			commandPickerContainer := box(ui_key_nil, .{
+				flags=.DRAW_BACKGROUND,
+				layout=.{ 
+					childLayoutAxis = .Y,
+					width=fixed(panel.layoutRect.w / 2),
+					height=fixed(panel.layoutRect.h / 2),
+					padding= padding_all(em(0.4)),
+					childGap=em(0.4)
+				},
+				palette=.{ background=style.backgroundLight },
+				cornerRadius=corner_rad_all(em(0.5)),
+				fixedX=panel.layoutRect.x+(panel.layoutRect.w-(panel.layoutRect.w/2))/2,
+				fixedY=em(3.0)
+			});
+			{
+				push_parent(commandPickerContainer); defer pop_parent();
+
+				fontMetrics := get_font_metrics(uiState.defaultFont, xx uiState.defaultFontSize);
+				inputBox := box(ui_key("commandPickerInput"), .{
+					flags=.DRAW_BACKGROUND,
+					layout=.{
+						width=grow(),
+						height=fixed(fontMetrics.lineSpacing+em(0.8)),
+					},
+					cornerRadius=corner_rad_all(em(0.2)),
+					palette=.{ background=style.backgroundLighter },
+					textPadding=em(0.5)
+				});
+
+				inputBox.customDrawFunction = custom_draw_input_field;
+				inputBox.customDrawUdata = cast(*void, *panel.commandPicker.input);
+
+				commandContainer := box(ui_key("commandList"), .{
+					flags=.CLIP_CONTENTS, layout=.{ childLayoutAxis = .Y, width=grow(), height=grow(), },
+				});
+				{
+					push_parent(commandContainer); defer pop_parent();
+
+					for commandEntry, i: panel.commandPicker.filteredCommandList  {
+						if commandEntry.sortKey == 0 continue;
+
+						entryFlags:UIBoxFlags = 0;
+						if i == panel.commandPicker.selectedCommand {
+							entryFlags |= .DRAW_BACKGROUND;
+						}
+
+						entryBox := box(ui_key("commandEntry##%", i), .{
+							flags=entryFlags, layout=.{ width=grow(), height=fit(), },
+							palette=.{ background=style.backgroundLighter },
+						});
+						{
+							push_parent(entryBox); defer pop_parent();
+
+							box(ui_key("%", commandEntry.command.name), .{
+								flags=.DRAW_TEXT,
+								layout=.{ width=text_content(), height=text_content() },
+							});
+						}
+					}
+				}
 			}
 		}
 	}
@@ -482,12 +544,13 @@ custom_draw_input_field :: (box: *UIBox, udata: *void) {
 	cursorOffsetX := generate_text_run(string.{inputField.cursor, inputField.text.data}, xx box.fontSize, box.font,,temp).width;
 
 	// draw cursor
+	cursorHeight:float = metrics.typicalAscender-metrics.typicalDescender + metrics.characterHeight*0.2;
 	submit_instance(.{
 		dstRect = .{
 			xPos + cursorOffsetX,
-			yPos - metrics.maxAscender,
+			yPos-metrics.typicalDescender-cursorHeight,
 			2,
-			cast(float,metrics.lineSpacing - metrics.typicalDescender)
+			cursorHeight
 		},
 		color = ifx editorMode == .INSERT then .{1.0, 1.0, 1.0, 1.0} else style.textPrimary,
 		shader = .RECTS
