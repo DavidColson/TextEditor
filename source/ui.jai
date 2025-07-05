@@ -656,7 +656,7 @@ spacer :: (axis: UIAxis, size: UISize) {
 	}
 }
 
-scroll_bar :: (scrollOffset: float, scrollRegionSize:float, visibleRange: float) -> Vector2 {
+scroll_bar :: (handleKey: UIKey, scrollOffset: float, scrollRegionSize:float, visibleRange: float) -> Vector2 {
 	container := box(ui_key_nil, .{
 		layout=.{
 			childLayoutAxis = .X,
@@ -684,7 +684,7 @@ scroll_bar :: (scrollOffset: float, scrollRegionSize:float, visibleRange: float)
 			box(ui_key_nil, .{ layout=.{childLayoutAxis = .X, width=grow(), height=percent(spaceBeforePct)}, });
 
 			// handle
-			scrollHandle := box(ui_key("scrollhandle"), .{
+			scrollHandle := box(handleKey, .{
 				flags=.DRAW_BACKGROUND | .MOUSE_CLICKABLE | .DRAW_HOT_EFFECTS | .DRAW_ACTIVE_EFFECTS,
 				layout=.{childLayoutAxis = .X, width=grow(), height=percent(handleSizePct)},
 				palette=.{background=style.backgroundLighter},
@@ -768,10 +768,12 @@ render_ui_recursive :: (box: *UIBox) {
 	}
 
 	// draw children
-	child := box.head;
+	// note this is a reverse breadth first search
+	// because we want to draw the UI in order of input priority (bottom to top)
+	child := box.tail;
 	while child {
 		render_ui_recursive(child);
-		child = child.next;
+		child = child.prev;
 	}
 
 	if box.flags & .CLIP_CONTENTS {
@@ -989,6 +991,7 @@ compute_positions :: (root: *UIBox, axis: UIAxis) {
 	// depth first iterate through all boxes
 	for :depth_first root {
 		box := it;
+		viewOffset := box.viewOffset;
 		layoutPosition := box.layout.padding.component[axis*2];
 
 		// loop through the children of this box
@@ -998,7 +1001,7 @@ compute_positions :: (root: *UIBox, axis: UIAxis) {
 			if axis == .Y then floating = .FLOATING_Y; 
 
 			if !(child.flags & floating) {
-				child.fixedPosition[axis] = layoutPosition;
+				child.fixedPosition[axis] = box.viewOffset.component[axis] + layoutPosition;
 				if box.layout.childLayoutAxis == axis {
 					layoutPosition += child.fixedSize[axis] + box.layout.childGap;
 				}

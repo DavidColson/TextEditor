@@ -247,7 +247,7 @@ build_ui :: () {
 				padding= padding_all(em(0.3))
 			},
 			palette=.{ background=style.backgroundLight },
-			borderThickness=2.0
+			borderThickness=1.0
 		});
 		{
 			push_parent(header); defer pop_parent();
@@ -392,7 +392,96 @@ build_ui :: () {
 			}
 		}
 
-		codeContainer := box(ui_key("hello"), .{
+
+		if panel.activeDialog == .COMMAND_PICKER {
+			commandPickerContainer := box(ui_key_nil, .{
+				flags=.DRAW_BACKGROUND,
+				layout=.{ 
+					childLayoutAxis = .Y,
+					width=fixed(panel.layoutRect.w / 2),
+					height=fixed(panel.layoutRect.h / 2),
+					padding= padding_all(em(0.4)),
+				},
+				palette=.{ background=style.backgroundLight },
+				cornerRadius=corner_rad_all(em(0.5)),
+				fixedX=panel.layoutRect.x+(panel.layoutRect.w-(panel.layoutRect.w/2))/2,
+				fixedY=em(3.0)
+			});
+			{
+				push_parent(commandPickerContainer); defer pop_parent();
+
+				fontMetrics := get_font_metrics(uiState.defaultFont, xx uiState.defaultFontSize);
+				inputBox := box(ui_key("commandPickerInput"), .{
+					flags=.DRAW_BACKGROUND,
+					layout=.{
+						width=grow(),
+						height=fixed(fontMetrics.lineSpacing+em(0.8)),
+					},
+					cornerRadius=corner_rad_all(em(0.2)),
+					palette=.{ background=style.backgroundLighter },
+					textPadding=em(0.5)
+				});
+
+				inputBox.customDrawFunction = custom_draw_input_field;
+				inputBox.customDrawUdata = cast(*void, *panel.commandPicker.input);
+
+				outContainer := box(ui_key_nil, .{ flags=0, layout=.{width=grow(), height=grow(), }, });
+				{
+					push_parent(outContainer); defer pop_parent();
+
+					commandContainer := box(ui_key("commandList"), .{
+						flags=.CLIP_CONTENTS, 
+						layout=.{ childLayoutAxis = .Y, width=grow(), height=grow(), padding=.{0,0, em(0.4), em(0.4)} },
+					});
+					entryHeight := fontMetrics.characterHeight + commandContainer.textPadding*2;
+					containerInnerHeight := commandContainer.rect.h - em(0.4)*2;
+					commandContainer.viewBounds.y = cast(float, -(panel.commandPicker.filteredCommandList.count * entryHeight - containerInnerHeight));
+					signal_from_box(commandContainer);
+
+					{
+						push_parent(commandContainer); defer pop_parent();
+
+						for commandEntry, i: panel.commandPicker.filteredCommandList  {
+							if commandEntry.sortKey == 0 continue;
+
+							// @todo: may be desirable to use the UI focus (hot/active) system for this?
+							entryFlags:UIBoxFlags = 0;
+							if i == panel.commandPicker.selectedCommand {
+								entryFlags |= .DRAW_BACKGROUND;
+							}
+
+							entryBox := box(ui_key("commandEntry##%", i), .{
+								flags=entryFlags, layout=.{ width=grow(), height=fit(), },
+								palette=.{ background=style.backgroundLighter },
+							});
+							{
+								push_parent(entryBox); defer pop_parent();
+
+								box(ui_key("%", commandEntry.command.name), .{
+									flags=.DRAW_TEXT,
+									layout=.{ width=text_content(), height=text_content() },
+								});
+							}
+						}
+
+					}
+
+					dragDelta := scroll_bar(ui_key("commandPickerScroll"), commandContainer.viewOffset.y, commandContainer.viewBounds.y, commandContainer.rect.h);
+
+					dragRange := (1.0 - max(abs(commandContainer.rect.h/commandContainer.viewBounds.y), 0.05))*commandContainer.rect.h;
+					scaleRatio := ifx dragRange != 0.0 then abs(commandContainer.viewBounds.y)/dragRange else 1.0;
+					commandContainer.viewOffset -= dragDelta * scaleRatio;
+					commandContainer.viewOffset.y = clamp(commandContainer.viewOffset.y, commandContainer.viewBounds.y, 0);
+					commandContainer.viewOffset.x = clamp(commandContainer.viewOffset.x, commandContainer.viewBounds.x, 0);
+
+					commandContainer.viewOffsetTarget -= dragDelta * scaleRatio;
+					commandContainer.viewOffsetTarget.y = clamp(commandContainer.viewOffsetTarget.y, commandContainer.viewBounds.y, 0);
+					commandContainer.viewOffsetTarget.x = clamp(commandContainer.viewOffsetTarget.x, commandContainer.viewBounds.x, 0);
+				}
+			}
+		}
+
+		codeContainer := box(ui_key_nil, .{
 			flags=.DRAW_BACKGROUND,
 			layout=.{childLayoutAxis = .X, width=grow(), height=grow()},
 		});
@@ -412,13 +501,15 @@ build_ui :: () {
 			codeBox.viewBounds.y = cast(float, -(metrics.lineSpacing * numDocumentLines) + metrics.lineSpacing * 5);
 			signal_from_box(codeBox);
 
-			dragDelta := scroll_bar(codeBox.viewOffset.y, codeBox.viewBounds.y, codeBox.rect.h);
+			dragDelta := scroll_bar(ui_key("codeScroll"), codeBox.viewOffset.y, codeBox.viewBounds.y, codeBox.rect.h);
 
-			codeBox.viewOffset += dragDelta * clamp(codeBox.viewBounds.y/codeBox.rect.h, -100.0, 100.0);
+			dragRange := (1.0 - max(abs(codeBox.rect.h/codeBox.viewBounds.y), 0.05))*codeBox.rect.h;
+			scaleRatio := ifx dragRange != 0.0 then abs(codeBox.viewBounds.y)/dragRange else 1.0;
+			codeBox.viewOffset -= dragDelta * scaleRatio;
 			codeBox.viewOffset.y = clamp(codeBox.viewOffset.y, codeBox.viewBounds.y, 0);
 			codeBox.viewOffset.x = clamp(codeBox.viewOffset.x, codeBox.viewBounds.x, 0);
 
-			codeBox.viewOffsetTarget += dragDelta * clamp(codeBox.viewBounds.y/codeBox.rect.h, -100.0, 100.0);
+			codeBox.viewOffsetTarget -= dragDelta * scaleRatio;
 			codeBox.viewOffsetTarget.y = clamp(codeBox.viewOffsetTarget.y, codeBox.viewBounds.y, 0);
 			codeBox.viewOffsetTarget.x = clamp(codeBox.viewOffsetTarget.x, codeBox.viewBounds.x, 0);
 		}
@@ -454,70 +545,6 @@ build_ui :: () {
 				inputBox.customDrawUdata = cast(*void, *panel.searchInput);
 
 				// @todo: buttons for regex mode, caps, whole word search etc
-			}
-		}
-
-		if panel.activeDialog == .COMMAND_PICKER {
-			commandPickerContainer := box(ui_key_nil, .{
-				flags=.DRAW_BACKGROUND,
-				layout=.{ 
-					childLayoutAxis = .Y,
-					width=fixed(panel.layoutRect.w / 2),
-					height=fixed(panel.layoutRect.h / 2),
-					padding= padding_all(em(0.4)),
-					childGap=em(0.4)
-				},
-				palette=.{ background=style.backgroundLight },
-				cornerRadius=corner_rad_all(em(0.5)),
-				fixedX=panel.layoutRect.x+(panel.layoutRect.w-(panel.layoutRect.w/2))/2,
-				fixedY=em(3.0)
-			});
-			{
-				push_parent(commandPickerContainer); defer pop_parent();
-
-				fontMetrics := get_font_metrics(uiState.defaultFont, xx uiState.defaultFontSize);
-				inputBox := box(ui_key("commandPickerInput"), .{
-					flags=.DRAW_BACKGROUND,
-					layout=.{
-						width=grow(),
-						height=fixed(fontMetrics.lineSpacing+em(0.8)),
-					},
-					cornerRadius=corner_rad_all(em(0.2)),
-					palette=.{ background=style.backgroundLighter },
-					textPadding=em(0.5)
-				});
-
-				inputBox.customDrawFunction = custom_draw_input_field;
-				inputBox.customDrawUdata = cast(*void, *panel.commandPicker.input);
-
-				commandContainer := box(ui_key("commandList"), .{
-					flags=.CLIP_CONTENTS, layout=.{ childLayoutAxis = .Y, width=grow(), height=grow(), },
-				});
-				{
-					push_parent(commandContainer); defer pop_parent();
-
-					for commandEntry, i: panel.commandPicker.filteredCommandList  {
-						if commandEntry.sortKey == 0 continue;
-
-						entryFlags:UIBoxFlags = 0;
-						if i == panel.commandPicker.selectedCommand {
-							entryFlags |= .DRAW_BACKGROUND;
-						}
-
-						entryBox := box(ui_key("commandEntry##%", i), .{
-							flags=entryFlags, layout=.{ width=grow(), height=fit(), },
-							palette=.{ background=style.backgroundLighter },
-						});
-						{
-							push_parent(entryBox); defer pop_parent();
-
-							box(ui_key("%", commandEntry.command.name), .{
-								flags=.DRAW_TEXT,
-								layout=.{ width=text_content(), height=text_content() },
-							});
-						}
-					}
-				}
 			}
 		}
 	}
