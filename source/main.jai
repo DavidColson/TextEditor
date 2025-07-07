@@ -399,7 +399,7 @@ build_ui :: () {
 				layout=.{ 
 					childLayoutAxis = .Y,
 					width=fixed(panel.layoutRect.w / 2),
-					height=fixed(panel.layoutRect.h / 2),
+					height=fit(),
 					padding= padding_all(em(0.4)),
 				},
 				palette=.{ background=style.backgroundLight },
@@ -425,24 +425,26 @@ build_ui :: () {
 				inputBox.customDrawFunction = custom_draw_input_field;
 				inputBox.customDrawUdata = cast(*void, *panel.commandPicker.input);
 
-				outContainer := box(ui_key_nil, .{ flags=0, layout=.{width=grow(), height=grow(), }, });
+				outContainer := box(ui_key_nil, .{ flags=0, layout=.{width=grow(), height=fit(), }, });
 				{
 					push_parent(outContainer); defer pop_parent();
 
+					maxContainerHeight := panel.layoutRect.h/2;
+					maxContainerHeightInner := panel.layoutRect.h/2 - em(0.4)*2; // without the padding
+
 					commandContainer := box(ui_key("commandList"), .{
 						flags=.CLIP_CONTENTS, 
-						layout=.{ childLayoutAxis = .Y, width=grow(), height=grow(), padding=.{0,0, em(0.4), em(0.4)} },
+						layout=.{ childLayoutAxis = .Y, width=grow(), height=fit(0.0, maxContainerHeight), padding=.{0,0, em(0.4), em(0.4)} },
 					});
 					entryHeight := fontMetrics.characterHeight + commandContainer.textPadding*2;
-					containerInnerHeight := max(commandContainer.rect.h - em(0.4)*2, 0);
-					commandContainer.viewBounds.y = cast(float, -(panel.commandPicker.filteredCommandList.count * entryHeight - containerInnerHeight));
+					commandContainer.viewBounds.y = cast(float, -(panel.commandPicker.filteredCommandList.count * entryHeight - maxContainerHeightInner));
 					signal_from_box(commandContainer);
 
+					elementsBefore := cast(int, floor(abs(commandContainer.viewOffset.y) / entryHeight));
+					elementsOnScreen := min(cast(int, round(maxContainerHeightInner / entryHeight) + 1), panel.commandPicker.numToDisplay);
 					{
 						push_parent(commandContainer); defer pop_parent();
 
-						elementsBefore := cast(int, floor(abs(commandContainer.viewOffset.y) / entryHeight));
-						elementsOnScreen := cast(int, round(containerInnerHeight / entryHeight) + 1);
 						spacer(.Y, fixed(elementsBefore*entryHeight));
 
 						for elementsBefore..elementsBefore+elementsOnScreen-1 {
@@ -472,17 +474,19 @@ build_ui :: () {
 						}
 					}
 
-					dragDelta := scroll_bar(ui_key("commandPickerScroll"), commandContainer.viewOffset.y, commandContainer.viewBounds.y, commandContainer.rect.h);
+					if elementsOnScreen < panel.commandPicker.numToDisplay {
+						dragDelta := scroll_bar(ui_key("commandPickerScroll"), commandContainer.viewOffset.y, commandContainer.viewBounds.y, maxContainerHeightInner);
 
-					dragRange := (1.0 - max(abs(commandContainer.rect.h/commandContainer.viewBounds.y), 0.05))*commandContainer.rect.h;
-					scaleRatio := ifx dragRange != 0.0 then abs(commandContainer.viewBounds.y)/dragRange else 1.0;
-					commandContainer.viewOffset -= dragDelta * scaleRatio;
-					commandContainer.viewOffset.y = clamp(commandContainer.viewOffset.y, commandContainer.viewBounds.y, 0);
-					commandContainer.viewOffset.x = clamp(commandContainer.viewOffset.x, commandContainer.viewBounds.x, 0);
+						dragRange := (1.0 - max(abs(commandContainer.rect.h/commandContainer.viewBounds.y), 0.05))*commandContainer.rect.h;
+						scaleRatio := ifx dragRange != 0.0 then abs(commandContainer.viewBounds.y)/dragRange else 1.0;
+						commandContainer.viewOffset -= dragDelta * scaleRatio;
+						commandContainer.viewOffset.y = clamp(commandContainer.viewOffset.y, commandContainer.viewBounds.y, 0);
+						commandContainer.viewOffset.x = clamp(commandContainer.viewOffset.x, commandContainer.viewBounds.x, 0);
 
-					commandContainer.viewOffsetTarget -= dragDelta * scaleRatio;
-					commandContainer.viewOffsetTarget.y = clamp(commandContainer.viewOffsetTarget.y, commandContainer.viewBounds.y, 0);
-					commandContainer.viewOffsetTarget.x = clamp(commandContainer.viewOffsetTarget.x, commandContainer.viewBounds.x, 0);
+						commandContainer.viewOffsetTarget -= dragDelta * scaleRatio;
+						commandContainer.viewOffsetTarget.y = clamp(commandContainer.viewOffsetTarget.y, commandContainer.viewBounds.y, 0);
+						commandContainer.viewOffsetTarget.x = clamp(commandContainer.viewOffsetTarget.x, commandContainer.viewBounds.x, 0);
+					}
 				}
 			}
 		}
