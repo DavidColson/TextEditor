@@ -407,6 +407,9 @@ end_ui :: () {
 	}
 
 	render_ui_recursive(uiState.rootbox);
+	for floatingRoots {
+		if it != null then render_ui_recursive(it);
+	}
 
 	if uiState.activeContextMenu != ui_key_nil && uiState.nextActiveContextMenu == ui_key_nil {
 		uiState.contextMenu = null;
@@ -519,8 +522,6 @@ button :: (text: string) -> UISignal {
 }
 
 tooltip_begin :: (anchorBoxKey:UIKey = ui_key_nil, anchorOffset: Vector2 = .{0.0,0.0}) {
-	push_parent(uiState.rootbox);
-
 	success, anchor := find_box(anchorBoxKey);
 	fixedX, fixedY := 0.0;
 	if success {
@@ -553,7 +554,6 @@ tooltip_begin :: (anchorBoxKey:UIKey = ui_key_nil, anchorOffset: Vector2 = .{0.0
 
 tooltip_end :: () {
 	pop_parent();
-	pop_parent();
 }
 
 is_context_menu_open :: (key: UIKey) -> bool {
@@ -570,7 +570,6 @@ context_menu_close :: () {
 
 context_menu_begin :: (key: UIKey, width: UISize, anchorBoxKey:UIKey = .{0,""}, anchorOffset: Vector2 = .{0.0,0.0}) -> bool {
 	if uiState.activeContextMenu == key {
-		push_parent(uiState.rootbox);
 
 		success, anchor := find_box(anchorBoxKey);
 		fixedX, fixedY := 0.0;
@@ -643,7 +642,6 @@ context_menu_item :: (text: string, icon: string) -> UISignal {
 
 
 context_menu_end :: () {
-	pop_parent();
 	pop_parent();
 }
 
