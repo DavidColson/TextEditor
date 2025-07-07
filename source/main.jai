@@ -434,23 +434,30 @@ build_ui :: () {
 						layout=.{ childLayoutAxis = .Y, width=grow(), height=grow(), padding=.{0,0, em(0.4), em(0.4)} },
 					});
 					entryHeight := fontMetrics.characterHeight + commandContainer.textPadding*2;
-					containerInnerHeight := commandContainer.rect.h - em(0.4)*2;
+					containerInnerHeight := max(commandContainer.rect.h - em(0.4)*2, 0);
 					commandContainer.viewBounds.y = cast(float, -(panel.commandPicker.filteredCommandList.count * entryHeight - containerInnerHeight));
 					signal_from_box(commandContainer);
 
 					{
 						push_parent(commandContainer); defer pop_parent();
 
-						for commandEntry, i: panel.commandPicker.filteredCommandList  {
+						elementsBefore := cast(int, floor(abs(commandContainer.viewOffset.y) / entryHeight));
+						elementsOnScreen := cast(int, round(containerInnerHeight / entryHeight) + 1);
+						spacer(.Y, fixed(elementsBefore*entryHeight));
+
+						for elementsBefore..elementsBefore+elementsOnScreen-1 {
+							commandEntry := panel.commandPicker.filteredCommandList[it];
+
+							// @todo: potentially sortkey 0 commands should not be counted?
 							if commandEntry.sortKey == 0 continue;
 
 							// @todo: may be desirable to use the UI focus (hot/active) system for this?
 							entryFlags:UIBoxFlags = 0;
-							if i == panel.commandPicker.selectedCommand {
+							if it == panel.commandPicker.selectedCommand {
 								entryFlags |= .DRAW_BACKGROUND;
 							}
 
-							entryBox := box(ui_key("commandEntry##%", i), .{
+							entryBox := box(ui_key("commandEntry##%", it), .{
 								flags=entryFlags, layout=.{ width=grow(), height=fit(), },
 								palette=.{ background=style.backgroundLighter },
 							});
@@ -463,7 +470,6 @@ build_ui :: () {
 								});
 							}
 						}
-
 					}
 
 					dragDelta := scroll_bar(ui_key("commandPickerScroll"), commandContainer.viewOffset.y, commandContainer.viewBounds.y, commandContainer.rect.h);
