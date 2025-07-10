@@ -425,7 +425,7 @@ build_ui :: () {
 				inputBox.customDrawFunction = custom_draw_input_field;
 				inputBox.customDrawUdata = cast(*void, *panel.commandPicker.input);
 
-				outContainer := box(ui_key_nil, .{ flags=0, layout=.{width=grow(), height=fit(), }, });
+				outContainer := box(ui_key_nil, .{ flags=0, layout=.{width=grow(), height=fit(), }});
 				{
 					push_parent(outContainer); defer pop_parent();
 
@@ -436,22 +436,22 @@ build_ui :: () {
 						flags=.CLIP_CONTENTS, 
 						layout=.{ childLayoutAxis = .Y, width=grow(), height=fit(0.0, maxContainerHeight), padding=.{0,0, em(0.4), em(0.4)} },
 					});
-					entryHeight := fontMetrics.characterHeight + commandContainer.textPadding*2;
-					commandContainer.viewBounds.y = cast(float, -(panel.commandPicker.filteredCommandList.count * entryHeight - maxContainerHeightInner));
+
+					elementHeight := fontMetrics.characterHeight + commandContainer.textPadding*2;
+					elementsBefore := cast(int, floor(abs(commandContainer.viewOffset.y) / elementHeight));
+					elementsOnScreen := min(cast(int, round(maxContainerHeightInner / elementHeight) + 1), panel.commandPicker.numToDisplay);
+
+					commandContainer.viewBounds.y = min(cast(float, -(panel.commandPicker.numToDisplay * elementHeight - maxContainerHeightInner)), 0.0);
 					signal_from_box(commandContainer);
 
-					elementsBefore := cast(int, floor(abs(commandContainer.viewOffset.y) / entryHeight));
-					elementsOnScreen := min(cast(int, round(maxContainerHeightInner / entryHeight) + 1), panel.commandPicker.numToDisplay);
 					{
 						push_parent(commandContainer); defer pop_parent();
 
-						spacer(.Y, fixed(elementsBefore*entryHeight));
+						// spacer to fill gap of elements that are offscreen
+						spacer(.Y, fixed(elementsBefore*elementHeight));
 
 						for elementsBefore..elementsBefore+elementsOnScreen-1 {
 							commandEntry := panel.commandPicker.filteredCommandList[it];
-
-							// @todo: potentially sortkey 0 commands should not be counted?
-							if commandEntry.sortKey == 0 continue;
 
 							// @todo: may be desirable to use the UI focus (hot/active) system for this?
 							entryFlags:UIBoxFlags = 0;
@@ -460,7 +460,7 @@ build_ui :: () {
 							}
 
 							entryBox := box(ui_key("commandEntry##%", it), .{
-								flags=entryFlags, layout=.{ width=grow(), height=fit(), },
+								flags=entryFlags, layout=.{ width=grow(), height=fixed(elementHeight), },
 								palette=.{ background=style.backgroundLighter },
 							});
 							{
@@ -474,19 +474,20 @@ build_ui :: () {
 						}
 					}
 
+					// scroll bar if there are too many elements to display
 					if elementsOnScreen < panel.commandPicker.numToDisplay {
 						dragDelta := scroll_bar(ui_key("commandPickerScroll"), commandContainer.viewOffset.y, commandContainer.viewBounds.y, maxContainerHeightInner);
 
 						dragRange := (1.0 - max(abs(commandContainer.rect.h/commandContainer.viewBounds.y), 0.05))*commandContainer.rect.h;
 						scaleRatio := ifx dragRange != 0.0 then abs(commandContainer.viewBounds.y)/dragRange else 1.0;
 						commandContainer.viewOffset -= dragDelta * scaleRatio;
-						commandContainer.viewOffset.y = clamp(commandContainer.viewOffset.y, commandContainer.viewBounds.y, 0);
-						commandContainer.viewOffset.x = clamp(commandContainer.viewOffset.x, commandContainer.viewBounds.x, 0);
-
 						commandContainer.viewOffsetTarget -= dragDelta * scaleRatio;
-						commandContainer.viewOffsetTarget.y = clamp(commandContainer.viewOffsetTarget.y, commandContainer.viewBounds.y, 0);
-						commandContainer.viewOffsetTarget.x = clamp(commandContainer.viewOffsetTarget.x, commandContainer.viewBounds.x, 0);
 					}
+
+					commandContainer.viewOffset.y = clamp(commandContainer.viewOffset.y, commandContainer.viewBounds.y, 0);
+					commandContainer.viewOffset.x = clamp(commandContainer.viewOffset.x, commandContainer.viewBounds.x, 0);
+					commandContainer.viewOffsetTarget.y = clamp(commandContainer.viewOffsetTarget.y, commandContainer.viewBounds.y, 0);
+					commandContainer.viewOffsetTarget.x = clamp(commandContainer.viewOffsetTarget.x, commandContainer.viewBounds.x, 0);
 				}
 			}
 		}
