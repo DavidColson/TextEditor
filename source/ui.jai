@@ -999,9 +999,12 @@ compute_positions :: (root: *UIBox, axis: UIAxis) {
 			if axis == .Y then floating = .FLOATING_Y; 
 
 			if !(child.flags & floating) {
-				child.fixedPosition[axis] = box.viewOffset.component[axis] + layoutPosition;
 				if box.layout.childLayoutAxis == axis {
+					child.fixedPosition[axis] = box.viewOffset.component[axis] + layoutPosition;
 					layoutPosition += child.fixedSize[axis] + box.layout.childGap;
+				}
+				else {
+					child.fixedPosition[axis] = (box.fixedSize[axis]-child.fixedSize[axis])/2;
 				}
 			}
 

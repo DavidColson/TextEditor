@@ -284,10 +284,9 @@ build_ui :: () {
 
 			// lock icon @todo: implement for real
 			if false {
-				// @todo: it would be useful to have box center alignment to solve this issue
 				box(ui_key(style.iconLock), .{
 					flags=.DRAW_TEXT,
-					layout=.{ width=text_content(), height=fixed(uiState.defaultFontSize+uiState.defaultTextPadding*2.0) },
+					layout=.{ width=text_content(), height=text_content() },
 					fontSize=em(0.7),
 					font=fontIcons
 				});
@@ -295,10 +294,9 @@ build_ui :: () {
 
 			// icon for file save status
 			if panel.document.unsaved {
-				// @todo: it would be useful to have box center alignment to solve this issue
 				box(ui_key(style.iconCircle), .{
 					flags=.DRAW_TEXT,
-					layout=.{ width=text_content(), height=fixed(uiState.defaultFontSize+uiState.defaultTextPadding*2.0) },
+					layout=.{ width=text_content(), height=text_content() },
 					fontSize=em(0.7),
 					font=fontIcons
 				});
@@ -437,20 +435,35 @@ build_ui :: () {
 						layout=.{ childLayoutAxis = .Y, width=grow(), height=fit(0.0, maxContainerHeight), padding=.{0,0, em(0.4), em(0.4)} },
 					});
 
-					elementHeight := fontMetrics.characterHeight + commandContainer.textPadding*2;
+					elementHeight := cast(float, fontMetrics.characterHeight*2);
 					elementsBefore := cast(int, floor(abs(commandContainer.viewOffset.y) / elementHeight));
 					elementsOnScreen := min(cast(int, round(maxContainerHeightInner / elementHeight) + 1), panel.commandPicker.numToDisplay);
 
 					commandContainer.viewBounds.y = min(cast(float, -(panel.commandPicker.numToDisplay * elementHeight - maxContainerHeightInner)), 0.0);
 					signal_from_box(commandContainer);
 
+					// keyboard scrolling behaviour 
+					if panel.commandPicker.selectedCommandChange {
+						panel.commandPicker.selectedCommandChange = false;
+						elementsBeforeTarget := cast(int, floor(abs(commandContainer.viewOffsetTarget.y) / elementHeight));
+						if panel.commandPicker.selectedCommand < elementsBeforeTarget+1 { 
+							distance := elementsBeforeTarget - panel.commandPicker.selectedCommand;
+							commandContainer.viewOffsetTarget.y = -panel.commandPicker.selectedCommand*elementHeight;
+						}
+						if panel.commandPicker.selectedCommand > (elementsBeforeTarget+elementsOnScreen-2) {
+							commandContainer.viewOffsetTarget.y = -(panel.commandPicker.selectedCommand+1)*elementHeight+(maxContainerHeight-em(0.4));
+						}
+					}
+
+					// draw the actually command entries (only ones visible though)
 					{
 						push_parent(commandContainer); defer pop_parent();
 
 						// spacer to fill gap of elements that are offscreen
 						spacer(.Y, fixed(elementsBefore*elementHeight));
 
-						for elementsBefore..elementsBefore+elementsOnScreen-1 {
+						endElement := min(elementsBefore+elementsOnScreen-1, panel.commandPicker.filteredCommandList.count-1);
+						for elementsBefore..endElement {
 							commandEntry := panel.commandPicker.filteredCommandList[it];
 
 							// @todo: may be desirable to use the UI focus (hot/active) system for this?
@@ -460,16 +473,34 @@ build_ui :: () {
 							}
 
 							entryBox := box(ui_key("commandEntry##%", it), .{
-								flags=entryFlags, layout=.{ width=grow(), height=fixed(elementHeight), },
+								flags=entryFlags, layout=.{ width=grow(), height=fixed(elementHeight), padding=padding_all(em(0.2)) },
 								palette=.{ background=style.backgroundLighter },
 							});
 							{
 								push_parent(entryBox); defer pop_parent();
 
+								// find the normal mode mapping
+								// @todo: should we show bindings for all modes?
+								mappingStr := "";
+								for commandEntry.command.mappings {
+									if it.mode == .NORMAL then mappingStr = it.keys;
+								}
+
 								box(ui_key("%", commandEntry.command.name), .{
 									flags=.DRAW_TEXT,
 									layout=.{ width=text_content(), height=text_content() },
 								});
+
+								box(ui_key_nil, .{ layout=.{width=grow()}});
+
+								if mappingStr {
+									box(ui_key("%", mappingStr), .{
+										flags=.DRAW_TEXT | .DRAW_BACKGROUND,
+										layout=.{ width=text_content(), height=text_content() },
+										palette=.{ background=style.backgroundMid },
+										textPadding=em(0.3)
+									});
+								}
 							}
 						}
 					}
@@ -492,6 +523,7 @@ build_ui :: () {
 			}
 		}
 
+		// Draw the main code screen
 		codeContainer := box(ui_key_nil, .{
 			flags=.DRAW_BACKGROUND,
 			layout=.{childLayoutAxis = .X, width=grow(), height=grow()},
@@ -525,6 +557,7 @@ build_ui :: () {
 			codeBox.viewOffsetTarget.x = clamp(codeBox.viewOffsetTarget.x, codeBox.viewBounds.x, 0);
 		}
 
+		// Draw the search dialog
 		if panel.activeDialog == .SEARCH {
 			searchContainer := box(ui_key_nil, .{
 				flags=.DRAW_BACKGROUND | .DRAW_SIDE_TOP,

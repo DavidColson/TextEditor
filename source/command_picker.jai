@@ -11,6 +11,7 @@ CommandPicker :: struct {
 	}
 	filteredCommandList: [..]CommandEntry;
 	selectedCommand:s32;
+	selectedCommandChange:bool;
 	numToDisplay:s64; // number of items with positive sortkeys
 	input: InputField;
 }
@@ -95,6 +96,7 @@ command_picker_select_next :: (using panel: *Panel, args: []string) {
 
 	maxItems := state.numToDisplay - 1;
 	state.selectedCommand = clamp(state.selectedCommand+1, 0, xx maxItems);
+	state.selectedCommandChange = true;
 }
 
 command_picker_select_previous :: (using panel: *Panel, args: []string) {
@@ -102,5 +104,5 @@ command_picker_select_previous :: (using panel: *Panel, args: []string) {
 
 	maxItems := state.numToDisplay - 1;
 	state.selectedCommand = clamp(state.selectedCommand-1, 0, xx maxItems);
+	state.selectedCommandChange = true;
 }
-
