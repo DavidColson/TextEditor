@@ -423,103 +423,58 @@ build_ui :: () {
 				inputBox.customDrawFunction = custom_draw_input_field;
 				inputBox.customDrawUdata = cast(*void, *panel.commandPicker.input);
 
-				outContainer := box(ui_key_nil, .{ flags=0, layout=.{width=grow(), height=fit(), }});
-				{
-					push_parent(outContainer); defer pop_parent();
+				elementHeight := cast(float, fontMetrics.characterHeight*2);
+				rangeStart, rangeEnd := scroll_list_begin(ui_key("commandList"),
+									panel.layoutRect.h/2,
+									elementHeight,
+									panel.commandPicker.numToDisplay,
+									panel.commandPicker.selectedCommand,
+									panel.commandPicker.selectedCommandChange);
 
-					maxContainerHeight := panel.layoutRect.h/2;
-					maxContainerHeightInner := panel.layoutRect.h/2 - em(0.4)*2; // without the padding
+				if panel.commandPicker.selectedCommandChange then panel.commandPicker.selectedCommandChange = false;
 
-					commandContainer := box(ui_key("commandList"), .{
-						flags=.CLIP_CONTENTS, 
-						layout=.{ childLayoutAxis = .Y, width=grow(), height=fit(0.0, maxContainerHeight), padding=.{0,0, em(0.4), em(0.4)} },
+				for rangeStart..rangeEnd {
+					commandEntry := panel.commandPicker.filteredCommandList[it];
+
+					// @todo: may be desirable to use the UI focus (hot/active) system for this?
+					entryFlags:UIBoxFlags = 0;
+					if it == panel.commandPicker.selectedCommand {
+						entryFlags |= .DRAW_BACKGROUND;
+					}
+
+					entryBox := box(ui_key("commandEntry##%", it), .{
+						flags=entryFlags, layout=.{ width=grow(), height=fixed(elementHeight), padding=padding_all(em(0.2)) },
+						palette=.{ background=style.backgroundLighter },
 					});
-
-					elementHeight := cast(float, fontMetrics.characterHeight*2);
-					elementsBefore := cast(int, floor(abs(commandContainer.viewOffset.y) / elementHeight));
-					elementsOnScreen := min(cast(int, round(maxContainerHeightInner / elementHeight) + 1), panel.commandPicker.numToDisplay);
-
-					commandContainer.viewBounds.y = min(cast(float, -(panel.commandPicker.numToDisplay * elementHeight - maxContainerHeightInner)), 0.0);
-					signal_from_box(commandContainer);
-
-					// keyboard scrolling behaviour 
-					if panel.commandPicker.selectedCommandChange {
-						panel.commandPicker.selectedCommandChange = false;
-						elementsBeforeTarget := cast(int, floor(abs(commandContainer.viewOffsetTarget.y) / elementHeight));
-						if panel.commandPicker.selectedCommand < elementsBeforeTarget+1 { 
-							distance := elementsBeforeTarget - panel.commandPicker.selectedCommand;
-							commandContainer.viewOffsetTarget.y = -panel.commandPicker.selectedCommand*elementHeight;
-						}
-						if panel.commandPicker.selectedCommand > (elementsBeforeTarget+elementsOnScreen-2) {
-							commandContainer.viewOffsetTarget.y = -(panel.commandPicker.selectedCommand+1)*elementHeight+(maxContainerHeight-em(0.4));
-						}
-					}
-
-					// draw the actually command entries (only ones visible though)
 					{
-						push_parent(commandContainer); defer pop_parent();
+						push_parent(entryBox); defer pop_parent();
 
-						// spacer to fill gap of elements that are offscreen
-						spacer(.Y, fixed(elementsBefore*elementHeight));
+						// find the normal mode mapping
+						// @todo: should we show bindings for all modes?
+						mappingStr := "";
+						for commandEntry.command.mappings {
+							if it.mode == .NORMAL then mappingStr = it.keys;
+						}
 
-						endElement := min(elementsBefore+elementsOnScreen-1, panel.commandPicker.filteredCommandList.count-1);
-						for elementsBefore..endElement {
-							commandEntry := panel.commandPicker.filteredCommandList[it];
+						box(ui_key("%", commandEntry.command.name), .{
+							flags=.DRAW_TEXT,
+							layout=.{ width=text_content(), height=text_content() },
+						});
 
-							// @todo: may be desirable to use the UI focus (hot/active) system for this?
-							entryFlags:UIBoxFlags = 0;
-							if it == panel.commandPicker.selectedCommand {
-								entryFlags |= .DRAW_BACKGROUND;
-							}
+						box(ui_key_nil, .{ layout=.{width=grow()}});
 
-							entryBox := box(ui_key("commandEntry##%", it), .{
-								flags=entryFlags, layout=.{ width=grow(), height=fixed(elementHeight), padding=padding_all(em(0.2)) },
-								palette=.{ background=style.backgroundLighter },
+						if mappingStr {
+							box(ui_key("%", mappingStr), .{
+								flags=.DRAW_TEXT | .DRAW_BACKGROUND,
+								layout=.{ width=text_content(), height=text_content() },
+								palette=.{ background=style.backgroundMid },
+								textPadding=em(0.3)
 							});
-							{
-								push_parent(entryBox); defer pop_parent();
-
-								// find the normal mode mapping
-								// @todo: should we show bindings for all modes?
-								mappingStr := "";
-								for commandEntry.command.mappings {
-									if it.mode == .NORMAL then mappingStr = it.keys;
-								}
-
-								box(ui_key("%", commandEntry.command.name), .{
-									flags=.DRAW_TEXT,
-									layout=.{ width=text_content(), height=text_content() },
-								});
-
-								box(ui_key_nil, .{ layout=.{width=grow()}});
-
-								if mappingStr {
-									box(ui_key("%", mappingStr), .{
-										flags=.DRAW_TEXT | .DRAW_BACKGROUND,
-										layout=.{ width=text_content(), height=text_content() },
-										palette=.{ background=style.backgroundMid },
-										textPadding=em(0.3)
-									});
-								}
-							}
 						}
 					}
-
-					// scroll bar if there are too many elements to display
-					if elementsOnScreen < panel.commandPicker.numToDisplay {
-						dragDelta := scroll_bar(ui_key("commandPickerScroll"), commandContainer.viewOffset.y, commandContainer.viewBounds.y, maxContainerHeightInner);
-
-						dragRange := (1.0 - max(abs(commandContainer.rect.h/commandContainer.viewBounds.y), 0.05))*commandContainer.rect.h;
-						scaleRatio := ifx dragRange != 0.0 then abs(commandContainer.viewBounds.y)/dragRange else 1.0;
-						commandContainer.viewOffset -= dragDelta * scaleRatio;
-						commandContainer.viewOffsetTarget -= dragDelta * scaleRatio;
-					}
-
-					commandContainer.viewOffset.y = clamp(commandContainer.viewOffset.y, commandContainer.viewBounds.y, 0);
-					commandContainer.viewOffset.x = clamp(commandContainer.viewOffset.x, commandContainer.viewBounds.x, 0);
-					commandContainer.viewOffsetTarget.y = clamp(commandContainer.viewOffsetTarget.y, commandContainer.viewBounds.y, 0);
-					commandContainer.viewOffsetTarget.x = clamp(commandContainer.viewOffsetTarget.x, commandContainer.viewBounds.x, 0);
 				}
+
+				scroll_list_end(ui_key("commandListScroller")); 
 			}
 		}
 
@@ -544,9 +499,10 @@ build_ui :: () {
 			codeBox.viewBounds.y = cast(float, -(metrics.lineSpacing * numDocumentLines) + metrics.lineSpacing * 5);
 			signal_from_box(codeBox);
 
+			// @todo: you really don't want to be relying on the rect here, set it as a fixed height
 			dragDelta := scroll_bar(ui_key("codeScroll"), codeBox.viewOffset.y, codeBox.viewBounds.y, codeBox.rect.h);
 
-			dragRange := (1.0 - max(abs(codeBox.rect.h/codeBox.viewBounds.y), 0.05))*codeBox.rect.h;
+			dragRange := (1.0 - max(abs(codeBox.rect.h/(codeBox.viewBounds.y-codeBox.rect.h)), 0.05))*codeBox.rect.h;
 			scaleRatio := ifx dragRange != 0.0 then abs(codeBox.viewBounds.y)/dragRange else 1.0;
 			codeBox.viewOffset -= dragDelta * scaleRatio;
 			codeBox.viewOffset.y = clamp(codeBox.viewOffset.y, codeBox.viewBounds.y, 0);

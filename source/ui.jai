@@ -675,7 +675,7 @@ scroll_bar :: (handleKey: UIKey, scrollOffset: float, scrollRegionSize:float, vi
 		{
 			push_parent(scrollBarOuter); defer pop_parent();
 
-			handleSizePct := max(abs(visibleRange/scrollRegionSize), 0.05);
+			handleSizePct := max(abs(visibleRange/(scrollRegionSize-visibleRange)), 0.05);
 			spaceBeforePct := (1.0-handleSizePct) * abs(scrollOffset/scrollRegionSize);
 
 			// space before
@@ -692,6 +692,77 @@ scroll_bar :: (handleKey: UIKey, scrollOffset: float, scrollRegionSize:float, vi
 			return signal_from_box(scrollHandle).dragDelta;
 		}
 	}
+}
+
+scroll_list_begin :: (listKey: UIKey, maxContainerHeight: float, elementHeight: float, maxElements: int, selectedElement: int, selectedElementChanged: bool) -> rangeStart: int, rangeEnd: int {
+	outerContainer := box(ui_key_nil, .{ flags=0, layout=.{width=grow(), height=fit(), }});
+	push_parent(outerContainer);
+
+	maxContainerHeightInner := maxContainerHeight - em(0.4)*2; // without the padding
+
+	container := box(listKey, .{
+		flags=.CLIP_CONTENTS, 
+		layout=.{ childLayoutAxis = .Y, width=grow(), height=fit(0.0, maxContainerHeight), padding=.{0,0, em(0.4), em(0.4)} },
+	});
+
+	elementsBefore := cast(int, floor(abs(container.viewOffset.y) / elementHeight));
+	elementsOnScreen := min(cast(int, round(maxContainerHeightInner / elementHeight) + 1), maxElements);
+
+	container.viewBounds.y = min(cast(float, -(maxElements * elementHeight - maxContainerHeightInner)), 0.0);
+	signal_from_box(container);
+
+	// keyboard scrolling behaviour 
+	// @todo: don't really like the fact that we need to do this, need a better way to deal with it
+	// I guess the best solution is that the signal above is what actually changes the element and we manage it inside UI
+	if selectedElementChanged {
+		elementsBeforeTarget := cast(int, floor(abs(container.viewOffsetTarget.y) / elementHeight));
+		if selectedElement < elementsBeforeTarget+1 { 
+			distance := elementsBeforeTarget - selectedElement;
+			container.viewOffsetTarget.y = -selectedElement*elementHeight;
+		}
+		if selectedElement > (elementsBeforeTarget+elementsOnScreen-2) {
+			container.viewOffsetTarget.y = -(selectedElement+1)*elementHeight+(maxContainerHeight-em(0.4));
+		}
+	}
+
+	push_parent(container);
+
+	// spacer to fill gap of elements that are offscreen
+	spacer(.Y, fixed(elementsBefore*elementHeight));
+
+	rangeEnd := min(elementsBefore+elementsOnScreen-1, maxElements-1);
+	rangeStart := elementsBefore; 
+	return rangeStart, rangeEnd;
+}
+
+scroll_list_end :: (scrollBarKey: UIKey) {
+	container := pop_parent(); // list element container
+
+	container.viewOffset.y = clamp(container.viewOffset.y, container.viewBounds.y, 0);
+	container.viewOffset.x = clamp(container.viewOffset.x, container.viewBounds.x, 0);
+	container.viewOffsetTarget.y = clamp(container.viewOffsetTarget.y, container.viewBounds.y, 0);
+	container.viewOffsetTarget.x = clamp(container.viewOffsetTarget.x, container.viewBounds.x, 0);
+
+	// scroll bar if there are too many elements to display
+	if container.viewBounds.y != 0.0 {
+		maxContainerHeightInner := container.layout.height.max - em(0.4)*2;
+		dragDelta := scroll_bar(scrollBarKey, container.viewOffset.y, container.viewBounds.y, maxContainerHeightInner);
+
+		// note: this mirrors the calculation of the handleSizePct
+		dragRange := (1.0 - max(abs(maxContainerHeightInner/(container.viewBounds.y-maxContainerHeightInner)), 0.05))*maxContainerHeightInner;
+		scaleRatio := ifx dragRange != 0.0 then abs(container.viewBounds.y)/dragRange else 1.0;
+		container.viewOffset -= dragDelta * scaleRatio;
+		container.viewOffsetTarget -= dragDelta * scaleRatio;
+
+		// must redo the clamping here incase of a drag
+		// @cleanup, bit messy really, could do with a tidy
+		container.viewOffset.y = clamp(container.viewOffset.y, container.viewBounds.y, 0);
+		container.viewOffset.x = clamp(container.viewOffset.x, container.viewBounds.x, 0);
+		container.viewOffsetTarget.y = clamp(container.viewOffsetTarget.y, container.viewBounds.y, 0);
+		container.viewOffsetTarget.x = clamp(container.viewOffsetTarget.x, container.viewBounds.x, 0);
+	}
+
+	pop_parent(); // outer container (inc scroll bar)
 }
 
 // @todo: widgets:
