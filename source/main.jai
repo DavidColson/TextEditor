@@ -222,6 +222,7 @@ build_ui :: () {
 
 	uiState.defaultPalette = .{
 		text = style.textPrimary,
+		textHighlight = .{1.0, 0.0, 0.0, 1.0},
 		background=style.backgroundMid,
 		hot=style.hotHighlight,
 		active=style.activeHighlight,
@@ -456,10 +457,13 @@ build_ui :: () {
 							if it.mode == .NORMAL then mappingStr = it.keys;
 						}
 
-						box(ui_key("%", commandEntry.command.name), .{
-							flags=.DRAW_TEXT,
+						commandLabel := box(ui_key("%", commandEntry.command.name), .{
+							flags=.DRAW_TEXT_HIGHLIGHTS,
 							layout=.{ width=text_content(), height=text_content() },
 						});
+						// leaking memory!!
+						score, matches := fuzzy_search(commandEntry.command.name, string.{panel.commandPicker.input.text.count, panel.commandPicker.input.text.data});
+						commandLabel.textHighlights = matches;
 
 						box(ui_key_nil, .{ layout=.{width=grow()}});
 
@@ -916,19 +920,52 @@ round :: (f: float) -> float {
 }
 
 // fuzzy searching
-fuzzy_search :: (stringToSearch: string, filter: string) -> s32 {
-	if filter.count == 0 return 1;
-	// @todo case insensitive
-	i := find_index_from_left_nocase(stringToSearch, filter);
+FuzzyMatchRange :: struct {
+	start: s32;
+	end: s32;
+}
 
+fuzzy_search :: (stringToSearch: string, filter: string) -> score: s32, matches: [..]FuzzyMatchRange {
 	MAX_CHARS :: 200;
-	if i < 0 {
-		return 0; // no match means you get no score
+
+	matches: [..]FuzzyMatchRange;
+
+	if filter.count == 0 return 1, matches;
+
+	// search for the full string first
+	{
+		i := find_index_from_left_nocase(stringToSearch, filter);
+		if i >= 0 {
+			// match!
+			score := (200 + cast(s32, filter.count)) * (MAX_CHARS - i);
+			array_add(*matches, FuzzyMatchRange.{xx i, cast(s32, i + filter.count)});
+			return xx score, matches; 
+		}
 	}
-	// If it matched, we'll give it more if the filter was bigger
-	// and we'll give it more if the match was closer to the start of the search
-	score := (100 + cast(s32) filter.count) * (MAX_CHARS - i);
-	return xx score;
+
+	// search for individual (utf8) characters
+	score := 0;
+	pos := 0;
+	str := filter.data;
+	while str < filter.data+filter.count {
+		// iterate per unicode character, rather than literal scan of bytes
+		substr: string = ---;
+		substr.data = str;
+		str = unicode_next_character(str);
+		substr.count = str - substr.data;
+
+		// search 
+		i := find_index_from_left_nocase(stringToSearch, substr, pos);
+		if i < 0 { score = -1; break; }; 
+
+		// found a match!
+		score += 5 * (MAX_CHARS - i); 
+		array_add(*matches, FuzzyMatchRange.{xx i, cast(s32, i + substr.count)});
+
+		// start the next search after this one, so we find ordered matches of chars
+		pos = i + substr.count;
+	}
+	return xx score, matches;
 }
 
 find_index_from_left_nocase :: (s: string, substring: string, start_index := 0) -> s64 {

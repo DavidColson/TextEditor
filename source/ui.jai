@@ -27,6 +27,7 @@ UIBox :: struct {
 	using declaration: UIBoxDeclaration;
 	text: string;
 	textRun: TextRun;
+	textHighlights: []FuzzyMatchRange;
 	childCount: s32;
 	fixedPosition: [UIAxis.COUNT]float; // parent relative
 	fixedSize: [UIAxis.COUNT]float;
@@ -66,6 +67,7 @@ UISignal :: struct {
 UIBoxFlags :: enum_flags {
 	DRAW_BACKGROUND;
 	DRAW_TEXT;
+	DRAW_TEXT_HIGHLIGHTS;
 	DRAW_BORDER;
 	DRAW_SIDE_BOTTOM;
 	DRAW_SIDE_TOP;
@@ -114,9 +116,10 @@ UIPalette :: struct {
 	hot: Vector4;
 	active: Vector4;
 	text: Vector4;
+	textHighlight: Vector4;
 	border: Vector4;
 #place background;
-	colors: [5]Vector4 = ---;
+	colors: [6]Vector4 = ---;
 }
 
 UIKey :: struct {
@@ -229,7 +232,7 @@ box :: (key: UIKey = ui_key_nil, data: UIBoxDeclaration) -> *UIBox {
 		assert(box.layout.size[UIAxis.Y].type != .GROW || box.layout.size[UIAxis.Y].type != .PERCENT, "Grow and percent sized boxes cannot be floating, they need some defined size"); 
 	}
 
-	if box.flags & .DRAW_TEXT {
+	if box.flags & .DRAW_TEXT || box.flags & .DRAW_TEXT_HIGHLIGHTS {
 		box.text = display_string_from_key(box.key.keyStr);
 	}
 
@@ -830,6 +833,25 @@ render_ui_recursive :: (box: *UIBox) {
 		}
 		xPos = floor(xPos);
 		draw_text_run(box.textRun, xPos, yPos, box.palette.text);
+	}
+
+	if box.flags & .DRAW_TEXT_HIGHLIGHTS {
+		// find position of text?
+		box.textRun = generate_text_run(box.text, xx box.fontSize, box.font,,temp);
+		metrics := get_font_metrics(box.font, xx box.fontSize);
+		yPos := floor(box.rect.y + box.rect.h/2.0) + floor(box.fontSize/2.0) - 1.0;
+		xPos := box.rect.x;
+
+		if box.textAlignment == {
+			case .LEFT;
+				xPos += box.textPadding;
+			case .CENTER;
+				xPos = box.rect.x + Min((box.rect.w/2.0) - box.textRun.width/2.0, box.rect.w);
+			case .RIGHT;
+				xPos = box.rect.x + Min(box.rect.w - box.textRun.width - box.textPadding, box.rect.w);
+		}
+		xPos = floor(xPos);
+		draw_text_run_highlights(box.textRun, xPos, yPos, box.textHighlights, box.palette.text, box.palette.textHighlight);
 	}
 
 	if box.customDrawFunction {

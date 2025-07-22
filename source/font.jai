@@ -237,11 +237,55 @@ generate_text_run :: (text: string, size: int, font: *Font, startCol := 0) -> Te
 }
 
 draw_text_run :: (textRun: TextRun, x: float, y: float, color: Vector4) {
+
+	// drawing fuzzy matches?
+
+	// We essentially want a list of ranges with a color
+	// this may not cover everything
+	// so when you render the text, if there is a gap between the current character
+	// and the start of the next node, render it with default color
+	// otherwise use the color of the node and render up to the end of the node
+	// then go to the next node
+	// once again, if it is further away render without a color, repeat
 	for textRun.instances {
 		instance := it;
 		instance.dstRect.x = round(x + instance.dstRect.x);
 		instance.dstRect.y = round(y + instance.dstRect.y);
 		instance.color = color;
+		submit_instance(instance);
+	}
+}
+
+draw_text_run_highlights :: (textRun: TextRun, x: float, y: float, highlights: []FuzzyMatchRange, color: Vector4, highlightColor: Vector4) {
+
+	currHighlightIndex := 0;
+	currHighlight := FuzzyMatchRange.{};
+	if currHighlightIndex < highlights.count {
+		currHighlight = highlights[currHighlightIndex];
+	}
+
+	for textRun.instances {
+		instance := it;
+		instance.dstRect.x = round(x + instance.dstRect.x);
+		instance.dstRect.y = round(y + instance.dstRect.y);
+
+		if it_index >= currHighlight.end {
+			currHighlightIndex += 1;
+			if currHighlightIndex < highlights.count {
+				currHighlight = highlights[currHighlightIndex];
+			}
+			else {
+				currHighlight = FuzzyMatchRange.{};
+			}
+		}
+
+		if it_index >= currHighlight.start && it_index < currHighlight.end {
+			instance.color = highlightColor;
+		}
+		else {
+			instance.color = color;
+		}
+
 		submit_instance(instance);
 	}
 }
