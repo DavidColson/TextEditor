@@ -36,6 +36,7 @@ style: struct {
 
 	textPrimary := #run hex_to_color_vec4("C3C7D0");
 	textSecondary := #run hex_to_color_vec4("5C6370");
+	textHighlight := #run hex_to_color_vec4("7e90bd");
 	textSelection := #run hex_to_color_vec4("434d60");
 
 	borders := #run hex_to_color_vec4("5C6476");
@@ -222,7 +223,7 @@ build_ui :: () {
 
 	uiState.defaultPalette = .{
 		text = style.textPrimary,
-		textHighlight = .{1.0, 0.0, 0.0, 1.0},
+		textHighlight = style.textHighlight,
 		background=style.backgroundMid,
 		hot=style.hotHighlight,
 		active=style.activeHighlight,
@@ -920,17 +921,17 @@ round :: (f: float) -> float {
 }
 
 // fuzzy searching
-FuzzyMatchRange :: struct {
+Highlight :: struct {
 	start: s32;
 	end: s32;
 }
 
-fuzzy_search :: (stringToSearch: string, filter: string) -> score: s32, matches: [..]FuzzyMatchRange {
+fuzzy_search :: (stringToSearch: string, filter: string) -> score: s32, highlights: [..]Highlight {
 	MAX_CHARS :: 200;
 
-	matches: [..]FuzzyMatchRange;
+	highlights: [..]Highlight;
 
-	if filter.count == 0 return 1, matches;
+	if filter.count == 0 return 1, highlights;
 
 	// search for the full string first
 	{
@@ -938,8 +939,8 @@ fuzzy_search :: (stringToSearch: string, filter: string) -> score: s32, matches:
 		if i >= 0 {
 			// match!
 			score := (200 + cast(s32, filter.count)) * (MAX_CHARS - i);
-			array_add(*matches, FuzzyMatchRange.{xx i, cast(s32, i + filter.count)});
-			return xx score, matches; 
+			array_add(*highlights, Highlight.{xx i, cast(s32, i + filter.count)});
+			return xx score, highlights; 
 		}
 	}
 
@@ -960,12 +961,12 @@ fuzzy_search :: (stringToSearch: string, filter: string) -> score: s32, matches:
 
 		// found a match!
 		score += 5 * (MAX_CHARS - i); 
-		array_add(*matches, FuzzyMatchRange.{xx i, cast(s32, i + substr.count)});
+		array_add(*highlights, Highlight.{xx i, cast(s32, i + substr.count)});
 
-		// start the next search after this one, so we find ordered matches of chars
+		// start the next search after this one, so we find ordered highlights of chars
 		pos = i + substr.count;
 	}
-	return xx score, matches;
+	return xx score, highlights;
 }
 
 find_index_from_left_nocase :: (s: string, substring: string, start_index := 0) -> s64 {

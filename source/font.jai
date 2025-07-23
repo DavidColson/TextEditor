@@ -256,10 +256,10 @@ draw_text_run :: (textRun: TextRun, x: float, y: float, color: Vector4) {
 	}
 }
 
-draw_text_run_highlights :: (textRun: TextRun, x: float, y: float, highlights: []FuzzyMatchRange, color: Vector4, highlightColor: Vector4) {
+draw_text_run_highlights :: (textRun: TextRun, x: float, y: float, highlights: []Highlight, color: Vector4, highlightColor: Vector4) {
 
 	currHighlightIndex := 0;
-	currHighlight := FuzzyMatchRange.{};
+	currHighlight := Highlight.{};
 	if currHighlightIndex < highlights.count {
 		currHighlight = highlights[currHighlightIndex];
 	}
@@ -275,7 +275,7 @@ draw_text_run_highlights :: (textRun: TextRun, x: float, y: float, highlights: [
 				currHighlight = highlights[currHighlightIndex];
 			}
 			else {
-				currHighlight = FuzzyMatchRange.{};
+				currHighlight = Highlight.{};
 			}
 		}
 

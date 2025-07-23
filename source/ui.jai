@@ -27,7 +27,7 @@ UIBox :: struct {
 	using declaration: UIBoxDeclaration;
 	text: string;
 	textRun: TextRun;
-	textHighlights: []FuzzyMatchRange;
+	textHighlights: []Highlight;
 	childCount: s32;
 	fixedPosition: [UIAxis.COUNT]float; // parent relative
 	fixedSize: [UIAxis.COUNT]float;
