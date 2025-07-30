@@ -135,7 +135,10 @@ main :: () {
 	focusedPanel.activeDialog = .NONE;
 
 	if filesToOpen.count > 0 {
-		panel_set_active_document(*focusedPanel, document_open(filesToOpen[0]));
+		doc := document_open(filesToOpen[0]);
+		if doc {
+			panel_set_active_document(*focusedPanel, doc);
+		}
 	}
 
 	platform_set_backup_timer(window, do_backup_callback);

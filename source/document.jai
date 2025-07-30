@@ -97,6 +97,12 @@ document_open :: (path: string) -> *Document {
 		return *bucket.data[existinglocator.slot_index];
 	}
 
+	// check if the file even exists
+	if !file_exists(path) {
+		push_notification("File Does Not Exist");
+		return null;
+	}
+
 	doc, locator := find_and_occupy_empty_slot(*open_documents);
 
 	doc.documentMemory.alignment = 1;
