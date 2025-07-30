@@ -541,9 +541,17 @@ document_delete_text :: (doc: *Document, startAt: DocumentCursor, endAt: Documen
 	else {
 		// all of the start node will be removed
 		// place the cursor at the previous node which will remain untouched
-		newCursor.node = startAt.node.prev;
-		newCursor.nodeStartOffset = startAt.nodeStartOffset - startAt.node.prev.length;
-		newCursor.nodeStartLine = startAt.nodeStartLine - startAt.node.prev.lineFeedCount;
+		if startAt.node != doc.pieceChainHead {
+			newCursor.node = startAt.node.prev;
+			newCursor.nodeStartOffset = startAt.nodeStartOffset - startAt.node.prev.length;
+			newCursor.nodeStartLine = startAt.nodeStartLine - startAt.node.prev.lineFeedCount;
+		}
+		else {
+			node = node.next; // don't delete the head node
+			newCursor.node = doc.pieceChainHead;
+			newCursor.nodeStartOffset = 0;
+			newCursor.nodeStartLine = 0;
+		}
 	}
 
 	// remove all nodes until you have removed the required amount of bytes
@@ -724,7 +732,7 @@ document_cursor_step_one_forward :: (cursor: *DocumentCursor, skipReturns := fal
 	buffer: = ifx cursor.node.added then *cursor.doc.addedData else *cursor.doc.originalData;
 	offsetInNode := cursor.documentOffset - cursor.nodeStartOffset;
 
-	if offsetInNode >= cursor.node.length && cursor.node.next == null {
+	if offsetInNode >= cursor.node.length && cursor.node.next == cursor.doc.pieceChainTail {
 		return 0; // end of document
 	}
 
@@ -755,7 +763,7 @@ document_cursor_step_one_backward :: (cursor: *DocumentCursor, skipReturns := fa
 	buffer: = ifx cursor.node.added then *cursor.doc.addedData else *cursor.doc.originalData;
 	offsetInNode := cursor.documentOffset - cursor.nodeStartOffset;
 	
-	if offsetInNode <= 0 && cursor.node.prev == null {
+	if offsetInNode <= 0 && cursor.node.prev == cursor.doc.pieceChainHead {
 		cursor.documentOffset = 0;
 		return 0; // start of document
 	}
