@@ -3,10 +3,10 @@ FilesystemNavigator :: struct {
 	memory : Flat_Pool;
 
 	saveMode: bool;
-	pendingAction: bool;
 	currentPath: [..]string;
 	itemList: [..]Item;
 	selectedItem:s64;
+	selectedItemChanged:bool;
 	numToDisplay:s64; // number of items with positive sortkeys
 	input: InputField;
 
@@ -37,7 +37,6 @@ filesystem_nav_reset :: (using panel: *Panel) {
 	using panel.filesystemNav;
 	saveMode = false;
 	numToDisplay = 0;
-	pendingAction = false;
 	array_reset(*currentPath);
 	array_reset(*itemList);
 	#if BUILD_TYPE == BuildType.DEBUG {
@@ -65,52 +64,42 @@ filesystem_nav_select_next :: (using panel: *Panel, args: []string) {
 	state := *filesystemNav;
 	maxItems := state.numToDisplay - 1;
 	state.selectedItem = clamp(state.selectedItem+1, 0, xx maxItems);
+	state.selectedItemChanged = true;
 }
 
 filesystem_nav_select_previous :: (using panel: *Panel, args: []string) {
 	state := *filesystemNav;
 	maxItems := state.numToDisplay - 1;
 	state.selectedItem = clamp(state.selectedItem-1, 0, xx maxItems);
+	state.selectedItemChanged = true;
 }
 
 filesystem_nav_action_item :: (using panel: *Panel, args: []string) {
 	state := *filesystemNav;
 
-	if state.pendingAction {
-		if state.saveMode {
-			document_save(panel.document, make_path_from_strings(state.currentPath,,temp));
-			editorMode = .NORMAL;
-			filesystem_nav_reset(panel);
+	item := state.itemList[state.selectedItem];
+	if item.saveItem {
+		// save item, we need to save this file
+		fileName := copy_string(input_field_get_text(*state.input),,get_allocator(state));
+		array_add(*state.currentPath, fileName,, get_allocator(state));
+		document_save(panel.document, make_path_from_strings(state.currentPath,,temp));
+		editorMode = .NORMAL;
+		filesystem_nav_reset(panel);
+	}
+	else {
+		array_add(*state.currentPath, item.name,, get_allocator(state));
+
+		// normal case, add path element to list and refresh
+		if platform_is_path_directory(make_path_from_strings(state.currentPath,,temp)) {
+			filesystem_nav_refresh_directory_list(state);
+			input_field_reset_keeping_memory(*state.input);
 		}
+		// item is a file, open it
 		else {
-			// @todo: the action may be more than just open, could be delete or rename
 			doc := document_open(make_path_from_strings(state.currentPath,,temp));
 			panel_set_active_document(panel, doc);
 			editorMode = .NORMAL;
 			filesystem_nav_reset(panel);
-		}
-	}
-	else {
-		item := state.itemList[state.selectedItem];
-		if item.saveItem {
-			// save item, we need to save this file
-			fileName := copy_string(input_field_get_text(*state.input),,get_allocator(state));
-			array_add(*state.currentPath, fileName,, get_allocator(state));
-			document_save(panel.document, make_path_from_strings(state.currentPath,,temp));
-			editorMode = .NORMAL;
-			filesystem_nav_reset(panel);
-		}
-		else {
-			// normal case, add path element to list and refresh
-			array_add(*state.currentPath, item.name,, get_allocator(state));
-
-			if platform_is_path_directory(make_path_from_strings(state.currentPath,,temp)) {
-				filesystem_nav_refresh_directory_list(state);
-				input_field_reset_keeping_memory(*state.input);
-			}
-			else {
-				state.pendingAction = true;
-			}
 		}
 	}
 }

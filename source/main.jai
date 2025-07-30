@@ -438,6 +438,8 @@ build_ui :: () {
 				for rangeStart..rangeEnd {
 					commandEntry := panel.commandPicker.filteredCommandList[it];
 
+					if commandEntry.sortKey == 0 continue;
+
 					// @todo: may be desirable to use the UI focus (hot/active) system for this?
 					entryFlags:UIBoxFlags = 0;
 					if it == panel.commandPicker.selectedCommand {
@@ -480,6 +482,131 @@ build_ui :: () {
 				}
 
 				scroll_list_end(ui_key("commandListScroller")); 
+			}
+		}
+
+		if panel.activeDialog == .FILESYSTEM_NAVIGATOR {
+			fileNavContainer := box(ui_key_nil, .{
+				flags=.DRAW_BACKGROUND,
+				layout=.{ 
+					childLayoutAxis = .Y,
+					width=fixed(panel.layoutRect.w / 2),
+					height=fit(),
+					padding= padding_all(em(0.4)),
+				},
+				palette=.{ background=style.backgroundLight },
+				cornerRadius=corner_rad_all(em(0.5)),
+				fixedX=panel.layoutRect.x+(panel.layoutRect.w-(panel.layoutRect.w/2))/2,
+				fixedY=em(3.0)
+			});
+			{
+				push_parent(fileNavContainer); defer pop_parent();
+
+				fontMetrics := get_font_metrics(uiState.defaultFont, xx uiState.defaultFontSize);
+				inputBox := box(ui_key_nil, .{
+					flags=.DRAW_BACKGROUND,
+					layout=.{
+						width=grow(),
+						height=fixed(fontMetrics.lineSpacing+em(0.8)),
+						childLayoutAxis=.X,
+						padding=padding_all(em(0.4)),
+						childGap=em(0.2)
+					},
+					cornerRadius=corner_rad_all(em(0.2)),
+					palette=.{ background=style.backgroundLighter },
+					textPadding=em(0.5)
+				});
+
+				// draw existing path sections
+				{
+					push_parent(inputBox); defer pop_parent();
+
+					for panel.filesystemNav.currentPath {
+						pathSectionLabel := box(ui_key("%", it), .{
+							flags=.DRAW_TEXT | .DRAW_BACKGROUND,
+							layout=.{ width=text_content(), height=text_content() },
+						});
+					}
+
+					inputArea := box(ui_key("fileNavInput"), .{
+						flags=0,
+						layout=.{
+							width=grow(),
+							height=fixed(xx fontMetrics.lineSpacing),
+							childLayoutAxis=.X
+						},
+					});
+
+					inputArea.customDrawFunction = custom_draw_input_field;
+					inputArea.customDrawUdata = cast(*void, *panel.filesystemNav.input);
+				}
+
+				elementHeight := cast(float, fontMetrics.characterHeight*2);
+				rangeStart, rangeEnd := scroll_list_begin(ui_key("fileNav_fileList"),
+									panel.layoutRect.h/2,
+									elementHeight,
+									panel.filesystemNav.numToDisplay,
+									panel.filesystemNav.selectedItem,
+									panel.filesystemNav.selectedItemChanged);
+
+				if panel.filesystemNav.selectedItemChanged then panel.filesystemNav.selectedItemChanged = false;
+
+				for rangeStart..rangeEnd {
+					directoryItem := panel.filesystemNav.itemList[it];
+					if directoryItem.sortKey == 0 continue;
+
+					if directoryItem.saveItem == true {
+						builder: String_Builder;
+						builder.allocator = temp;
+						init_string_builder(*builder);
+
+						append(*builder, "Save As - ");
+						for panel.filesystemNav.currentPath {
+							append(*builder, it);
+							if (it_index != panel.filesystemNav.currentPath.count-1)  append(*builder, "/");
+						}
+						append(*builder, "/");
+						append(*builder, input_field_get_text(*panel.filesystemNav.input));
+
+						entryBox := box(ui_key("savefileItem"), .{
+							flags=.DRAW_BACKGROUND, layout=.{ width=grow(), height=fixed(elementHeight), padding=padding_all(em(0.2)) },
+							palette=.{ background=style.backgroundLighter },
+						});
+						{
+							push_parent(entryBox); defer pop_parent();
+							itemLabel := box(ui_key("%", builder_to_string(*builder,,temp)), .{
+								flags=.DRAW_TEXT_HIGHLIGHTS,
+								layout=.{ width=text_content(), height=text_content() },
+							});
+						}
+					}
+					else {
+
+						// @todo: may be desirable to use the UI focus (hot/active) system for this?
+						entryFlags:UIBoxFlags = 0;
+						if it == panel.filesystemNav.selectedItem {
+							entryFlags |= .DRAW_BACKGROUND;
+						}
+
+						entryBox := box(ui_key("directoryItem##%", it), .{
+							flags=entryFlags, layout=.{ width=grow(), height=fixed(elementHeight), padding=padding_all(em(0.2)) },
+							palette=.{ background=style.backgroundLighter },
+						});
+						{
+							push_parent(entryBox); defer pop_parent();
+
+							itemLabel := box(ui_key("%##commandEntry%", directoryItem.name, it), .{
+								flags=.DRAW_TEXT_HIGHLIGHTS,
+								layout=.{ width=text_content(), height=text_content() },
+							});
+							//@todo: leaking memory!!
+							score, matches := fuzzy_search(directoryItem.name, string.{panel.filesystemNav.input.text.count, panel.filesystemNav.input.text.data});
+							itemLabel.textHighlights = matches;
+						}
+					}
+				}
+		
+				scroll_list_end(ui_key("filesystemNavScroller")); 
 			}
 		}
 

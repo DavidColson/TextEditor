@@ -85,10 +85,12 @@ command_picker_execute_command :: (using panel: *Panel, args: []string) {
 	state := *commandPicker;
 
 	cmd := state.filteredCommandList[state.selectedCommand].command; 
-	cmd.execute(panel, string.[]); // @todo: command picker can't give arguments yet? Needs this ability
+
+	// reset before executing the command, incase the command opens a dialog
 	command_picker_reset(panel);
 	editorMode = .NORMAL;
-	panel.activeDialog = .NONE;
+
+	cmd.execute(panel, string.[]); // @todo: command picker can't give arguments yet? Needs this ability
 }
 
 command_picker_select_next :: (using panel: *Panel, args: []string) {
