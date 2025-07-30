@@ -235,20 +235,22 @@ document_load_from_disk :: (doc: *Document) {
 	doc.redoStack.allocator = doc.pieceChainAlloc;
 
 	// create the main node of the piece chain
-	node := New(PieceChainNode,, doc.pieceChainAlloc);
-	node.start = Coordinate.{0,0}; 
-	node.end = Coordinate.{
-		doc.originalData.lineStarts.count - 1,
-		doc.originalData.text.count - doc.originalData.lineStarts[doc.originalData.lineStarts.count - 1]}; 
-	node.length = doc.originalData.text.count; 
-	node.lineFeedCount = doc.originalData.lineStarts.count-1; 
-	node.added = false;
+	if doc.size > 0 {
+		node := New(PieceChainNode,, doc.pieceChainAlloc);
+		node.start = Coordinate.{0,0}; 
+		node.end = Coordinate.{
+			doc.originalData.lineStarts.count - 1,
+			doc.originalData.text.count - doc.originalData.lineStarts[doc.originalData.lineStarts.count - 1]}; 
+		node.length = doc.originalData.text.count; 
+		node.lineFeedCount = doc.originalData.lineStarts.count-1; 
+		node.added = false;
 
-	// place the main node into the linked list
-	doc.pieceChainHead.next = node;
-	node.prev = doc.pieceChainHead;
-	node.next = doc.pieceChainTail;
-	doc.pieceChainTail.prev = node;
+		// place the main node into the linked list
+		doc.pieceChainHead.next = node;
+		node.prev = doc.pieceChainHead;
+		node.next = doc.pieceChainTail;
+		doc.pieceChainTail.prev = node;
+	}
 }
 
 document_close :: (doc: *Document) {
@@ -880,7 +882,7 @@ document_cursor_get_char :: (cursor: *DocumentCursor) -> u8 {
 	// we allow cursors to sit at the end of a node (for inserting), 
 	// but in that case, if we're at the end of a node, the char is actually in the next buffer
 	if offsetInNode == cursor.node.length {
-		if cursor.node.next == null return 0; 
+		if cursor.node.next == cursor.doc.pieceChainTail return 0; 
 		buffer: = ifx cursor.node.next.added then *cursor.doc.addedData else *cursor.doc.originalData;
 		bufferOffset := buffer_cursor_to_offset(buffer, cursor.node.next.start);
 		char := buffer.text[bufferOffset];
