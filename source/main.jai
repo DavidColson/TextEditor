@@ -219,8 +219,6 @@ main :: () {
 build_ui :: () {
 	begin_ui();
 
-	panel := *focusedPanel;
-
 	uiState.defaultPalette = .{
 		text = style.textPrimary,
 		textHighlight = style.textHighlight,
@@ -233,457 +231,459 @@ build_ui :: () {
 	uiState.defaultFontSize = style.fontSize * dpiScale;
 	uiState.defaultTextPadding = em(0.2);
 
+	build_ui_panel(*focusedPanel);
+
+	end_ui();
+
+	render_frame();
+}
+
+build_ui_panel :: (panel: *Panel) {
 	panelBox := box(ui_key("panel1"), .{
 		flags=.DRAW_BACKGROUND,
 		layout=.{childLayoutAxis = .Y, width=fixed(panel.layoutRect.w), height=fixed(panel.layoutRect.h)},
 	});
+	push_parent(panelBox); defer pop_parent();
+
+	header := box(ui_key_nil, .{
+		flags=.DRAW_BACKGROUND | .DRAW_SIDE_BOTTOM,
+		layout=.{ 
+			childLayoutAxis = .X,
+			width=grow(),
+			height=fit(),
+			padding= padding_all(em(0.3))
+		},
+		palette=.{ background=style.backgroundLight },
+		borderThickness=1.0
+	});
 	{
-		push_parent(panelBox); defer pop_parent();
+		push_parent(header); defer pop_parent();
 
-		header := box(ui_key_nil, .{
-			flags=.DRAW_BACKGROUND | .DRAW_SIDE_BOTTOM,
-			layout=.{ 
-				childLayoutAxis = .X,
-				width=grow(),
-				height=fit(),
-				padding= padding_all(em(0.3))
-			},
-			palette=.{ background=style.backgroundLight },
-			borderThickness=1.0
+		// mode
+		modeText := "NORMAL";
+		if extendSelections && editorMode == .NORMAL {
+			modeText = "SELECT";
+		}
+		else if editorMode == .INSERT {
+			modeText = "INSERT";
+		}
+		box(ui_key(modeText), .{
+			flags=.DRAW_BACKGROUND | .DRAW_TEXT,
+			layout=.{ width=text_content(), height=text_content() },
+			palette=.{ background=style.backgroundDark },
 		});
-		{
-			push_parent(header); defer pop_parent();
 
-			// mode
-			modeText := "NORMAL";
-			if extendSelections && editorMode == .NORMAL {
-				modeText = "SELECT";
-			}
-			else if editorMode == .INSERT {
-				modeText = "INSERT";
-			}
-			box(ui_key(modeText), .{
-				flags=.DRAW_BACKGROUND | .DRAW_TEXT,
-				layout=.{ width=text_content(), height=text_content() },
-				palette=.{ background=style.backgroundDark },
-			});
+		spacer(.X, fixed(em(0.5)));
 
-			spacer(.X, fixed(em(0.5)));
-
-			// filename
-			fileLabel := box(ui_key(path_filename(panel.document.path)), .{
+		// filename
+		fileLabel := box(ui_key(path_filename(panel.document.path)), .{
+			flags=.DRAW_TEXT,
+			layout=.{ width=text_content(), height=text_content() },
+		});
+		if signal_from_box(fileLabel).hovering {
+			tooltip_begin(fileLabel.key, .{0.0, em(1.9)});
+			box(ui_key(panel.document.path), .{
 				flags=.DRAW_TEXT,
 				layout=.{ width=text_content(), height=text_content() },
 			});
-			if signal_from_box(fileLabel).hovering {
-				tooltip_begin(fileLabel.key, .{0.0, em(1.9)});
-				box(ui_key(panel.document.path), .{
-					flags=.DRAW_TEXT,
-					layout=.{ width=text_content(), height=text_content() },
-				});
-				tooltip_end();
-			}
+			tooltip_end();
+		}
 
-			// lock icon @todo: implement for real
-			if false {
-				box(ui_key(style.iconLock), .{
-					flags=.DRAW_TEXT,
-					layout=.{ width=text_content(), height=text_content() },
-					fontSize=em(0.7),
-					font=fontIcons
-				});
-			}
-
-			// icon for file save status
-			if panel.document.unsaved {
-				box(ui_key(style.iconCircle), .{
-					flags=.DRAW_TEXT,
-					layout=.{ width=text_content(), height=text_content() },
-					fontSize=em(0.7),
-					font=fontIcons
-				});
-			}
-
-			spacer(.X, grow());
-
-			// pending keys
-			pendingKeys := string.{keyMap.pendingKeyString.count, keyMap.pendingKeyString.data};
-			box(ui_key(pendingKeys), .{
+		// lock icon @todo: implement for real
+		if false {
+			box(ui_key(style.iconLock), .{
 				flags=.DRAW_TEXT,
 				layout=.{ width=text_content(), height=text_content() },
+				fontSize=em(0.7),
+				font=fontIcons
 			});
+		}
 
-			spacer(.X, fixed(em(2.0)));
-
-			// location
-			cursorCoordinate := document_cursor_get_coordinate(*panel.cursor.head);
-			box(ui_key("Ln: % Col: % Byte: %", cursorCoordinate.line+1, cursorCoordinate.col, panel.cursor.head.documentOffset), .{
+		// icon for file save status
+		if panel.document.unsaved {
+			box(ui_key(style.iconCircle), .{
 				flags=.DRAW_TEXT,
 				layout=.{ width=text_content(), height=text_content() },
+				fontSize=em(0.7),
+				font=fontIcons
 			});
+		}
 
-			spacer(.X, fixed(em(2.0)));
+		spacer(.X, grow());
 
-			// line endings
-			lineEndingText := "[Mixed]";
-			if panel.document.lineEndings == .LF {
-				lineEndingText = "LF";
-			}
-			else if panel.document.lineEndings == .CRLF {
-				lineEndingText = "CRLF";
-			}
-			else if panel.document.lineEndings == .MIXED_MAJORITY_LF {
-				lineEndingText = "[Mixed]";
-			}
-			box(ui_key(lineEndingText), .{
-				flags=.DRAW_TEXT,
-				layout=.{ width=text_content(), height=text_content() },
+		// pending keys
+		pendingKeys := string.{keyMap.pendingKeyString.count, keyMap.pendingKeyString.data};
+		box(ui_key(pendingKeys), .{
+			flags=.DRAW_TEXT,
+			layout=.{ width=text_content(), height=text_content() },
+		});
+
+		spacer(.X, fixed(em(2.0)));
+
+		// location
+		cursorCoordinate := document_cursor_get_coordinate(*panel.cursor.head);
+		box(ui_key("Ln: % Col: % Byte: %", cursorCoordinate.line+1, cursorCoordinate.col, panel.cursor.head.documentOffset), .{
+			flags=.DRAW_TEXT,
+			layout=.{ width=text_content(), height=text_content() },
+		});
+
+		spacer(.X, fixed(em(2.0)));
+
+		// line endings
+		lineEndingText := "[Mixed]";
+		if panel.document.lineEndings == .LF {
+			lineEndingText = "LF";
+		}
+		else if panel.document.lineEndings == .CRLF {
+			lineEndingText = "CRLF";
+		}
+		else if panel.document.lineEndings == .MIXED_MAJORITY_LF {
+			lineEndingText = "[Mixed]";
+		}
+		box(ui_key(lineEndingText), .{
+			flags=.DRAW_TEXT,
+			layout=.{ width=text_content(), height=text_content() },
+		});
+
+		spacer(.X, fixed(em(2.0)));
+
+		// file type
+		box(ui_key("Jai"), .{
+			flags=.DRAW_TEXT,
+			layout=.{ width=text_content(), height=text_content() },
+		});
+
+		spacer(.X, fixed(em(2.0)));
+
+		// panel options button
+		panelOptsKey := ui_key("panelopts");
+		if is_context_menu_open(panelOptsKey) { 
+			button := box(ui_key(style.iconVerticalEllipsis), .{
+				flags=.DRAW_BACKGROUND | .DRAW_TEXT | .MOUSE_CLICKABLE,
+				layout=.{ width=fixed(em(1.5)), height=text_content() },
+				palette=.{background=style.activeHighlight},
+				font=fontIcons,
+				textAlignment=.CENTER,
+				cornerRadius=corner_rad_all(em(0.3))
 			});
-
-			spacer(.X, fixed(em(2.0)));
-
-			// file type
-			box(ui_key("Jai"), .{
-				flags=.DRAW_TEXT,
-				layout=.{ width=text_content(), height=text_content() },
+			if signal_from_box(button).pressed {
+				context_menu_close();
+			}
+		}
+		else {
+			button := box(ui_key(style.iconVerticalEllipsis), .{
+				flags=.DRAW_BACKGROUND | .DRAW_TEXT | .DRAW_HOT_EFFECTS | .MOUSE_CLICKABLE,
+				layout=.{ width=fixed(em(1.5)), height=text_content() },
+				font=fontIcons,
+				textAlignment=.CENTER,
+				cornerRadius=corner_rad_all(em(0.3))
 			});
-
-			spacer(.X, fixed(em(2.0)));
-
-			// panel options button
-			panelOptsKey := ui_key("panelopts");
-			if is_context_menu_open(panelOptsKey) { 
-				button := box(ui_key(style.iconVerticalEllipsis), .{
-					flags=.DRAW_BACKGROUND | .DRAW_TEXT | .MOUSE_CLICKABLE,
-					layout=.{ width=fixed(em(1.5)), height=text_content() },
-					palette=.{background=style.activeHighlight},
-					font=fontIcons,
-					textAlignment=.CENTER,
-					cornerRadius=corner_rad_all(em(0.3))
-				});
-				if signal_from_box(button).pressed {
-					context_menu_close();
-				}
-			}
-			else {
-				button := box(ui_key(style.iconVerticalEllipsis), .{
-					flags=.DRAW_BACKGROUND | .DRAW_TEXT | .DRAW_HOT_EFFECTS | .MOUSE_CLICKABLE,
-					layout=.{ width=fixed(em(1.5)), height=text_content() },
-					font=fontIcons,
-					textAlignment=.CENTER,
-					cornerRadius=corner_rad_all(em(0.3))
-				});
-				if signal_from_box(button).pressed {
-					context_menu_open(panelOptsKey);
-				}
-			}
-
-			if context_menu_begin(key=panelOptsKey,
-									width=fixed(em(12.0)),
-									anchorBoxKey=ui_key(style.iconVerticalEllipsis),
-									anchorOffset=.{0.0, em(1.9)}) {
-
-				if context_menu_item("Line Numbers", style.iconNumList).pressed {
-					lineNumbers = !lineNumbers;
-				}
-				context_menu_item("View Line Endings", "");
-				context_menu_item("Line Wrapping", style.iconAlignLeft);
-				context_menu_end();
+			if signal_from_box(button).pressed {
+				context_menu_open(panelOptsKey);
 			}
 		}
 
+		if context_menu_begin(key=panelOptsKey,
+								width=fixed(em(12.0)),
+								anchorBoxKey=ui_key(style.iconVerticalEllipsis),
+								anchorOffset=.{0.0, em(1.9)}) {
 
-		if panel.activeDialog == .COMMAND_PICKER {
-			commandPickerContainer := box(ui_key_nil, .{
+			if context_menu_item("Line Numbers", style.iconNumList).pressed {
+				lineNumbers = !lineNumbers;
+			}
+			context_menu_item("View Line Endings", "");
+			context_menu_item("Line Wrapping", style.iconAlignLeft);
+			context_menu_end();
+		}
+	}
+
+
+	if panel.activeDialog == .COMMAND_PICKER {
+		commandPickerContainer := box(ui_key_nil, .{
+			flags=.DRAW_BACKGROUND,
+			layout=.{ 
+				childLayoutAxis = .Y,
+				width=fixed(panel.layoutRect.w / 2),
+				height=fit(),
+				padding= padding_all(em(0.4)),
+			},
+			palette=.{ background=style.backgroundLight },
+			cornerRadius=corner_rad_all(em(0.5)),
+			fixedX=panel.layoutRect.x+(panel.layoutRect.w-(panel.layoutRect.w/2))/2,
+			fixedY=em(3.0)
+		});
+		{
+			push_parent(commandPickerContainer); defer pop_parent();
+
+			fontMetrics := get_font_metrics(uiState.defaultFont, xx uiState.defaultFontSize);
+			inputBox := box(ui_key("commandPickerInput"), .{
 				flags=.DRAW_BACKGROUND,
-				layout=.{ 
-					childLayoutAxis = .Y,
-					width=fixed(panel.layoutRect.w / 2),
-					height=fit(),
-					padding= padding_all(em(0.4)),
+				layout=.{
+					width=grow(),
+					height=fixed(fontMetrics.lineSpacing+em(0.8)),
 				},
-				palette=.{ background=style.backgroundLight },
-				cornerRadius=corner_rad_all(em(0.5)),
-				fixedX=panel.layoutRect.x+(panel.layoutRect.w-(panel.layoutRect.w/2))/2,
-				fixedY=em(3.0)
+				cornerRadius=corner_rad_all(em(0.2)),
+				palette=.{ background=style.backgroundLighter },
+				textPadding=em(0.5)
 			});
-			{
-				push_parent(commandPickerContainer); defer pop_parent();
 
-				fontMetrics := get_font_metrics(uiState.defaultFont, xx uiState.defaultFontSize);
-				inputBox := box(ui_key("commandPickerInput"), .{
-					flags=.DRAW_BACKGROUND,
+			inputBox.customDrawFunction = custom_draw_input_field;
+			inputBox.customDrawUdata = cast(*void, *panel.commandPicker.input);
+
+			elementHeight := cast(float, fontMetrics.characterHeight*2);
+			rangeStart, rangeEnd := scroll_list_begin(ui_key("commandList"),
+								panel.layoutRect.h/2,
+								elementHeight,
+								panel.commandPicker.numToDisplay,
+								panel.commandPicker.selectedCommand,
+								panel.commandPicker.selectedCommandChange);
+
+			if panel.commandPicker.selectedCommandChange then panel.commandPicker.selectedCommandChange = false;
+
+			for rangeStart..rangeEnd {
+				commandEntry := panel.commandPicker.filteredCommandList[it];
+
+				if commandEntry.sortKey == 0 continue;
+
+				// @todo: may be desirable to use the UI focus (hot/active) system for this?
+				entryFlags:UIBoxFlags = 0;
+				if it == panel.commandPicker.selectedCommand {
+					entryFlags |= .DRAW_BACKGROUND;
+				}
+
+				entryBox := box(ui_key("commandEntry##%", it), .{
+					flags=entryFlags, layout=.{ width=grow(), height=fixed(elementHeight), padding=padding_all(em(0.2)) },
+					palette=.{ background=style.backgroundLighter },
+				});
+				{
+					push_parent(entryBox); defer pop_parent();
+
+					// find the normal mode mapping
+					// @todo: should we show bindings for all modes?
+					mappingStr := "";
+					for commandEntry.command.mappings {
+						if it.mode == .NORMAL then mappingStr = it.keys;
+					}
+
+					commandLabel := box(ui_key("%", commandEntry.command.name), .{
+						flags=.DRAW_TEXT_HIGHLIGHTS,
+						layout=.{ width=text_content(), height=text_content() },
+					});
+					// leaking memory!!
+					score, matches := fuzzy_search(commandEntry.command.name, string.{panel.commandPicker.input.text.count, panel.commandPicker.input.text.data});
+					commandLabel.textHighlights = matches;
+
+					box(ui_key_nil, .{ layout=.{width=grow()}});
+
+					if mappingStr {
+						box(ui_key("%", mappingStr), .{
+							flags=.DRAW_TEXT | .DRAW_BACKGROUND,
+							layout=.{ width=text_content(), height=text_content() },
+							palette=.{ background=style.backgroundMid },
+							textPadding=em(0.3)
+						});
+					}
+				}
+			}
+
+			scroll_list_end(ui_key("commandListScroller")); 
+		}
+	}
+
+	if panel.activeDialog == .FILESYSTEM_NAVIGATOR {
+		fileNavContainer := box(ui_key_nil, .{
+			flags=.DRAW_BACKGROUND,
+			layout=.{ 
+				childLayoutAxis = .Y,
+				width=fixed(panel.layoutRect.w / 2),
+				height=fit(),
+				padding= padding_all(em(0.4)),
+			},
+			palette=.{ background=style.backgroundLight },
+			cornerRadius=corner_rad_all(em(0.5)),
+			fixedX=panel.layoutRect.x+(panel.layoutRect.w-(panel.layoutRect.w/2))/2,
+			fixedY=em(3.0)
+		});
+		{
+			push_parent(fileNavContainer); defer pop_parent();
+
+			fontMetrics := get_font_metrics(uiState.defaultFont, xx uiState.defaultFontSize);
+			inputBox := box(ui_key_nil, .{
+				flags=.DRAW_BACKGROUND,
+				layout=.{
+					width=grow(),
+					height=fixed(fontMetrics.lineSpacing+em(0.8)),
+					childLayoutAxis=.X,
+					padding=padding_all(em(0.4)),
+					childGap=em(0.2)
+				},
+				cornerRadius=corner_rad_all(em(0.2)),
+				palette=.{ background=style.backgroundLighter },
+				textPadding=em(0.5)
+			});
+
+			// draw existing path sections
+			{
+				push_parent(inputBox); defer pop_parent();
+
+				for panel.filesystemNav.currentPath {
+					pathSectionLabel := box(ui_key("%", it), .{
+						flags=.DRAW_TEXT | .DRAW_BACKGROUND,
+						layout=.{ width=text_content(), height=text_content() },
+					});
+				}
+
+				inputArea := box(ui_key("fileNavInput"), .{
+					flags=0,
 					layout=.{
 						width=grow(),
-						height=fixed(fontMetrics.lineSpacing+em(0.8)),
+						height=fixed(xx fontMetrics.lineSpacing),
+						childLayoutAxis=.X
 					},
-					cornerRadius=corner_rad_all(em(0.2)),
-					palette=.{ background=style.backgroundLighter },
-					textPadding=em(0.5)
 				});
 
-				inputBox.customDrawFunction = custom_draw_input_field;
-				inputBox.customDrawUdata = cast(*void, *panel.commandPicker.input);
+				inputArea.customDrawFunction = custom_draw_input_field;
+				inputArea.customDrawUdata = cast(*void, *panel.filesystemNav.input);
+			}
 
-				elementHeight := cast(float, fontMetrics.characterHeight*2);
-				rangeStart, rangeEnd := scroll_list_begin(ui_key("commandList"),
-									panel.layoutRect.h/2,
-									elementHeight,
-									panel.commandPicker.numToDisplay,
-									panel.commandPicker.selectedCommand,
-									panel.commandPicker.selectedCommandChange);
+			elementHeight := cast(float, fontMetrics.characterHeight*2);
+			rangeStart, rangeEnd := scroll_list_begin(ui_key("fileNav_fileList"),
+								panel.layoutRect.h/2,
+								elementHeight,
+								panel.filesystemNav.numToDisplay,
+								panel.filesystemNav.selectedItem,
+								panel.filesystemNav.selectedItemChanged);
 
-				if panel.commandPicker.selectedCommandChange then panel.commandPicker.selectedCommandChange = false;
+			if panel.filesystemNav.selectedItemChanged then panel.filesystemNav.selectedItemChanged = false;
 
-				for rangeStart..rangeEnd {
-					commandEntry := panel.commandPicker.filteredCommandList[it];
+			for rangeStart..rangeEnd {
+				directoryItem := panel.filesystemNav.itemList[it];
+				if directoryItem.sortKey == 0 continue;
 
-					if commandEntry.sortKey == 0 continue;
+				if directoryItem.saveItem == true {
+					builder: String_Builder;
+					builder.allocator = temp;
+					init_string_builder(*builder);
+
+					append(*builder, "Save As - ");
+					for panel.filesystemNav.currentPath {
+						append(*builder, it);
+						if (it_index != panel.filesystemNav.currentPath.count-1)  append(*builder, "/");
+					}
+					append(*builder, "/");
+					append(*builder, input_field_get_text(*panel.filesystemNav.input));
+
+					entryBox := box(ui_key("savefileItem"), .{
+						flags=.DRAW_BACKGROUND, layout=.{ width=grow(), height=fixed(elementHeight), padding=padding_all(em(0.2)) },
+						palette=.{ background=style.backgroundLighter },
+					});
+					{
+						push_parent(entryBox); defer pop_parent();
+						itemLabel := box(ui_key("%", builder_to_string(*builder,,temp)), .{
+							flags=.DRAW_TEXT_HIGHLIGHTS,
+							layout=.{ width=text_content(), height=text_content() },
+						});
+					}
+				}
+				else {
 
 					// @todo: may be desirable to use the UI focus (hot/active) system for this?
 					entryFlags:UIBoxFlags = 0;
-					if it == panel.commandPicker.selectedCommand {
+					if it == panel.filesystemNav.selectedItem {
 						entryFlags |= .DRAW_BACKGROUND;
 					}
 
-					entryBox := box(ui_key("commandEntry##%", it), .{
+					entryBox := box(ui_key("directoryItem##%", it), .{
 						flags=entryFlags, layout=.{ width=grow(), height=fixed(elementHeight), padding=padding_all(em(0.2)) },
 						palette=.{ background=style.backgroundLighter },
 					});
 					{
 						push_parent(entryBox); defer pop_parent();
 
-						// find the normal mode mapping
-						// @todo: should we show bindings for all modes?
-						mappingStr := "";
-						for commandEntry.command.mappings {
-							if it.mode == .NORMAL then mappingStr = it.keys;
-						}
-
-						commandLabel := box(ui_key("%", commandEntry.command.name), .{
+						itemLabel := box(ui_key("%##commandEntry%", directoryItem.name, it), .{
 							flags=.DRAW_TEXT_HIGHLIGHTS,
 							layout=.{ width=text_content(), height=text_content() },
 						});
-						// leaking memory!!
-						score, matches := fuzzy_search(commandEntry.command.name, string.{panel.commandPicker.input.text.count, panel.commandPicker.input.text.data});
-						commandLabel.textHighlights = matches;
-
-						box(ui_key_nil, .{ layout=.{width=grow()}});
-
-						if mappingStr {
-							box(ui_key("%", mappingStr), .{
-								flags=.DRAW_TEXT | .DRAW_BACKGROUND,
-								layout=.{ width=text_content(), height=text_content() },
-								palette=.{ background=style.backgroundMid },
-								textPadding=em(0.3)
-							});
-						}
+						//@todo: leaking memory!!
+						score, matches := fuzzy_search(directoryItem.name, string.{panel.filesystemNav.input.text.count, panel.filesystemNav.input.text.data});
+						itemLabel.textHighlights = matches;
 					}
 				}
-
-				scroll_list_end(ui_key("commandListScroller")); 
 			}
-		}
-
-		if panel.activeDialog == .FILESYSTEM_NAVIGATOR {
-			fileNavContainer := box(ui_key_nil, .{
-				flags=.DRAW_BACKGROUND,
-				layout=.{ 
-					childLayoutAxis = .Y,
-					width=fixed(panel.layoutRect.w / 2),
-					height=fit(),
-					padding= padding_all(em(0.4)),
-				},
-				palette=.{ background=style.backgroundLight },
-				cornerRadius=corner_rad_all(em(0.5)),
-				fixedX=panel.layoutRect.x+(panel.layoutRect.w-(panel.layoutRect.w/2))/2,
-				fixedY=em(3.0)
-			});
-			{
-				push_parent(fileNavContainer); defer pop_parent();
-
-				fontMetrics := get_font_metrics(uiState.defaultFont, xx uiState.defaultFontSize);
-				inputBox := box(ui_key_nil, .{
-					flags=.DRAW_BACKGROUND,
-					layout=.{
-						width=grow(),
-						height=fixed(fontMetrics.lineSpacing+em(0.8)),
-						childLayoutAxis=.X,
-						padding=padding_all(em(0.4)),
-						childGap=em(0.2)
-					},
-					cornerRadius=corner_rad_all(em(0.2)),
-					palette=.{ background=style.backgroundLighter },
-					textPadding=em(0.5)
-				});
-
-				// draw existing path sections
-				{
-					push_parent(inputBox); defer pop_parent();
-
-					for panel.filesystemNav.currentPath {
-						pathSectionLabel := box(ui_key("%", it), .{
-							flags=.DRAW_TEXT | .DRAW_BACKGROUND,
-							layout=.{ width=text_content(), height=text_content() },
-						});
-					}
-
-					inputArea := box(ui_key("fileNavInput"), .{
-						flags=0,
-						layout=.{
-							width=grow(),
-							height=fixed(xx fontMetrics.lineSpacing),
-							childLayoutAxis=.X
-						},
-					});
-
-					inputArea.customDrawFunction = custom_draw_input_field;
-					inputArea.customDrawUdata = cast(*void, *panel.filesystemNav.input);
-				}
-
-				elementHeight := cast(float, fontMetrics.characterHeight*2);
-				rangeStart, rangeEnd := scroll_list_begin(ui_key("fileNav_fileList"),
-									panel.layoutRect.h/2,
-									elementHeight,
-									panel.filesystemNav.numToDisplay,
-									panel.filesystemNav.selectedItem,
-									panel.filesystemNav.selectedItemChanged);
-
-				if panel.filesystemNav.selectedItemChanged then panel.filesystemNav.selectedItemChanged = false;
-
-				for rangeStart..rangeEnd {
-					directoryItem := panel.filesystemNav.itemList[it];
-					if directoryItem.sortKey == 0 continue;
-
-					if directoryItem.saveItem == true {
-						builder: String_Builder;
-						builder.allocator = temp;
-						init_string_builder(*builder);
-
-						append(*builder, "Save As - ");
-						for panel.filesystemNav.currentPath {
-							append(*builder, it);
-							if (it_index != panel.filesystemNav.currentPath.count-1)  append(*builder, "/");
-						}
-						append(*builder, "/");
-						append(*builder, input_field_get_text(*panel.filesystemNav.input));
-
-						entryBox := box(ui_key("savefileItem"), .{
-							flags=.DRAW_BACKGROUND, layout=.{ width=grow(), height=fixed(elementHeight), padding=padding_all(em(0.2)) },
-							palette=.{ background=style.backgroundLighter },
-						});
-						{
-							push_parent(entryBox); defer pop_parent();
-							itemLabel := box(ui_key("%", builder_to_string(*builder,,temp)), .{
-								flags=.DRAW_TEXT_HIGHLIGHTS,
-								layout=.{ width=text_content(), height=text_content() },
-							});
-						}
-					}
-					else {
-
-						// @todo: may be desirable to use the UI focus (hot/active) system for this?
-						entryFlags:UIBoxFlags = 0;
-						if it == panel.filesystemNav.selectedItem {
-							entryFlags |= .DRAW_BACKGROUND;
-						}
-
-						entryBox := box(ui_key("directoryItem##%", it), .{
-							flags=entryFlags, layout=.{ width=grow(), height=fixed(elementHeight), padding=padding_all(em(0.2)) },
-							palette=.{ background=style.backgroundLighter },
-						});
-						{
-							push_parent(entryBox); defer pop_parent();
-
-							itemLabel := box(ui_key("%##commandEntry%", directoryItem.name, it), .{
-								flags=.DRAW_TEXT_HIGHLIGHTS,
-								layout=.{ width=text_content(), height=text_content() },
-							});
-							//@todo: leaking memory!!
-							score, matches := fuzzy_search(directoryItem.name, string.{panel.filesystemNav.input.text.count, panel.filesystemNav.input.text.data});
-							itemLabel.textHighlights = matches;
-						}
-					}
-				}
-		
-				scroll_list_end(ui_key("filesystemNavScroller")); 
-			}
-		}
-
-		// Draw the main code screen
-		codeContainer := box(ui_key_nil, .{
-			flags=.DRAW_BACKGROUND,
-			layout=.{childLayoutAxis = .X, width=grow(), height=grow()},
-		});
-		{
-			push_parent(codeContainer); defer pop_parent();
-
-			codeBox := box(ui_key("code"), .{
-				flags=.CLIP_CONTENTS,
-				layout=.{width=grow(), height=grow()},
-				font=fontCode
-			});
-			codeBox.customDrawFunction = custom_draw_code;
-			codeBox.customDrawUdata = cast(*void) panel;
-
-			numDocumentLines := document_get_num_lines(panel.document);
-			metrics := get_font_metrics(codeBox.font, xx codeBox.fontSize);
-			codeBox.viewBounds.y = cast(float, -(metrics.lineSpacing * numDocumentLines) + metrics.lineSpacing * 5);
-			signal_from_box(codeBox);
-
-			// @todo: you really don't want to be relying on the rect here, set it as a fixed height
-			dragDelta := scroll_bar(ui_key("codeScroll"), codeBox.viewOffset.y, codeBox.viewBounds.y, codeBox.rect.h);
-
-			dragRange := (1.0 - max(abs(codeBox.rect.h/(codeBox.viewBounds.y-codeBox.rect.h)), 0.05))*codeBox.rect.h;
-			scaleRatio := ifx dragRange != 0.0 then abs(codeBox.viewBounds.y)/dragRange else 1.0;
-			codeBox.viewOffset -= dragDelta * scaleRatio;
-			codeBox.viewOffset.y = clamp(codeBox.viewOffset.y, codeBox.viewBounds.y, 0);
-			codeBox.viewOffset.x = clamp(codeBox.viewOffset.x, codeBox.viewBounds.x, 0);
-
-			codeBox.viewOffsetTarget -= dragDelta * scaleRatio;
-			codeBox.viewOffsetTarget.y = clamp(codeBox.viewOffsetTarget.y, codeBox.viewBounds.y, 0);
-			codeBox.viewOffsetTarget.x = clamp(codeBox.viewOffsetTarget.x, codeBox.viewBounds.x, 0);
-		}
-
-		// Draw the search dialog
-		if panel.activeDialog == .SEARCH {
-			searchContainer := box(ui_key_nil, .{
-				flags=.DRAW_BACKGROUND | .DRAW_SIDE_TOP,
-				layout=.{ 
-					childLayoutAxis = .X,
-					width=grow(),
-					height=fit(),
-					padding= padding_all(em(0.4))
-				},
-				palette=.{ background=style.backgroundLight },
-				borderThickness=1.0
-			});
-			{
-				push_parent(searchContainer); defer pop_parent();
-
-				fontMetrics := get_font_metrics(uiState.defaultFont, xx uiState.defaultFontSize);
-				inputBox := box(ui_key("search_input"), .{
-					flags=.DRAW_BACKGROUND,
-					layout=.{
-						width=grow(),
-						height=fixed(fontMetrics.lineSpacing+em(0.8)),
-					},
-					cornerRadius=corner_rad_all(em(0.2)),
-					palette=.{ background=style.backgroundLighter },
-					font=fontCode,
-					textPadding=em(0.5)
-				});
-				inputBox.customDrawFunction = custom_draw_input_field;
-				inputBox.customDrawUdata = cast(*void, *panel.searchInput);
-
-				// @todo: buttons for regex mode, caps, whole word search etc
-			}
+	
+			scroll_list_end(ui_key("filesystemNavScroller")); 
 		}
 	}
 
-	end_ui();
+	// Draw the main code screen
+	codeContainer := box(ui_key_nil, .{
+		flags=.DRAW_BACKGROUND,
+		layout=.{childLayoutAxis = .X, width=grow(), height=grow()},
+	});
+	{
+		push_parent(codeContainer); defer pop_parent();
 
-	render_frame();
+		codeBox := box(ui_key("code"), .{
+			flags=.CLIP_CONTENTS,
+			layout=.{width=grow(), height=grow()},
+			font=fontCode
+		});
+		codeBox.customDrawFunction = custom_draw_code;
+		codeBox.customDrawUdata = cast(*void) panel;
+
+		numDocumentLines := document_get_num_lines(panel.document);
+		metrics := get_font_metrics(codeBox.font, xx codeBox.fontSize);
+		codeBox.viewBounds.y = cast(float, -(metrics.lineSpacing * numDocumentLines) + metrics.lineSpacing * 5);
+		signal_from_box(codeBox);
+
+		// @todo: you really don't want to be relying on the rect here, set it as a fixed height
+		dragDelta := scroll_bar(ui_key("codeScroll"), codeBox.viewOffset.y, codeBox.viewBounds.y, codeBox.rect.h);
+
+		dragRange := (1.0 - max(abs(codeBox.rect.h/(codeBox.viewBounds.y-codeBox.rect.h)), 0.05))*codeBox.rect.h;
+		scaleRatio := ifx dragRange != 0.0 then abs(codeBox.viewBounds.y)/dragRange else 1.0;
+		codeBox.viewOffset -= dragDelta * scaleRatio;
+		codeBox.viewOffset.y = clamp(codeBox.viewOffset.y, codeBox.viewBounds.y, 0);
+		codeBox.viewOffset.x = clamp(codeBox.viewOffset.x, codeBox.viewBounds.x, 0);
+
+		codeBox.viewOffsetTarget -= dragDelta * scaleRatio;
+		codeBox.viewOffsetTarget.y = clamp(codeBox.viewOffsetTarget.y, codeBox.viewBounds.y, 0);
+		codeBox.viewOffsetTarget.x = clamp(codeBox.viewOffsetTarget.x, codeBox.viewBounds.x, 0);
+	}
+
+	// Draw the search dialog
+	if panel.activeDialog == .SEARCH {
+		searchContainer := box(ui_key_nil, .{
+			flags=.DRAW_BACKGROUND | .DRAW_SIDE_TOP,
+			layout=.{ 
+				childLayoutAxis = .X,
+				width=grow(),
+				height=fit(),
+				padding= padding_all(em(0.4))
+			},
+			palette=.{ background=style.backgroundLight },
+			borderThickness=1.0
+		});
+		{
+			push_parent(searchContainer); defer pop_parent();
+
+			fontMetrics := get_font_metrics(uiState.defaultFont, xx uiState.defaultFontSize);
+			inputBox := box(ui_key("search_input"), .{
+				flags=.DRAW_BACKGROUND,
+				layout=.{
+					width=grow(),
+					height=fixed(fontMetrics.lineSpacing+em(0.8)),
+				},
+				cornerRadius=corner_rad_all(em(0.2)),
+				palette=.{ background=style.backgroundLighter },
+				font=fontCode,
+				textPadding=em(0.5)
+			});
+			inputBox.customDrawFunction = custom_draw_input_field;
+			inputBox.customDrawUdata = cast(*void, *panel.searchInput);
+
+			// @todo: buttons for regex mode, caps, whole word search etc
+		}
+	}
 }
 
 custom_draw_input_field :: (box: *UIBox, udata: *void) {
@@ -901,18 +901,14 @@ file_change_callback :: (watcher: *File_Watcher(void), change: *File_Change, use
 	if found {
 		success, doc := document_get_by_path(change.full_path);
 		if change.events & .MODIFIED {
-			modtime, size, success := file_modtime_and_size(doc.path);
-			if modtime > doc.diskLastModtime {
-				// reload file
-				if doc.unsaved == false {
-					document_load_from_disk(doc);
-					panel_refresh_cursors(*focusedPanel);
-				}
-				else {
-					// @todo: when we have nicer UI this should give a popup or something more explicit
-					doc.unsaved = true;
-					push_notification("File on disk changed, but you have unsaved edits");
-				}
+			// reload file
+			if doc.unsaved == false {
+				document_load_from_disk(doc);
+			}
+			else {
+				// @todo: when we have nicer UI this should give a popup or something more explicit
+				doc.unsaved = true;
+				push_notification("File on disk changed, but you have unsaved edits");
 			}
 		}
 		if change.events & .REMOVED {
