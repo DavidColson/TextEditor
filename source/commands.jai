@@ -616,7 +616,7 @@ start_document_search :: (using panel: *Panel, args: []string) {
 	panel.activeDialog = .SEARCH;
 	panel.searchInput.onEditCallback = document_search_on_edit;
 	panel.searchInput.userData = cast(*void) panel;
-	panel.previousScrollState = scrollPos;
+	panel.previousScrollLine = panel_get_current_scrolled_line(panel);
 }
 
 confirm_document_search :: (using panel: *Panel, args: []string) {
@@ -627,18 +627,12 @@ confirm_document_search :: (using panel: *Panel, args: []string) {
 		document_cursor_step_one_backward(*panel.cursor.head);
 	}
 	editorMode = .NORMAL;
-
-	input_field_reset_keeping_memory(*panel.searchInput);
-	panel.searchInput.onEditCallback = null;
-	panel.searchInput.userData = null;
-	if panel.results.count {
-		array_reset(*panel.results);
-	}
-	panel.activeDialog = .NONE;
+	panel.previousScrollLine = panel_get_current_scrolled_line(panel);
+	panel_reset_dialogs(panel);
 }
 
 end_document_search :: (using panel: *Panel) { 
-	panel.scrollPos = panel.previousScrollState; 
+	panel_scroll_to_line(panel, panel.previousScrollLine);
 	input_field_reset_keeping_memory(*panel.searchInput);
 	panel.searchInput.onEditCallback = null;
 	panel.searchInput.userData = null;
@@ -1041,7 +1035,7 @@ visualize_undos :: (using panel: *Panel, args: []string) {
 
 toggle_render_line_endings :: (panel: *Panel, args: []string) {
 	my_font.render_new_lines = !my_font.render_new_lines;
-	Simp.force_regenerate_glyph_table(my_font);
+	// Simp.force_regenerate_glyph_table(my_font);
 }
 
 normalize_line_endings_lf :: (panel: *Panel, args: []string) {

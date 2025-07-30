@@ -43,6 +43,11 @@ platform_set_backup_timer :: (window: Window_Type, callback: BackupTimerCallback
 	SetTimer(window, 0, 1000*60*5, cast(*void)_windows_timer_callback);
 }
 
+platform_swap_buffers :: (window: Window_Type) {
+	dc := GetDC(window);
+	SwapBuffers(dc);
+}
+
 #scope_file 
 
 #run {

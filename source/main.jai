@@ -5,38 +5,6 @@ BuildType :: enum u8
 	RELEASE;
 }
 
-Cursor :: struct {
-	head: DocumentCursor;
-	anchor: DocumentCursor;
-
-	// when users move up and down lines, this stores the 
-	// column that we should try stick to as we move up and down
-	// gets reset when the user actually moves left or right
-	virtualColumn: s64; 
-}
-
-Panel :: struct {
-	document: *Document;
-	rect: Rect;
-	scrollPos := 0;
-
-	// cursors
-	cursor: Cursor;
-
-	// Dialogs
-	activeDialog: DialogType;
-	commandPicker: CommandPicker;
-	filesystemNav: FilesystemNavigator;
-	fileFinder: FileFinder;
-
-	// search state (this is too a dialog, may want to group it up)
-	searchInput: InputField;
-	currentRegex: Regexp;
-	hasMatches := false;
-	previousScrollState := 0;
-	results: []DocumentRange;
-}
-
 DialogType :: enum u8 {
 	NONE;
 	COMMAND_PICKER;
@@ -56,6 +24,39 @@ Notification :: struct {
 	timer: float64;
 }
 
+style: struct {
+	// colors
+	backgroundDark := #run hex_to_color_vec4("1C1F25");
+	backgroundMid := #run hex_to_color_vec4("282C34");
+	backgroundLight := #run hex_to_color_vec4("3B414C");
+	backgroundLighter := #run hex_to_color_vec4("4e5665");
+
+	hotHighlight := #run hex_to_color_vec4("636f85");
+	activeHighlight := #run hex_to_color_vec4("7e90bd");
+
+	textPrimary := #run hex_to_color_vec4("C3C7D0");
+	textSecondary := #run hex_to_color_vec4("5C6370");
+	textHighlight := #run hex_to_color_vec4("7e90bd");
+	textSelection := #run hex_to_color_vec4("434d60");
+
+	borders := #run hex_to_color_vec4("5C6476");
+
+	// fonts
+	fontSize := 15;
+	codeFont := string.["FiraMonoNerdFontMono-Regular.ttf", "consola.ttf"];
+	uiFont := string.["segoeui.ttf"];
+
+	// Icons
+	iconVerticalEllipsis :: #run to_string(*convert_utf32_to_utf8(0xf142));
+	iconCircle :: #run to_string(*convert_utf32_to_utf8(0xf111));
+	iconLock :: #run to_string(*convert_utf32_to_utf8(0xf023));
+	iconNumList :: #run to_string(*convert_utf32_to_utf8(0xf0cb));
+	iconAlignLeft :: #run to_string(*convert_utf32_to_utf8(0xf036));
+
+	// animations
+	scrollAnimRate := 14;
+};
+
 EDITOR_MODE_NUM :: #run enum_highest_value(EditorMode) + 1;
 
 // globals
@@ -71,6 +72,7 @@ dpiScale := 1.0;
 pendingQuit := false;
 backupSaveTimer:float64 = 300;
 requestRedraw := true;
+deltaTime:float64 = 0.016;
 
 notifications : [10]Notification;
 numActiveNotifications := 0;
@@ -86,10 +88,15 @@ Registers :: struct {
 }
 registers: Registers;
 
+// fonts
+fontUI: *Font;
+fontCode: *Font;
+fontIcons: *Font;
+
 // options
 textSize :: 15;
 tabSize :: 4;
-lineNumbers :: true;
+lineNumbers := true;
 
 Arguments :: struct {
 }
@@ -107,14 +114,12 @@ main :: () {
 	}
 
 	// create window
-    WANTED_MSAA :: 8;
-    window = create_window(windowWidth, windowHeight, "TextEditor", wanted_msaa = WANTED_MSAA);
-    msaa := Simp.prepare_window(window, wanted_msaa = WANTED_MSAA);
-    windowWidth, windowHeight = Simp.get_render_dimensions(window);
-    Simp.set_render_target(window, .LEFT_HANDED);
-
-    my_init_fonts();
-
+    window = create_window(windowWidth, windowHeight, "TextEditor");
+	init_renderer(window);
+	my_init_fonts();
+	init_font_cache();
+	load_fonts();
+	init_ui();
 	rebuild_key_map();
 
 	registers.registerAllocator = Allocator.{ proc = flat_pool_allocator_proc, data = *registers.registerPool };
@@ -123,10 +128,10 @@ main :: () {
         push_notification("Could not initialize the file watcher. Files won't be reloaded. This is likely a bug.");
     }
 
-	focusedPanel.rect.x = 0;
-	focusedPanel.rect.y = 0;
-	focusedPanel.rect.w = xx windowWidth;
-	focusedPanel.rect.h = xx windowHeight;
+	focusedPanel.layoutRect.x = 0;
+	focusedPanel.layoutRect.y = 0;
+	focusedPanel.layoutRect.w = xx windowWidth;
+	focusedPanel.layoutRect.h = xx windowHeight;
 	focusedPanel.activeDialog = .NONE;
 
 	if filesToOpen.count > 0 {
@@ -142,24 +147,24 @@ main :: () {
 		requestRedraw = false;
 
 		now := seconds_since_init();
-		delta : float64 = min(now - lastTime, 0.016);
+		deltaTime = min(now - lastTime, 0.016);
 		lastTime = now;
 
         Input.update_window_events();
 
         for Input.get_window_resizes() {
-            Simp.update_window(it.window);  // Simp will do nothing if it doesn't care about this window.
-
             if it.window == window {
                 should_reinit := (it.width != windowWidth) || (it.height != windowHeight);
 
                 windowWidth  = it.width;
                 windowHeight = it.height;
 
-				focusedPanel.rect.x = 0;
-				focusedPanel.rect.y = 0;
-				focusedPanel.rect.w = xx windowWidth;
-				focusedPanel.rect.h = xx windowHeight;
+				resize_backbuffer();
+
+				focusedPanel.layoutRect.x = 0;
+				focusedPanel.layoutRect.y = 0;
+				focusedPanel.layoutRect.w = xx windowWidth;
+				focusedPanel.layoutRect.h = xx windowHeight;
 
                 if should_reinit my_init_fonts();  // Resize the font for the new window size.
             }
@@ -167,7 +172,7 @@ main :: () {
 
         for Input.events_this_frame {
             if it.type == .QUIT then pendingQuit = true;
-			input_handler(it);
+			array_add(*uiState.events, it);
 		}
 
 		process_changes(*watcher);
@@ -175,20 +180,22 @@ main :: () {
 		newDpiScale := platform_get_dpi_scale(window);
 		if newDpiScale != dpiScale && newDpiScale != 0.0 {
 			dpiScale = newDpiScale;
-			my_init_fonts();
 		}
 
-		// @todo: don't re-render if nothing's changed
-		draw_one_frame();
+		build_ui();
 
-		panel_scroll_with_mouse(*focusedPanel, Input.mouse_delta_z);
+		// after ui has taken any inputs it wants, we'll give the rest to the default input handler
+		for uiState.events {
+			input_handler(it);
+	}
+		array_reset_keeping_memory(*uiState.events);
 
 		// update notifications
 		nNotificationsToRemove := 0;
 		it := 0;
 		while it < numActiveNotifications {
 			notif := *notifications[it];
-			notif.timer -= delta;
+			notif.timer -= deltaTime;
 			if notif.timer < 0 {
 				nNotificationsToRemove += 1;
 			}
@@ -204,9 +211,673 @@ main :: () {
 		}
 
 		// @todo: may want to support 120hz or higher? 
-        sleep_milliseconds(cast(s32) (16 - delta/1000));
+        sleep_milliseconds(cast(s32) (16 - deltaTime/1000));
         reset_temporary_storage();
     }
+}
+
+build_ui :: () {
+	begin_ui();
+
+	panel := *focusedPanel;
+
+	uiState.defaultPalette = .{
+		text = style.textPrimary,
+		textHighlight = style.textHighlight,
+		background=style.backgroundMid,
+		hot=style.hotHighlight,
+		active=style.activeHighlight,
+		border=style.borders
+	};
+	uiState.defaultFont = fontUI;
+	uiState.defaultFontSize = style.fontSize * dpiScale;
+	uiState.defaultTextPadding = em(0.2);
+
+	panelBox := box(ui_key("panel1"), .{
+		flags=.DRAW_BACKGROUND,
+		layout=.{childLayoutAxis = .Y, width=fixed(panel.layoutRect.w), height=fixed(panel.layoutRect.h)},
+	});
+	{
+		push_parent(panelBox); defer pop_parent();
+
+		header := box(ui_key_nil, .{
+			flags=.DRAW_BACKGROUND | .DRAW_SIDE_BOTTOM,
+			layout=.{ 
+				childLayoutAxis = .X,
+				width=grow(),
+				height=fit(),
+				padding= padding_all(em(0.3))
+			},
+			palette=.{ background=style.backgroundLight },
+			borderThickness=1.0
+		});
+		{
+			push_parent(header); defer pop_parent();
+
+			// mode
+			modeText := "NORMAL";
+			if extendSelections && editorMode == .NORMAL {
+				modeText = "SELECT";
+			}
+			else if editorMode == .INSERT {
+				modeText = "INSERT";
+			}
+			box(ui_key(modeText), .{
+				flags=.DRAW_BACKGROUND | .DRAW_TEXT,
+				layout=.{ width=text_content(), height=text_content() },
+				palette=.{ background=style.backgroundDark },
+			});
+
+			spacer(.X, fixed(em(0.5)));
+
+			// filename
+			fileLabel := box(ui_key(path_filename(panel.document.path)), .{
+				flags=.DRAW_TEXT,
+				layout=.{ width=text_content(), height=text_content() },
+			});
+			if signal_from_box(fileLabel).hovering {
+				tooltip_begin(fileLabel.key, .{0.0, em(1.9)});
+				box(ui_key(panel.document.path), .{
+					flags=.DRAW_TEXT,
+					layout=.{ width=text_content(), height=text_content() },
+				});
+				tooltip_end();
+			}
+
+			// lock icon @todo: implement for real
+			if false {
+				box(ui_key(style.iconLock), .{
+					flags=.DRAW_TEXT,
+					layout=.{ width=text_content(), height=text_content() },
+					fontSize=em(0.7),
+					font=fontIcons
+				});
+			}
+
+			// icon for file save status
+			if panel.document.unsaved {
+				box(ui_key(style.iconCircle), .{
+					flags=.DRAW_TEXT,
+					layout=.{ width=text_content(), height=text_content() },
+					fontSize=em(0.7),
+					font=fontIcons
+				});
+			}
+
+			spacer(.X, grow());
+
+			// pending keys
+			pendingKeys := string.{keyMap.pendingKeyString.count, keyMap.pendingKeyString.data};
+			box(ui_key(pendingKeys), .{
+				flags=.DRAW_TEXT,
+				layout=.{ width=text_content(), height=text_content() },
+			});
+
+			spacer(.X, fixed(em(2.0)));
+
+			// location
+			cursorCoordinate := document_cursor_get_coordinate(*panel.cursor.head);
+			box(ui_key("Ln: % Col: % Byte: %", cursorCoordinate.line+1, cursorCoordinate.col, panel.cursor.head.documentOffset), .{
+				flags=.DRAW_TEXT,
+				layout=.{ width=text_content(), height=text_content() },
+			});
+
+			spacer(.X, fixed(em(2.0)));
+
+			// line endings
+			lineEndingText := "[Mixed]";
+			if panel.document.lineEndings == .LF {
+				lineEndingText = "LF";
+			}
+			else if panel.document.lineEndings == .CRLF {
+				lineEndingText = "CRLF";
+			}
+			else if panel.document.lineEndings == .MIXED_MAJORITY_LF {
+				lineEndingText = "[Mixed]";
+			}
+			box(ui_key(lineEndingText), .{
+				flags=.DRAW_TEXT,
+				layout=.{ width=text_content(), height=text_content() },
+			});
+
+			spacer(.X, fixed(em(2.0)));
+
+			// file type
+			box(ui_key("Jai"), .{
+				flags=.DRAW_TEXT,
+				layout=.{ width=text_content(), height=text_content() },
+			});
+
+			spacer(.X, fixed(em(2.0)));
+
+			// panel options button
+			panelOptsKey := ui_key("panelopts");
+			if is_context_menu_open(panelOptsKey) { 
+				button := box(ui_key(style.iconVerticalEllipsis), .{
+					flags=.DRAW_BACKGROUND | .DRAW_TEXT | .MOUSE_CLICKABLE,
+					layout=.{ width=fixed(em(1.5)), height=text_content() },
+					palette=.{background=style.activeHighlight},
+					font=fontIcons,
+					textAlignment=.CENTER,
+					cornerRadius=corner_rad_all(em(0.3))
+				});
+				if signal_from_box(button).pressed {
+					context_menu_close();
+				}
+			}
+			else {
+				button := box(ui_key(style.iconVerticalEllipsis), .{
+					flags=.DRAW_BACKGROUND | .DRAW_TEXT | .DRAW_HOT_EFFECTS | .MOUSE_CLICKABLE,
+					layout=.{ width=fixed(em(1.5)), height=text_content() },
+					font=fontIcons,
+					textAlignment=.CENTER,
+					cornerRadius=corner_rad_all(em(0.3))
+				});
+				if signal_from_box(button).pressed {
+					context_menu_open(panelOptsKey);
+				}
+			}
+
+			if context_menu_begin(key=panelOptsKey,
+									width=fixed(em(12.0)),
+									anchorBoxKey=ui_key(style.iconVerticalEllipsis),
+									anchorOffset=.{0.0, em(1.9)}) {
+
+				if context_menu_item("Line Numbers", style.iconNumList).pressed {
+					lineNumbers = !lineNumbers;
+				}
+				context_menu_item("View Line Endings", "");
+				context_menu_item("Line Wrapping", style.iconAlignLeft);
+				context_menu_end();
+			}
+		}
+
+
+		if panel.activeDialog == .COMMAND_PICKER {
+			commandPickerContainer := box(ui_key_nil, .{
+				flags=.DRAW_BACKGROUND,
+				layout=.{ 
+					childLayoutAxis = .Y,
+					width=fixed(panel.layoutRect.w / 2),
+					height=fit(),
+					padding= padding_all(em(0.4)),
+				},
+				palette=.{ background=style.backgroundLight },
+				cornerRadius=corner_rad_all(em(0.5)),
+				fixedX=panel.layoutRect.x+(panel.layoutRect.w-(panel.layoutRect.w/2))/2,
+				fixedY=em(3.0)
+			});
+			{
+				push_parent(commandPickerContainer); defer pop_parent();
+
+				fontMetrics := get_font_metrics(uiState.defaultFont, xx uiState.defaultFontSize);
+				inputBox := box(ui_key("commandPickerInput"), .{
+					flags=.DRAW_BACKGROUND,
+					layout=.{
+						width=grow(),
+						height=fixed(fontMetrics.lineSpacing+em(0.8)),
+					},
+					cornerRadius=corner_rad_all(em(0.2)),
+					palette=.{ background=style.backgroundLighter },
+					textPadding=em(0.5)
+				});
+
+				inputBox.customDrawFunction = custom_draw_input_field;
+				inputBox.customDrawUdata = cast(*void, *panel.commandPicker.input);
+
+				elementHeight := cast(float, fontMetrics.characterHeight*2);
+				rangeStart, rangeEnd := scroll_list_begin(ui_key("commandList"),
+									panel.layoutRect.h/2,
+									elementHeight,
+									panel.commandPicker.numToDisplay,
+									panel.commandPicker.selectedCommand,
+									panel.commandPicker.selectedCommandChange);
+
+				if panel.commandPicker.selectedCommandChange then panel.commandPicker.selectedCommandChange = false;
+
+				for rangeStart..rangeEnd {
+					commandEntry := panel.commandPicker.filteredCommandList[it];
+
+					if commandEntry.sortKey == 0 continue;
+
+					// @todo: may be desirable to use the UI focus (hot/active) system for this?
+					entryFlags:UIBoxFlags = 0;
+					if it == panel.commandPicker.selectedCommand {
+						entryFlags |= .DRAW_BACKGROUND;
+					}
+
+					entryBox := box(ui_key("commandEntry##%", it), .{
+						flags=entryFlags, layout=.{ width=grow(), height=fixed(elementHeight), padding=padding_all(em(0.2)) },
+						palette=.{ background=style.backgroundLighter },
+					});
+					{
+						push_parent(entryBox); defer pop_parent();
+
+						// find the normal mode mapping
+						// @todo: should we show bindings for all modes?
+						mappingStr := "";
+						for commandEntry.command.mappings {
+							if it.mode == .NORMAL then mappingStr = it.keys;
+						}
+
+						commandLabel := box(ui_key("%", commandEntry.command.name), .{
+							flags=.DRAW_TEXT_HIGHLIGHTS,
+							layout=.{ width=text_content(), height=text_content() },
+						});
+						// leaking memory!!
+						score, matches := fuzzy_search(commandEntry.command.name, string.{panel.commandPicker.input.text.count, panel.commandPicker.input.text.data});
+						commandLabel.textHighlights = matches;
+
+						box(ui_key_nil, .{ layout=.{width=grow()}});
+
+						if mappingStr {
+							box(ui_key("%", mappingStr), .{
+								flags=.DRAW_TEXT | .DRAW_BACKGROUND,
+								layout=.{ width=text_content(), height=text_content() },
+								palette=.{ background=style.backgroundMid },
+								textPadding=em(0.3)
+							});
+						}
+					}
+				}
+
+				scroll_list_end(ui_key("commandListScroller")); 
+			}
+		}
+
+		if panel.activeDialog == .FILESYSTEM_NAVIGATOR {
+			fileNavContainer := box(ui_key_nil, .{
+				flags=.DRAW_BACKGROUND,
+				layout=.{ 
+					childLayoutAxis = .Y,
+					width=fixed(panel.layoutRect.w / 2),
+					height=fit(),
+					padding= padding_all(em(0.4)),
+				},
+				palette=.{ background=style.backgroundLight },
+				cornerRadius=corner_rad_all(em(0.5)),
+				fixedX=panel.layoutRect.x+(panel.layoutRect.w-(panel.layoutRect.w/2))/2,
+				fixedY=em(3.0)
+			});
+			{
+				push_parent(fileNavContainer); defer pop_parent();
+
+				fontMetrics := get_font_metrics(uiState.defaultFont, xx uiState.defaultFontSize);
+				inputBox := box(ui_key_nil, .{
+					flags=.DRAW_BACKGROUND,
+					layout=.{
+						width=grow(),
+						height=fixed(fontMetrics.lineSpacing+em(0.8)),
+						childLayoutAxis=.X,
+						padding=padding_all(em(0.4)),
+						childGap=em(0.2)
+					},
+					cornerRadius=corner_rad_all(em(0.2)),
+					palette=.{ background=style.backgroundLighter },
+					textPadding=em(0.5)
+				});
+
+				// draw existing path sections
+				{
+					push_parent(inputBox); defer pop_parent();
+
+					for panel.filesystemNav.currentPath {
+						pathSectionLabel := box(ui_key("%", it), .{
+							flags=.DRAW_TEXT | .DRAW_BACKGROUND,
+							layout=.{ width=text_content(), height=text_content() },
+						});
+					}
+
+					inputArea := box(ui_key("fileNavInput"), .{
+						flags=0,
+						layout=.{
+							width=grow(),
+							height=fixed(xx fontMetrics.lineSpacing),
+							childLayoutAxis=.X
+						},
+					});
+
+					inputArea.customDrawFunction = custom_draw_input_field;
+					inputArea.customDrawUdata = cast(*void, *panel.filesystemNav.input);
+				}
+
+				elementHeight := cast(float, fontMetrics.characterHeight*2);
+				rangeStart, rangeEnd := scroll_list_begin(ui_key("fileNav_fileList"),
+									panel.layoutRect.h/2,
+									elementHeight,
+									panel.filesystemNav.numToDisplay,
+									panel.filesystemNav.selectedItem,
+									panel.filesystemNav.selectedItemChanged);
+
+				if panel.filesystemNav.selectedItemChanged then panel.filesystemNav.selectedItemChanged = false;
+
+				for rangeStart..rangeEnd {
+					directoryItem := panel.filesystemNav.itemList[it];
+					if directoryItem.sortKey == 0 continue;
+
+					if directoryItem.saveItem == true {
+						builder: String_Builder;
+						builder.allocator = temp;
+						init_string_builder(*builder);
+
+						append(*builder, "Save As - ");
+						for panel.filesystemNav.currentPath {
+							append(*builder, it);
+							if (it_index != panel.filesystemNav.currentPath.count-1)  append(*builder, "/");
+						}
+						append(*builder, "/");
+						append(*builder, input_field_get_text(*panel.filesystemNav.input));
+
+						entryBox := box(ui_key("savefileItem"), .{
+							flags=.DRAW_BACKGROUND, layout=.{ width=grow(), height=fixed(elementHeight), padding=padding_all(em(0.2)) },
+							palette=.{ background=style.backgroundLighter },
+						});
+						{
+							push_parent(entryBox); defer pop_parent();
+							itemLabel := box(ui_key("%", builder_to_string(*builder,,temp)), .{
+								flags=.DRAW_TEXT_HIGHLIGHTS,
+								layout=.{ width=text_content(), height=text_content() },
+							});
+						}
+					}
+					else {
+
+						// @todo: may be desirable to use the UI focus (hot/active) system for this?
+						entryFlags:UIBoxFlags = 0;
+						if it == panel.filesystemNav.selectedItem {
+							entryFlags |= .DRAW_BACKGROUND;
+						}
+
+						entryBox := box(ui_key("directoryItem##%", it), .{
+							flags=entryFlags, layout=.{ width=grow(), height=fixed(elementHeight), padding=padding_all(em(0.2)) },
+							palette=.{ background=style.backgroundLighter },
+						});
+						{
+							push_parent(entryBox); defer pop_parent();
+
+							itemLabel := box(ui_key("%##commandEntry%", directoryItem.name, it), .{
+								flags=.DRAW_TEXT_HIGHLIGHTS,
+								layout=.{ width=text_content(), height=text_content() },
+							});
+							//@todo: leaking memory!!
+							score, matches := fuzzy_search(directoryItem.name, string.{panel.filesystemNav.input.text.count, panel.filesystemNav.input.text.data});
+							itemLabel.textHighlights = matches;
+						}
+					}
+				}
+		
+				scroll_list_end(ui_key("filesystemNavScroller")); 
+			}
+		}
+
+		// Draw the main code screen
+		codeContainer := box(ui_key_nil, .{
+			flags=.DRAW_BACKGROUND,
+			layout=.{childLayoutAxis = .X, width=grow(), height=grow()},
+		});
+		{
+			push_parent(codeContainer); defer pop_parent();
+
+			codeBox := box(ui_key("code"), .{
+				flags=.CLIP_CONTENTS,
+				layout=.{width=grow(), height=grow()},
+				font=fontCode
+			});
+			codeBox.customDrawFunction = custom_draw_code;
+			codeBox.customDrawUdata = cast(*void) panel;
+
+			numDocumentLines := document_get_num_lines(panel.document);
+			metrics := get_font_metrics(codeBox.font, xx codeBox.fontSize);
+			codeBox.viewBounds.y = cast(float, -(metrics.lineSpacing * numDocumentLines) + metrics.lineSpacing * 5);
+			signal_from_box(codeBox);
+
+			// @todo: you really don't want to be relying on the rect here, set it as a fixed height
+			dragDelta := scroll_bar(ui_key("codeScroll"), codeBox.viewOffset.y, codeBox.viewBounds.y, codeBox.rect.h);
+
+			dragRange := (1.0 - max(abs(codeBox.rect.h/(codeBox.viewBounds.y-codeBox.rect.h)), 0.05))*codeBox.rect.h;
+			scaleRatio := ifx dragRange != 0.0 then abs(codeBox.viewBounds.y)/dragRange else 1.0;
+			codeBox.viewOffset -= dragDelta * scaleRatio;
+			codeBox.viewOffset.y = clamp(codeBox.viewOffset.y, codeBox.viewBounds.y, 0);
+			codeBox.viewOffset.x = clamp(codeBox.viewOffset.x, codeBox.viewBounds.x, 0);
+
+			codeBox.viewOffsetTarget -= dragDelta * scaleRatio;
+			codeBox.viewOffsetTarget.y = clamp(codeBox.viewOffsetTarget.y, codeBox.viewBounds.y, 0);
+			codeBox.viewOffsetTarget.x = clamp(codeBox.viewOffsetTarget.x, codeBox.viewBounds.x, 0);
+		}
+
+		// Draw the search dialog
+		if panel.activeDialog == .SEARCH {
+			searchContainer := box(ui_key_nil, .{
+				flags=.DRAW_BACKGROUND | .DRAW_SIDE_TOP,
+				layout=.{ 
+					childLayoutAxis = .X,
+					width=grow(),
+					height=fit(),
+					padding= padding_all(em(0.4))
+				},
+				palette=.{ background=style.backgroundLight },
+				borderThickness=1.0
+			});
+			{
+				push_parent(searchContainer); defer pop_parent();
+
+				fontMetrics := get_font_metrics(uiState.defaultFont, xx uiState.defaultFontSize);
+				inputBox := box(ui_key("search_input"), .{
+					flags=.DRAW_BACKGROUND,
+					layout=.{
+						width=grow(),
+						height=fixed(fontMetrics.lineSpacing+em(0.8)),
+					},
+					cornerRadius=corner_rad_all(em(0.2)),
+					palette=.{ background=style.backgroundLighter },
+					font=fontCode,
+					textPadding=em(0.5)
+				});
+				inputBox.customDrawFunction = custom_draw_input_field;
+				inputBox.customDrawUdata = cast(*void, *panel.searchInput);
+
+				// @todo: buttons for regex mode, caps, whole word search etc
+			}
+		}
+	}
+
+	end_ui();
+
+	render_frame();
+}
+
+custom_draw_input_field :: (box: *UIBox, udata: *void) {
+	inputField:*InputField = cast(*InputField)udata;
+
+	// draw the input field text
+	box.textRun = generate_text_run(string.{inputField.text.count, inputField.text.data}, xx box.fontSize, box.font,,temp);
+	metrics := get_font_metrics(box.font, xx box.fontSize);
+	yPos := floor(box.rect.y + box.rect.h/2.0) + floor(box.fontSize/2.0) - 1.0;
+	xPos := box.rect.x;
+
+	xPos += box.textPadding;
+	xPos = floor(xPos);
+	draw_text_run(box.textRun, xPos, yPos, box.palette.text);
+
+	// calculate cursor position
+	cursorOffsetX := generate_text_run(string.{inputField.cursor, inputField.text.data}, xx box.fontSize, box.font,,temp).width;
+
+	// draw cursor
+	cursorHeight:float = metrics.typicalAscender-metrics.typicalDescender + metrics.characterHeight*0.2;
+	submit_instance(.{
+		dstRect = .{
+			xPos + cursorOffsetX,
+			yPos-metrics.typicalDescender-cursorHeight,
+			2,
+			cursorHeight
+		},
+		color = ifx editorMode == .INSERT then .{1.0, 1.0, 1.0, 1.0} else style.textPrimary,
+		shader = .RECTS
+	});
+}
+
+// @todo: probably want to move this somewhere else?
+custom_draw_code :: (box: *UIBox, udata: *void) {
+	panel:*Panel = cast(*Panel)udata;
+
+	if panel.document {
+		metrics := get_font_metrics(box.font, xx box.fontSize);
+		documentLines := document_get_num_lines(panel.document);
+		cursorLine := document_cursor_get_line(*panel.cursor.head);
+
+		startVisibleLines : s64;
+		endVisibleLines : s64;
+		visibleLines: [..]string;
+		visibleLines.allocator = temp;
+
+		startVisibleLines = clamp(cast(s64) (-box.viewOffset.y / metrics.lineSpacing) - 1, 0, documentLines - 1);
+		endVisibleLines = clamp(startVisibleLines + cast(s64)box.rect.h / metrics.lineSpacing + 2, 0, documentLines - 1);
+
+		startOffset := (startVisibleLines+2) * metrics.lineSpacing - metrics.lineSpacing;
+
+		// Draw line numbers
+		gutterWidth := 0;
+		if lineNumbers {
+			y :float = box.rect.y + startOffset + box.viewOffset.y;
+			maxLinesRun := generate_text_run(tprint(" % ", documentLines), xx box.fontSize, box.font,,temp);
+			gutterWidth = xx maxLinesRun.width;
+
+			for startVisibleLines..endVisibleLines {
+				lineNoRun := generate_text_run(tprint("% ", it+1), xx box.fontSize, box.font,,temp);
+				draw_text_run(lineNoRun, box.rect.x + (gutterWidth - lineNoRun.width), y, style.textSecondary);
+				y += metrics.lineSpacing;
+			}
+		}
+
+		textAreaX := box.rect.x + gutterWidth;
+		textAreaY := box.rect.y + startOffset + box.viewOffset.y;
+
+		// @todo: refactor to use document cursors to walk through text rather than get_line_content for every line
+		linesOnScreen: [..]string;
+		linesOnScreen.allocator = temp;
+		for startVisibleLines..endVisibleLines {
+			array_add(*linesOnScreen, document_get_line_content(panel.document, xx it));
+		}
+
+		// Draw cursor selection
+		if panel.activeDialog != .SEARCH && cursorLine >= startVisibleLines && cursorLine <= endVisibleLines {
+			if panel.cursor.head.documentOffset != panel.cursor.anchor.documentOffset {
+				draw_cursor_range(box.font,
+									xx box.fontSize,
+									textAreaX,
+									textAreaY,
+									panel.cursor.head,
+									panel.cursor.anchor,
+									linesOnScreen,
+									startVisibleLines,
+									true);
+			}
+		}
+
+		// draw search results
+		if panel.activeDialog == .SEARCH {
+			for panel.results {
+				draw_cursor_range(box.font,
+									xx box.fontSize,
+									textAreaX,
+									textAreaY,
+									it.start,
+									it.end,
+									linesOnScreen,
+									startVisibleLines,
+									false);
+			}
+		}
+
+		// Draw the text
+		x :float = textAreaX;
+		y :float = textAreaY;
+		for line: linesOnScreen {
+			run := generate_text_run(line, xx box.fontSize, box.font,,temp);
+			draw_text_run(run, x, y, style.textPrimary);
+			y += metrics.lineSpacing;
+		}
+
+		// Draw cursor
+		if panel.activeDialog != .SEARCH && cursorLine >= startVisibleLines && cursorLine <= endVisibleLines {
+			line := linesOnScreen[cursorLine - startVisibleLines];
+			line.count = panel.cursor.head.documentOffset - document_get_line_start(panel.document, cursorLine);
+
+			// figuring out the width of the cursor requires knowing which vertical column of text
+			// we're in, including previous tabs
+			col:=0;
+			for line {
+				if it != #char "\t" {
+					col += 1;
+				} else {
+					charsToTabstop := box.font.tabSize - col % box.font.tabSize;
+					col += charsToTabstop;
+				}
+			}
+			cursorChar := document_cursor_get_char(*panel.cursor.head);
+			cursorRun := generate_text_run(cast(string) u8.[cursorChar], xx box.fontSize, box.font, col,,temp);
+
+			cursorX := textAreaX + generate_text_run(line, xx box.fontSize, box.font,,temp).width;
+			cursorY := textAreaY - metrics.typicalDescender + metrics.lineSpacing * (cursorLine-startVisibleLines-1);
+
+			submit_instance(.{
+				dstRect = .{
+					cursorX,
+					cursorY,
+					cursorRun.width,
+					xx metrics.lineSpacing
+				},
+				color = ifx editorMode == .INSERT then .{1.0, 1.0, 1.0, 1.0} else style.textPrimary,
+				shader = .RECTS
+			});
+
+			if cursorChar != 0 {
+				draw_text_run(cursorRun, cursorX, textAreaY + metrics.lineSpacing * (cursorLine-startVisibleLines), style.backgroundMid);
+			}
+		}
+	}
+}
+
+draw_cursor_range :: (font: *Font, fontSize: int, textAreaX: float, textAreaY: float, cursor1: DocumentCursor, cursor2: DocumentCursor, linesOnScreen: []string, startVisibleLine: s64, includeCursor := false) {
+	metrics := get_font_metrics(font, fontSize);
+	rangeStart, rangeEnd := convert_cursors_to_coordinate_range(cursor1, cursor2, includeCursor);
+	lineWidths: [..] s32;
+	lineWidths.allocator = temp;
+	endVisibleLine := startVisibleLine + linesOnScreen.count;
+	if rangeStart.line < startVisibleLine || rangeEnd.line > endVisibleLine {
+		return;
+	}
+	for rangeStart.line..rangeEnd.line {
+		lineIndex := it - startVisibleLine; 
+		if 0 > lineIndex || lineIndex >= linesOnScreen.count then continue;
+
+		line := linesOnScreen[it - startVisibleLine];
+		lineWidth := generate_text_run(line, fontSize, font,,temp).width;
+
+		isFirstLine:= it == rangeStart.line;
+		isLastLine:= it == rangeEnd.line;
+
+		selectionX := 0;
+		selectionW := lineWidth;
+		if isFirstLine {
+			selectionX = xx generate_text_run(string.{rangeStart.col,line.data}, fontSize, font,,temp).width;
+			selectionW = lineWidth - selectionX;
+		}
+		if isLastLine {
+			selectionW = generate_text_run(string.{rangeEnd.col,line.data}, fontSize, font,,temp).width - selectionX;
+		}
+
+		submit_instance(.{
+			dstRect = .{
+				cast(float)(textAreaX + selectionX),
+				cast(float)(textAreaY - metrics.typicalDescender + metrics.lineSpacing * (it-startVisibleLine-1)),
+				cast(float)selectionW,
+				cast(float)metrics.lineSpacing
+			},
+			color = style.textSelection,
+			shader = .RECTS
+		});
+	}
 }
 
 do_backup_callback :: () {
@@ -277,24 +948,33 @@ read_register :: (name: u8) -> string {
 	return string.{};
 }
 
+load_fonts :: () {
+	fontUI,_ = load_font("segoeui.ttf");
+
+	// attempt to load my personal font, then fallback to consolas
+	// @todo: ideally my font would be in a config file somewhere not in here
+	success: bool;
+	fontCode,success = load_font("FiraMonoNerdFontMono-Regular.ttf");
+	if !success { 
+		fontCode,_ = load_font("consola.ttf");
+	}
+
+	fontIcons = load_font_from_memory(#run read_entire_file("fonts/Font Awesome 6 Free-Solid-900.otf"));
+}
+
+// @todo: remove
 my_init_fonts :: () {
 	// @todo: embed the default font into the exe with #run
-
-	// @todo: when we re-init fonts cause the size changed, we aren't releasing old fonts
-	// something to clean up at some point
-
-	path := tprint("%../../fonts/", path_strip_filename(get_path_of_running_executable()));
-    my_font = Simp.get_font_at_size(path, "FiraMonoNerdFontMono-Medium.ttf", cast(int) (textSize * dpiScale));
-	my_font.render_tabs = false;
-	my_font.render_new_lines = false;
-    assert(my_font != null);
+	my_font = New(Dynamic_Font);
+	my_font.character_height = 10;
+	my_font.mono_x_advance = 10;
 }
 
 // color stuff
-hex_to_color_vec4 :: (src_hex: string) -> Vector4, success: bool {
+hex_to_color_vec4 :: (src_hex: string) -> Vector4 {
     hex := src_hex;
     if hex.count == 6 then hex = tprint("%FF", hex);
-    if hex.count != 8 return Vector4.{}, false;
+    if hex.count != 8 return Vector4.{};
 
     r := slice(hex, 0, 2);
     g := slice(hex, 2, 2);
@@ -317,7 +997,7 @@ hex_to_color_vec4 :: (src_hex: string) -> Vector4, success: bool {
 
     c := Vector4.{ to_float(r), to_float(g), to_float(b), to_float(a) };
 
-    return c, c.x >= 0 && c.y >= 0 && c.z >= 0 && c.w >= 0;
+    return c;
 }
 
 // utilities 
@@ -361,20 +1041,63 @@ convert_cursors_to_coordinate_range :: (cursor1: DocumentCursor, cursor2: Docume
 	return rangeStart, rangeEnd;
 }
 
-// fuzzy searching
-fuzzy_search :: (stringToSearch: string, filter: string) -> s32 {
-	if filter.count == 0 return 1;
-	// @todo case insensitive
-	i := find_index_from_left_nocase(stringToSearch, filter);
-
-	MAX_CHARS :: 200;
-	if i < 0 {
-		return 0; // no match means you get no score
+round :: (f: float) -> float {
+	diff := f - floor(f);
+	if diff >= 0.5{
+		return ceil(f);
 	}
-	// If it matched, we'll give it more if the filter was bigger
-	// and we'll give it more if the match was closer to the start of the search
-	score := (100 + cast(s32) filter.count) * (MAX_CHARS - i);
-	return xx score;
+	else {
+		return floor(f);
+	}
+}
+
+// fuzzy searching
+Highlight :: struct {
+	start: s32;
+	end: s32;
+}
+
+fuzzy_search :: (stringToSearch: string, filter: string) -> score: s32, highlights: [..]Highlight {
+	MAX_CHARS :: 200;
+
+	highlights: [..]Highlight;
+
+	if filter.count == 0 return 1, highlights;
+
+	// search for the full string first
+	{
+		i := find_index_from_left_nocase(stringToSearch, filter);
+		if i >= 0 {
+			// match!
+			score := (200 + cast(s32, filter.count)) * (MAX_CHARS - i);
+			array_add(*highlights, Highlight.{xx i, cast(s32, i + filter.count)});
+			return xx score, highlights; 
+		}
+	}
+
+	// search for individual (utf8) characters
+	score := 0;
+	pos := 0;
+	str := filter.data;
+	while str < filter.data+filter.count {
+		// iterate per unicode character, rather than literal scan of bytes
+		substr: string = ---;
+		substr.data = str;
+		str = unicode_next_character(str);
+		substr.count = str - substr.data;
+
+		// search 
+		i := find_index_from_left_nocase(stringToSearch, substr, pos);
+		if i < 0 { score = -1; break; }; 
+
+		// found a match!
+		score += 5 * (MAX_CHARS - i); 
+		array_add(*highlights, Highlight.{xx i, cast(s32, i + substr.count)});
+
+		// start the next search after this one, so we find ordered highlights of chars
+		pos = i + substr.count;
+	}
+	return xx score, highlights;
 }
 
 find_index_from_left_nocase :: (s: string, substring: string, start_index := 0) -> s64 {
@@ -473,18 +1196,23 @@ Utf8_Char :: struct {
     count: s32;
 }
 
-my_font: *Simp.Dynamic_Font;
+// @todo: temporary stub until we replace it with our custom renderer 
+Dynamic_Font :: struct {
+    character_height:       int = 10;
+	mono_x_advance:			int = 10;
+	render_new_lines: bool = false;
+	render_tabs: bool = false;
+}
+my_font: *Dynamic_Font;
 
-Simp  :: #import "Simp";
 Input :: #import "Input";
-
 #import "Window_Creation";
-
 #import "Basic";
 #import "Math";
 #import "System";
 #import "String";
 #import "File";
+#import "Hash";
 #import "File_Utilities";
 #import "Unicode";
 #import "Sort";
@@ -499,11 +1227,13 @@ Input :: #import "Input";
 #load "command_picker.jai";
 #load "filesystem_navigator.jai";
 #load "file_finder.jai";
-#load "draw.jai";
 #load "keymap.jai";
 #load "document.jai";
 #load "commands.jai";
 #load "panel.jai";
+#load "ui.jai";
+#load "renderer.jai";
+#load "font.jai";
 #load "uniform/module.jai";
 
 #if OS == .WINDOWS {

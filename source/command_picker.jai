@@ -11,6 +11,7 @@ CommandPicker :: struct {
 	}
 	filteredCommandList: [..]CommandEntry;
 	selectedCommand:s32;
+	selectedCommandChange:bool;
 	numToDisplay:s64; // number of items with positive sortkeys
 	input: InputField;
 }
@@ -84,10 +85,12 @@ command_picker_execute_command :: (using panel: *Panel, args: []string) {
 	state := *commandPicker;
 
 	cmd := state.filteredCommandList[state.selectedCommand].command; 
-	cmd.execute(panel, string.[]); // @todo: command picker can't give arguments yet? Needs this ability
+
+	// reset before executing the command, incase the command opens a dialog
 	command_picker_reset(panel);
 	editorMode = .NORMAL;
-	panel.activeDialog = .NONE;
+
+	cmd.execute(panel, string.[]); // @todo: command picker can't give arguments yet? Needs this ability
 }
 
 command_picker_select_next :: (using panel: *Panel, args: []string) {
@@ -95,6 +98,7 @@ command_picker_select_next :: (using panel: *Panel, args: []string) {
 
 	maxItems := state.numToDisplay - 1;
 	state.selectedCommand = clamp(state.selectedCommand+1, 0, xx maxItems);
+	state.selectedCommandChange = true;
 }
 
 command_picker_select_previous :: (using panel: *Panel, args: []string) {
@@ -102,5 +106,5 @@ command_picker_select_previous :: (using panel: *Panel, args: []string) {
 
 	maxItems := state.numToDisplay - 1;
 	state.selectedCommand = clamp(state.selectedCommand-1, 0, xx maxItems);
+	state.selectedCommandChange = true;
 }
-
