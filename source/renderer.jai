@@ -249,6 +249,7 @@ submit_instance :: (instance: Instance) {
 
 resize_backbuffer :: () {
 	glViewport(0, 0, xx windowWidth, xx windowHeight);
+	clear_scissor();
 }
 
 make_bitmap_from_file :: (path: string) -> Bitmap {

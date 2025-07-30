@@ -231,11 +231,69 @@ build_ui :: () {
 	uiState.defaultFontSize = style.fontSize * dpiScale;
 	uiState.defaultTextPadding = em(0.2);
 
-	build_ui_panel(*focusedPanel);
+	
+	if focusedPanel.document {
+		build_ui_panel(*focusedPanel);
+	}
+	else {
+		build_ui_empty_panel(*focusedPanel);
+	}
 
 	end_ui();
 
 	render_frame();
+}
+
+build_ui_empty_panel :: (panel: *Panel) {
+	panelBox := box(ui_key("panel1"), .{
+		flags=.DRAW_BACKGROUND,
+		layout=.{
+			childLayoutAxis = .Y,
+			width=fixed(panel.layoutRect.w),
+			height=fixed(panel.layoutRect.h),
+		},
+	});
+	push_parent(panelBox); defer pop_parent();
+
+	header := box(ui_key_nil, .{
+		flags=.DRAW_BACKGROUND | .DRAW_SIDE_BOTTOM,
+		layout=.{ 
+			childLayoutAxis = .X,
+			width=grow(),
+			height=fit(),
+			padding= padding_all(em(0.3))
+		},
+		palette=.{ background=style.backgroundLight },
+		borderThickness=1.0
+	});
+	{
+		push_parent(header); defer pop_parent();
+		box(ui_key("DUMMY"), .{
+			flags=0,
+			layout=.{ width=text_content(), height=text_content() },
+		});
+	}
+	
+
+	build_ui_panel_dialogs(panel);
+
+	spacer(.Y, fixed(em(5.0)));
+
+	box(ui_key("No Document Loaded"), .{
+		flags=.DRAW_TEXT,
+		layout=.{ width=text_content(), height=text_content() },
+	});
+
+	spacer(.Y, fixed(em(3.0)));
+
+	box(ui_key("Open file with '<space>O'"), .{
+		flags=.DRAW_TEXT,
+		layout=.{ width=text_content(), height=text_content() },
+	});
+	box(ui_key("Open command palette with ':'"), .{
+		flags=.DRAW_TEXT,
+		layout=.{ width=text_content(), height=text_content() },
+	});
 }
 
 build_ui_panel :: (panel: *Panel) {
@@ -397,7 +455,80 @@ build_ui_panel :: (panel: *Panel) {
 		}
 	}
 
+	build_ui_panel_dialogs(panel);
 
+	// Draw the main code screen
+	codeContainer := box(ui_key_nil, .{
+		flags=.DRAW_BACKGROUND,
+		layout=.{childLayoutAxis = .X, width=grow(), height=grow()},
+	});
+	{
+		push_parent(codeContainer); defer pop_parent();
+
+		codeBox := box(ui_key("code"), .{
+			flags=.CLIP_CONTENTS,
+			layout=.{width=grow(), height=grow()},
+			font=fontCode
+		});
+		codeBox.customDrawFunction = custom_draw_code;
+		codeBox.customDrawUdata = cast(*void) panel;
+
+		numDocumentLines := document_get_num_lines(panel.document);
+		metrics := get_font_metrics(codeBox.font, xx codeBox.fontSize);
+		codeBox.viewBounds.y = cast(float, -(metrics.lineSpacing * numDocumentLines) + metrics.lineSpacing * 5);
+		signal_from_box(codeBox);
+
+		// @todo: you really don't want to be relying on the rect here, set it as a fixed height
+		dragDelta := scroll_bar(ui_key("codeScroll"), codeBox.viewOffset.y, codeBox.viewBounds.y, codeBox.rect.h);
+
+		dragRange := (1.0 - max(abs(codeBox.rect.h/(codeBox.viewBounds.y-codeBox.rect.h)), 0.05))*codeBox.rect.h;
+		scaleRatio := ifx dragRange != 0.0 then abs(codeBox.viewBounds.y)/dragRange else 1.0;
+		codeBox.viewOffset -= dragDelta * scaleRatio;
+		codeBox.viewOffset.y = clamp(codeBox.viewOffset.y, codeBox.viewBounds.y, 0);
+		codeBox.viewOffset.x = clamp(codeBox.viewOffset.x, codeBox.viewBounds.x, 0);
+
+		codeBox.viewOffsetTarget -= dragDelta * scaleRatio;
+		codeBox.viewOffsetTarget.y = clamp(codeBox.viewOffsetTarget.y, codeBox.viewBounds.y, 0);
+		codeBox.viewOffsetTarget.x = clamp(codeBox.viewOffsetTarget.x, codeBox.viewBounds.x, 0);
+	}
+
+	// Draw the search dialog
+	if panel.activeDialog == .SEARCH {
+		searchContainer := box(ui_key_nil, .{
+			flags=.DRAW_BACKGROUND | .DRAW_SIDE_TOP,
+			layout=.{ 
+				childLayoutAxis = .X,
+				width=grow(),
+				height=fit(),
+				padding= padding_all(em(0.4))
+			},
+			palette=.{ background=style.backgroundLight },
+			borderThickness=1.0
+		});
+		{
+			push_parent(searchContainer); defer pop_parent();
+
+			fontMetrics := get_font_metrics(uiState.defaultFont, xx uiState.defaultFontSize);
+			inputBox := box(ui_key("search_input"), .{
+				flags=.DRAW_BACKGROUND,
+				layout=.{
+					width=grow(),
+					height=fixed(fontMetrics.lineSpacing+em(0.8)),
+				},
+				cornerRadius=corner_rad_all(em(0.2)),
+				palette=.{ background=style.backgroundLighter },
+				font=fontCode,
+				textPadding=em(0.5)
+			});
+			inputBox.customDrawFunction = custom_draw_input_field;
+			inputBox.customDrawUdata = cast(*void, *panel.searchInput);
+
+			// @todo: buttons for regex mode, caps, whole word search etc
+		}
+	}
+}
+
+build_ui_panel_dialogs :: (panel: *Panel) {
 	if panel.activeDialog == .COMMAND_PICKER {
 		commandPickerContainer := box(ui_key_nil, .{
 			flags=.DRAW_BACKGROUND,
@@ -610,78 +741,8 @@ build_ui_panel :: (panel: *Panel) {
 					}
 				}
 			}
-	
+
 			scroll_list_end(ui_key("filesystemNavScroller")); 
-		}
-	}
-
-	// Draw the main code screen
-	codeContainer := box(ui_key_nil, .{
-		flags=.DRAW_BACKGROUND,
-		layout=.{childLayoutAxis = .X, width=grow(), height=grow()},
-	});
-	{
-		push_parent(codeContainer); defer pop_parent();
-
-		codeBox := box(ui_key("code"), .{
-			flags=.CLIP_CONTENTS,
-			layout=.{width=grow(), height=grow()},
-			font=fontCode
-		});
-		codeBox.customDrawFunction = custom_draw_code;
-		codeBox.customDrawUdata = cast(*void) panel;
-
-		numDocumentLines := document_get_num_lines(panel.document);
-		metrics := get_font_metrics(codeBox.font, xx codeBox.fontSize);
-		codeBox.viewBounds.y = cast(float, -(metrics.lineSpacing * numDocumentLines) + metrics.lineSpacing * 5);
-		signal_from_box(codeBox);
-
-		// @todo: you really don't want to be relying on the rect here, set it as a fixed height
-		dragDelta := scroll_bar(ui_key("codeScroll"), codeBox.viewOffset.y, codeBox.viewBounds.y, codeBox.rect.h);
-
-		dragRange := (1.0 - max(abs(codeBox.rect.h/(codeBox.viewBounds.y-codeBox.rect.h)), 0.05))*codeBox.rect.h;
-		scaleRatio := ifx dragRange != 0.0 then abs(codeBox.viewBounds.y)/dragRange else 1.0;
-		codeBox.viewOffset -= dragDelta * scaleRatio;
-		codeBox.viewOffset.y = clamp(codeBox.viewOffset.y, codeBox.viewBounds.y, 0);
-		codeBox.viewOffset.x = clamp(codeBox.viewOffset.x, codeBox.viewBounds.x, 0);
-
-		codeBox.viewOffsetTarget -= dragDelta * scaleRatio;
-		codeBox.viewOffsetTarget.y = clamp(codeBox.viewOffsetTarget.y, codeBox.viewBounds.y, 0);
-		codeBox.viewOffsetTarget.x = clamp(codeBox.viewOffsetTarget.x, codeBox.viewBounds.x, 0);
-	}
-
-	// Draw the search dialog
-	if panel.activeDialog == .SEARCH {
-		searchContainer := box(ui_key_nil, .{
-			flags=.DRAW_BACKGROUND | .DRAW_SIDE_TOP,
-			layout=.{ 
-				childLayoutAxis = .X,
-				width=grow(),
-				height=fit(),
-				padding= padding_all(em(0.4))
-			},
-			palette=.{ background=style.backgroundLight },
-			borderThickness=1.0
-		});
-		{
-			push_parent(searchContainer); defer pop_parent();
-
-			fontMetrics := get_font_metrics(uiState.defaultFont, xx uiState.defaultFontSize);
-			inputBox := box(ui_key("search_input"), .{
-				flags=.DRAW_BACKGROUND,
-				layout=.{
-					width=grow(),
-					height=fixed(fontMetrics.lineSpacing+em(0.8)),
-				},
-				cornerRadius=corner_rad_all(em(0.2)),
-				palette=.{ background=style.backgroundLighter },
-				font=fontCode,
-				textPadding=em(0.5)
-			});
-			inputBox.customDrawFunction = custom_draw_input_field;
-			inputBox.customDrawUdata = cast(*void, *panel.searchInput);
-
-			// @todo: buttons for regex mode, caps, whole word search etc
 		}
 	}
 }
