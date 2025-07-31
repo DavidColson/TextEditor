@@ -732,7 +732,7 @@ document_cursor_step_one_forward :: (cursor: *DocumentCursor, skipReturns := fal
 	buffer: = ifx cursor.node.added then *cursor.doc.addedData else *cursor.doc.originalData;
 	offsetInNode := cursor.documentOffset - cursor.nodeStartOffset;
 
-	if offsetInNode >= cursor.node.length && cursor.node.next == cursor.doc.pieceChainTail {
+	if offsetInNode >= cursor.node.length && (cursor.node.next == cursor.doc.pieceChainTail || cursor.node == cursor.doc.pieceChainTail) {
 		return 0; // end of document
 	}
 
@@ -763,7 +763,7 @@ document_cursor_step_one_backward :: (cursor: *DocumentCursor, skipReturns := fa
 	buffer: = ifx cursor.node.added then *cursor.doc.addedData else *cursor.doc.originalData;
 	offsetInNode := cursor.documentOffset - cursor.nodeStartOffset;
 	
-	if offsetInNode <= 0 && cursor.node.prev == cursor.doc.pieceChainHead {
+	if offsetInNode <= 0 && (cursor.node.prev == cursor.doc.pieceChainHead || cursor.node == cursor.doc.pieceChainHead) {
 		cursor.documentOffset = 0;
 		return 0; // start of document
 	}

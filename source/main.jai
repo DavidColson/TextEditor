@@ -312,7 +312,8 @@ build_ui_panel :: (panel: *Panel) {
 			childLayoutAxis = .X,
 			width=grow(),
 			height=fit(),
-			padding= padding_all(em(0.3))
+			padding= padding_all(em(0.3)),
+			childAlignment=.CENTER
 		},
 		palette=.{ background=style.backgroundLight },
 		borderThickness=1.0
@@ -586,7 +587,7 @@ build_ui_panel_dialogs :: (panel: *Panel) {
 				}
 
 				entryBox := box(ui_key("commandEntry##%", it), .{
-					flags=entryFlags, layout=.{ width=grow(), height=fixed(elementHeight), padding=padding_all(em(0.2)) },
+					flags=entryFlags, layout=.{ width=grow(), height=fixed(elementHeight), padding=padding_all(em(0.2)), childAlignment=.CENTER },
 					palette=.{ background=style.backgroundLighter },
 				});
 				{
@@ -708,7 +709,7 @@ build_ui_panel_dialogs :: (panel: *Panel) {
 					append(*builder, input_field_get_text(*panel.filesystemNav.input));
 
 					entryBox := box(ui_key("savefileItem"), .{
-						flags=.DRAW_BACKGROUND, layout=.{ width=grow(), height=fixed(elementHeight), padding=padding_all(em(0.2)) },
+						flags=.DRAW_BACKGROUND, layout=.{ width=grow(), height=fixed(elementHeight), padding=padding_all(em(0.2)), childAlignment=.CENTER },
 						palette=.{ background=style.backgroundLighter },
 					});
 					{
@@ -783,7 +784,7 @@ build_ui_panel_dialogs :: (panel: *Panel) {
 			inputBox.customDrawFunction = custom_draw_input_field;
 			inputBox.customDrawUdata = cast(*void, *panel.fileFinder.input);
 
-			elementHeight := cast(float, fontMetrics.characterHeight*2);
+			elementHeight := cast(float, fontMetrics.characterHeight*3);
 			rangeStart, rangeEnd := scroll_list_begin(ui_key("fileList"),
 								panel.layoutRect.h/2,
 								elementHeight,
@@ -805,12 +806,16 @@ build_ui_panel_dialogs :: (panel: *Panel) {
 				}
 
 				entryBox := box(ui_key("entry##%", it), .{
-					flags=entryFlags, layout=.{ width=grow(), height=fixed(elementHeight), padding=padding_all(em(0.2)) },
+					flags=entryFlags, layout=.{
+						width=grow(),
+						height=fixed(elementHeight),
+						padding=padding_all(em(0.2)),
+						childLayoutAxis=.Y
+					},
 					palette=.{ background=style.backgroundLighter },
 				});
 				{
 					push_parent(entryBox); defer pop_parent();
-
 
 					fileLabel := box(ui_key("%##fileListEntryLabel", path_filename(entry.doc.path)), .{
 						flags=.DRAW_TEXT_HIGHLIGHTS,
@@ -819,6 +824,13 @@ build_ui_panel_dialogs :: (panel: *Panel) {
 					// leaking memory!!
 					score, matches := fuzzy_search(path_filename(entry.doc.path), string.{panel.fileFinder.input.text.count, panel.fileFinder.input.text.data});
 					fileLabel .textHighlights = matches;
+
+					pathLabel := box(ui_key("%##fileListPathLabel", entry.doc.path), .{
+						flags=.DRAW_TEXT,
+						fontSize=em(0.7),
+						palette=.{text= ifx it == panel.fileFinder.selectedEntry then style.textPrimary else style.textSecondary},
+						layout=.{ width=text_content(), height=text_content() },
+					});
 				}
 			}
 

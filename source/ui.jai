@@ -10,7 +10,7 @@ UIBoxDeclaration :: struct {
 	fontSize: float;
 	font: *Font;
 	textPadding: float;
-	textAlignment: UITextAlign;
+	textAlignment: UIAlignment;
 }
 
 UIBox :: struct {
@@ -50,6 +50,7 @@ UILayoutData :: struct {
 	childLayoutAxis: UIAxis;
 	padding: Vector4; // left, right, top, bottom
 	childGap: float;
+	childAlignment: UIAlignment;
 	width: UISize;
 	height: UISize;
 #place width;
@@ -105,7 +106,7 @@ UISizeType :: enum {
 	GROW;
 }
 
-UITextAlign :: enum {
+UIAlignment :: enum {
 	LEFT;
 	CENTER;
 	RIGHT;
@@ -143,7 +144,7 @@ UIState :: struct {
 	defaultFont: *Font;
 	defaultFontSize := 15.0;
 	defaultTextPadding := 0.0;
-	defaultTextAlignment:UITextAlign = .LEFT;
+	defaultTextAlignment:UIAlignment = .LEFT;
 
 	// Persistent UI data
 	boxTable: Table(UIKey, *UIBox, given_compare_function=compare_key, given_hash_function=x=>get_hash(x.keyVal));
@@ -183,6 +184,7 @@ box :: (key: UIKey = ui_key_nil, data: UIBoxDeclaration) -> *UIBox {
 	// if it can't be found it's new
 	if !success {
 		// transient box, we'll allocate in the frame allocator (cleared at the end of the frame)
+			childAlignment: UIAlignment;
 		if key == ui_key_nil {
 			box = New(UIBox,, uiState.frameAlloc);
 		}
@@ -202,7 +204,7 @@ box :: (key: UIKey = ui_key_nil, data: UIBoxDeclaration) -> *UIBox {
 	}
 
 	// this will save your sanity
-	if success {
+ 	if success {
 		assert(box.lastTouchedFrame != uiState.frameIndex, "Encountered a duplicate key this frame, probably a mistake");
 	}
 
@@ -1097,7 +1099,15 @@ compute_positions :: (root: *UIBox, axis: UIAxis) {
 					layoutPosition += child.fixedSize[axis] + box.layout.childGap;
 				}
 				else {
-					child.fixedPosition[axis] = (box.fixedSize[axis]-child.fixedSize[axis])/2;
+					if box.layout.childAlignment == {
+						case .LEFT;
+							child.fixedPosition[axis] = box.viewOffset.component[axis] + layoutPosition;
+						case .RIGHT;
+							child.fixedPosition[axis] = box.viewOffset.component[axis] + (box.fixedSize[axis]-child.fixedSize[axis]-box.layout.padding.component[axis*2]);
+						case .CENTER; #through;
+						case;
+							child.fixedPosition[axis] = box.viewOffset.component[axis] + (box.fixedSize[axis]-child.fixedSize[axis])/2;
+					}
 				}
 			}
 
