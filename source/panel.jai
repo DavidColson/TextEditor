@@ -12,7 +12,6 @@ Cursor :: struct {
 Panel :: struct {
 	document: *Document;
 	layoutRect: Rect;
-	headerHeight: float;
 	optionsMenuOpen: bool;
 
 	// cursors
@@ -82,12 +81,13 @@ panel_scroll_to_line :: (panel: *Panel, targetLine: s64) {
 panel_calculate_visible_lines :: (panel: *Panel, useAnimTarget:bool=false) -> s64, s64 {
 	success, box := find_box(ui_key("code"));
 	if success {
+		if box.rect.h == 0.0 return 0,0;
 		documentLines := document_get_num_lines(panel.document);
 		metrics := get_font_metrics(box.font, xx box.fontSize);
 
 		viewOffset := ifx useAnimTarget then box.viewOffsetTarget.y else box.viewOffset.y;
 		startVisibleLines := clamp(cast(s64) (-viewOffset / metrics.lineSpacing), 0, documentLines - 1);
-		return startVisibleLines, cast(s64, (panel.layoutRect.h - panel.headerHeight) / metrics.lineSpacing)-1;
+		return startVisibleLines, cast(s64, box.rect.h / metrics.lineSpacing)-1;
 	}
 	return 0,0;
 }

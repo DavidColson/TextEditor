@@ -304,13 +304,12 @@ build_ui_empty_panel :: (panel: *Panel) {
 	});
 	push_parent(panelBox); defer pop_parent();
 
-	panel.headerHeight = em(2.1);
 	header := box(ui_key_nil, .{
 		flags=.DRAW_BACKGROUND | .DRAW_SIDE_BOTTOM,
 		layout=.{ 
 			childLayoutAxis = .X,
 			width=grow(),
-			height=fixed(panel.headerHeight ),
+			height=fit(),
 			padding= padding_all(em(0.3))
 		},
 		palette=.{ background=style.backgroundLight },
@@ -353,13 +352,12 @@ build_ui_panel :: (panel: *Panel) {
 	});
 	push_parent(panelBox); defer pop_parent();
 
-	panel.headerHeight = em(2.1);
 	header := box(ui_key_nil, .{
 		flags=.DRAW_BACKGROUND | .DRAW_SIDE_BOTTOM,
 		layout=.{ 
 			childLayoutAxis = .X,
 			width=grow(),
-			height=fixed(panel.headerHeight ),
+			height=fit(),
 			padding= padding_all(em(0.3)),
 			childAlignment=.CENTER
 		},
@@ -510,10 +508,9 @@ build_ui_panel :: (panel: *Panel) {
 	build_ui_panel_dialogs(panel);
 
 	// Draw the main code screen
-	codeContainerHeight := panel.layoutRect.h - panel.headerHeight;
 	codeContainer := box(ui_key_nil, .{
 		flags=.DRAW_BACKGROUND,
-		layout=.{childLayoutAxis = .X, width=grow(), height=fixed(codeContainerHeight)},
+		layout=.{childLayoutAxis = .X, width=grow(), height=grow()},
 	});
 	{
 		push_parent(codeContainer); defer pop_parent();
@@ -531,9 +528,10 @@ build_ui_panel :: (panel: *Panel) {
 		codeBox.viewBounds.y = cast(float, -(metrics.lineSpacing * numDocumentLines) + metrics.lineSpacing * 5);
 		signal_from_box(codeBox);
 
-		dragDelta := scroll_bar(ui_key("codeScroll"), codeBox.viewOffset.y, codeBox.viewBounds.y, codeContainerHeight);
+		// @todo: find a way to not rely on this codebox rect
+		dragDelta := scroll_bar(ui_key("codeScroll"), codeBox.viewOffset.y, codeBox.viewBounds.y, codeBox.rect.h);
 
-		dragRange := (1.0 - max(abs(codeContainerHeight/(codeBox.viewBounds.y-codeContainerHeight)), 0.05))*codeContainerHeight;
+		dragRange := (1.0 - max(abs(codeBox.rect.h/(codeBox.viewBounds.y-codeBox.rect.h)), 0.05))*codeBox.rect.h;
 		scaleRatio := ifx dragRange != 0.0 then abs(codeBox.viewBounds.y)/dragRange else 1.0;
 		codeBox.viewOffset -= dragDelta * scaleRatio;
 		codeBox.viewOffset.y = clamp(codeBox.viewOffset.y, codeBox.viewBounds.y, 0);
