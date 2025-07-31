@@ -1,7 +1,10 @@
 FileFinder :: struct {
+	memory : Flat_Pool;
+
 	FileEntry :: struct {
 		doc: *Document;
 		sortKey: s64;
+		fuzzyMatches: []Highlight;
 	}
 	fileList: [..]FileEntry;
 	selectedEntry:s32;
@@ -34,10 +37,11 @@ file_finder_input_field_on_edit :: (userData: *void, input: string) {
 		// @todo: at some point you probably want to search the whole path for matches
 		// need better UI to show the filepath
 		filePath := doc.path;
-		score := fuzzy_search(path_filename(filePath), input);
+		score, fuzzyMatches := fuzzy_search(path_filename(filePath), input,,get_allocator(finder));
 		entry := array_add(*finder.fileList);
 		entry.doc = doc;
 		entry.sortKey = score;
+		entry.fuzzyMatches = fuzzyMatches;
 		if entry.sortKey > 0 {
 			finder.numToDisplay += 1;
 		}
@@ -59,6 +63,11 @@ file_finder_reset :: (panel: *Panel) {
 	finder.selectedEntry = 0;
 	finder.numToDisplay = 0;
 	array_reset(*finder.fileList);
+	#if BUILD_TYPE == BuildType.DEBUG {
+		reset(*finder.memory, overwrite_memory=true);
+	} else {
+		reset(*finder.memory, overwrite_memory=false);
+	}
 	input_field_reset_keeping_memory(*finder.input);
 	panel.activeDialog = .NONE;
 }
@@ -85,4 +94,10 @@ file_finder_select_previous :: (using panel: *Panel) {
 	maxEntry := finder.fileList.count - 1;
 	finder.selectedEntry = clamp(finder.selectedEntry-1, 0, xx maxEntry);
 	finder.selectedEntryChanged = true;
+}
+
+#scope_file
+
+get_allocator :: (state: *FileFinder) -> Allocator {
+	return Allocator.{ proc = flat_pool_allocator_proc, data = *state.memory };
 }

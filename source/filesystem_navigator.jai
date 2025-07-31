@@ -15,6 +15,7 @@ FilesystemNavigator :: struct {
 		sortKey: s64;
 		saveItem: bool;
 		isDirectory: bool;
+		fuzzyMatches: []Highlight;
 	}
 }
 
@@ -159,7 +160,7 @@ filesystem_nav_filter_directory_list :: (state: *FilesystemNavigator) {
 	search_query:= input_field_get_text(*state.input);
 	for * item: state.itemList {
 		if !item.saveItem {
-			item.sortKey = fuzzy_search(item.name, search_query);
+			item.sortKey, item.fuzzyMatches = fuzzy_search(item.name, search_query,,get_allocator(state));
 		}
 		else {
 			// save item special case

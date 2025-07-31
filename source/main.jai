@@ -650,9 +650,7 @@ build_ui_panel_dialogs :: (panel: *Panel) {
 						flags=.DRAW_TEXT_HIGHLIGHTS,
 						layout=.{ width=text_content(), height=text_content() },
 					});
-					// leaking memory!!
-					score, matches := fuzzy_search(commandEntry.command.name, string.{panel.commandPicker.input.text.count, panel.commandPicker.input.text.data});
-					commandLabel.textHighlights = matches;
+					commandLabel.textHighlights = commandEntry.fuzzyMatches;
 
 					box(ui_key_nil, .{ layout=.{width=grow()}});
 
@@ -824,9 +822,7 @@ build_ui_panel_dialogs :: (panel: *Panel) {
 							flags=.DRAW_TEXT_HIGHLIGHTS,
 							layout=.{ width=text_content(), height=text_content() },
 						});
-						//@todo: leaking memory!!
-						score, matches := fuzzy_search(directoryItem.name, string.{panel.filesystemNav.input.text.count, panel.filesystemNav.input.text.data});
-						itemLabel.textHighlights = matches;
+						itemLabel.textHighlights = directoryItem.fuzzyMatches;
 					}
 				}
 			}
@@ -933,9 +929,7 @@ build_ui_panel_dialogs :: (panel: *Panel) {
 						flags=.DRAW_TEXT_HIGHLIGHTS,
 						layout=.{ width=text_content(), height=text_content() },
 					});
-					// leaking memory!!
-					score, matches := fuzzy_search(path_filename(entry.doc.path), string.{panel.fileFinder.input.text.count, panel.fileFinder.input.text.data});
-					fileLabel .textHighlights = matches;
+					fileLabel.textHighlights = entry.fuzzyMatches;
 
 					pathLabel := box(ui_key("%##fileListPathLabel", entry.doc.path), .{
 						flags=.DRAW_TEXT,

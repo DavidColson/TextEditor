@@ -1,6 +1,4 @@
 CommandPicker :: struct {
-	// @todo: all this really has to manage is the command list
-	// might not be worth using a pool here?
 	memory : Flat_Pool;
 
 	CommandEntry :: struct {
@@ -8,6 +6,7 @@ CommandPicker :: struct {
 		// right now this is just the search score, but i'd like to add
 		// the last use time of the command, or how often it's used
 		sortKey: s64;
+		fuzzyMatches: []Highlight;
 	}
 	filteredCommandList: [..]CommandEntry;
 	selectedCommand:s32;
@@ -45,8 +44,9 @@ command_picker_input_field_on_edit :: (userData: *void, input: string) {
 
 	for command: commandList {
 		if !(command.flags & .HIDDEN) {
-			score := fuzzy_search(command.name, input);
+			score,fuzzyMatches := fuzzy_search(command.name, input);
 			entry := array_add(*state.filteredCommandList);
+			entry.fuzzyMatches = fuzzyMatches;
 			entry.command = *command;
 			entry.sortKey = score;
 			if entry.sortKey > 0 {
