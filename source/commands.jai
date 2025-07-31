@@ -969,9 +969,8 @@ dialog_backward_delete :: (using panel: *Panel, args: []string) {
 		case .FILE_FINDER;
 			inputField.text.count -= 1;
 			inputField.cursor -= 1;
-			if inputField.text.count <= 0 {
-				inputField.text.count = 0;
-			}
+			inputField.text.count = max(inputField.text.count, 0);
+			inputField.cursor = max(inputField.cursor, 0);
 			if inputField.onEditCallback {
 				inputField.onEditCallback(inputField.userData, string.{inputField.text.count, inputField.text.data});
 			}
