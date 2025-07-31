@@ -222,7 +222,6 @@ box :: (key: UIKey = ui_key_nil, data: UIBoxDeclaration) -> *UIBox {
 	box.customDrawFunction = null;
 	box.lastTouchedFrame = uiState.frameIndex;
 
-	// Assert if a floating box has size policy grow or percent, others are all valid
 	if data.fixedX != 0.0 {
 		box.fixedPosition[UIAxis.X] = data.fixedX;
 		box.flags |= .FLOATING_X;

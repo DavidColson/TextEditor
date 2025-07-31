@@ -207,7 +207,7 @@ main :: () {
 		}
 
 		if nNotificationsToRemove > 0 {
-			memcpy(notifications.data, notifications.data+nNotificationsToRemove, nNotificationsToRemove*size_of(Notification));
+			memcpy(notifications.data, notifications.data + nNotificationsToRemove, (numActiveNotifications - nNotificationsToRemove)*size_of(Notification));
 			numActiveNotifications -= nNotificationsToRemove;
 		}
 		if numActiveNotifications > 0 {
@@ -235,7 +235,53 @@ build_ui :: () {
 	uiState.defaultFontSize = style.fontSize * dpiScale;
 	uiState.defaultTextPadding = em(0.2);
 
+	// Draw notifications
 	
+	fontMetrics := get_font_metrics(uiState.defaultFont, xx uiState.defaultFontSize);
+
+	maxWidth := 0.0;
+	for * notifications {
+		textRun := generate_text_run(it.content, xx uiState.defaultFontSize, uiState.defaultFont,,temp);
+		maxWidth = max(maxWidth, textRun.width);
+	}
+
+	it := numActiveNotifications;
+	notificationBox := box(ui_key("notifBox"), .{
+		flags=0,
+		layout=.{
+			childLayoutAxis = .Y,
+			width=fit(),
+			height=fit(),
+			childAlignment=.RIGHT,
+			childGap=em(0.5)
+		},
+		fixedX= windowWidth - maxWidth - em(2.5),
+		fixedY= em(3.0),
+	});
+	{
+		push_parent(notificationBox); defer pop_parent();
+		while it > 0 {
+			notif := notifications[it-1];
+			fadeOutTime := cast(float) notificationTime*0.3;
+			timeFactor := cast(float) clamp(notif.timer, 0.0, fadeOutTime) / fadeOutTime;
+			alpha := lerp(0.0, 1.0, timeFactor);
+
+			backgroundCol := style.activeHighlight;
+			backgroundCol.w = alpha;
+			textCol := style.backgroundMid;
+			textCol.w = alpha;
+			box(ui_key("%##%", notif.content, it), .{
+				flags=.DRAW_TEXT | .DRAW_BACKGROUND,
+				layout=.{ width=text_content(), height=text_content() },
+				palette=.{background=backgroundCol, text=textCol},
+				textPadding=em(0.4),
+				cornerRadius=corner_rad_all(em(0.3))
+			});
+			it -= 1;
+		}
+	}
+	
+	// Draw the panel
 	if focusedPanel.document {
 		build_ui_panel(*focusedPanel);
 	}
