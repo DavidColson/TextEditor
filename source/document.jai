@@ -90,7 +90,7 @@ open_document_table: Table(string, Bucket_Locator);
 
 document_open :: (path: string) -> *Document {
 	// check if this file is already open
-	existinglocator, success := table_find(*open_document_table, path);
+	success, existinglocator := table_find_new(*open_document_table, path);
 	if success {
 		bucket := open_documents.all_buckets[existinglocator.bucket_index];
 		assert(bucket.occupied[existinglocator.slot_index] == true);
@@ -322,7 +322,7 @@ document_save :: (doc: *Document, path: string, backup := false) {
 }
 
 document_get_by_path :: (path: string) -> bool, *Document {
-	locator, success := table_find(*open_document_table, path);
+	success, locator := table_find_new(*open_document_table, path);
 	if success {
 		bucket := open_documents.all_buckets[locator.bucket_index];
 		assert(bucket.occupied[locator.slot_index] == true);

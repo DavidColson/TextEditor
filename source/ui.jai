@@ -173,13 +173,13 @@ init_ui :: () {
 }
 
 find_box :: (key: UIKey) -> bool, *UIBox {
-	box,success := table_find(*uiState.boxTable, key);
+	success, box:= table_find_new(*uiState.boxTable, key);
 	return success, box;
 }
 
 box :: (key: UIKey = ui_key_nil, data: UIBoxDeclaration) -> *UIBox {
 	// attempt to get the box from persistent data using it's key
-	box,success := table_find(*uiState.boxTable, key);
+	success, box := table_find_new(*uiState.boxTable, key);
 
 	// if it can't be found it's new
 	if !success {

@@ -344,7 +344,7 @@ rebuild_key_map :: ()  {
 				}
 				else if keys.count > 0 { // non-leaf node
 					assert(nArgs == 0, "Arguments in a key mapping must be at the end of the sequence");
-					entry, exists := table_find(curNode.children, hashKey);
+					exists, entry := table_find_new(curNode.children, hashKey);
 					if !exists { 
 						newNode := New(KeyMapNode,,keyMap.allocator);
 						newNode.children = New(Table(string, *KeyMapNode),,keyMap.allocator);
