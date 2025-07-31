@@ -5,6 +5,7 @@ FileFinder :: struct {
 	}
 	fileList: [..]FileEntry;
 	selectedEntry:s32;
+	selectedEntryChanged:bool;
 	numToDisplay:s32;
 	input: InputField;
 }
@@ -75,6 +76,7 @@ file_finder_select_next :: (using panel: *Panel) {
 
 	maxEntry := finder.fileList.count - 1;
 	finder.selectedEntry = clamp(finder.selectedEntry+1, 0, xx maxEntry);
+	finder.selectedEntryChanged = true;
 }
 
 file_finder_select_previous :: (using panel: *Panel) {
@@ -82,4 +84,5 @@ file_finder_select_previous :: (using panel: *Panel) {
 
 	maxEntry := finder.fileList.count - 1;
 	finder.selectedEntry = clamp(finder.selectedEntry-1, 0, xx maxEntry);
+	finder.selectedEntryChanged = true;
 }

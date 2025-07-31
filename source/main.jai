@@ -748,6 +748,83 @@ build_ui_panel_dialogs :: (panel: *Panel) {
 			scroll_list_end(ui_key("filesystemNavScroller")); 
 		}
 	}
+
+
+	
+	if panel.activeDialog == .FILE_FINDER {
+		fileFinderContainer := box(ui_key_nil, .{
+			flags=.DRAW_BACKGROUND,
+			layout=.{ 
+				childLayoutAxis = .Y,
+				width=fixed(panel.layoutRect.w / 2),
+				height=fit(),
+				padding= padding_all(em(0.4)),
+			},
+			palette=.{ background=style.backgroundLight },
+			cornerRadius=corner_rad_all(em(0.5)),
+			fixedX=panel.layoutRect.x+(panel.layoutRect.w-(panel.layoutRect.w/2))/2,
+			fixedY=em(3.0)
+		});
+		{
+			push_parent(fileFinderContainer); defer pop_parent();
+
+			fontMetrics := get_font_metrics(uiState.defaultFont, xx uiState.defaultFontSize);
+			inputBox := box(ui_key("fileFinderInput"), .{
+				flags=.DRAW_BACKGROUND,
+				layout=.{
+					width=grow(),
+					height=fixed(fontMetrics.lineSpacing+em(0.8)),
+				},
+				cornerRadius=corner_rad_all(em(0.2)),
+				palette=.{ background=style.backgroundLighter },
+				textPadding=em(0.5)
+			});
+
+			inputBox.customDrawFunction = custom_draw_input_field;
+			inputBox.customDrawUdata = cast(*void, *panel.fileFinder.input);
+
+			elementHeight := cast(float, fontMetrics.characterHeight*2);
+			rangeStart, rangeEnd := scroll_list_begin(ui_key("fileList"),
+								panel.layoutRect.h/2,
+								elementHeight,
+								panel.fileFinder.numToDisplay,
+								panel.fileFinder.selectedEntry,
+								panel.fileFinder.selectedEntryChanged);
+
+			if panel.fileFinder.selectedEntryChanged then panel.fileFinder.selectedEntryChanged = false;
+
+			for rangeStart..rangeEnd {
+				entry := panel.fileFinder.fileList[it];
+
+				if entry.sortKey == 0 continue;
+
+				// @todo: may be desirable to use the UI focus (hot/active) system for this?
+				entryFlags:UIBoxFlags = 0;
+				if it == panel.fileFinder.selectedEntry {
+					entryFlags |= .DRAW_BACKGROUND;
+				}
+
+				entryBox := box(ui_key("entry##%", it), .{
+					flags=entryFlags, layout=.{ width=grow(), height=fixed(elementHeight), padding=padding_all(em(0.2)) },
+					palette=.{ background=style.backgroundLighter },
+				});
+				{
+					push_parent(entryBox); defer pop_parent();
+
+
+					fileLabel := box(ui_key("%##fileListEntryLabel", path_filename(entry.doc.path)), .{
+						flags=.DRAW_TEXT_HIGHLIGHTS,
+						layout=.{ width=text_content(), height=text_content() },
+					});
+					// leaking memory!!
+					score, matches := fuzzy_search(path_filename(entry.doc.path), string.{panel.fileFinder.input.text.count, panel.fileFinder.input.text.data});
+					fileLabel .textHighlights = matches;
+				}
+			}
+
+			scroll_list_end(ui_key("fileFinderScroller")); 
+		}
+	}
 }
 
 custom_draw_input_field :: (box: *UIBox, udata: *void) {
