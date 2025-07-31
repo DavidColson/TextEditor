@@ -14,6 +14,7 @@ FilesystemNavigator :: struct {
 		name: string;
 		sortKey: s64;
 		saveItem: bool;
+		isDirectory: bool;
 	}
 }
 
@@ -128,14 +129,16 @@ filesystem_nav_refresh_directory_list :: (state: *FilesystemNavigator) {
 			item := array_add(*state.itemList,,get_allocator(state));
 			item.name = copy_string(it,,get_allocator(state));
 			item.sortKey = 1;
+			item.isDirectory=true;
 			state.numToDisplay += 1;
 		}
 	} else if file_exists(path) {
 		visitor :: (info: *File_Visit_Info, state: *FilesystemNavigator) {
-			new_item: FilesystemNavigator.Item;
-			new_item.name = copy_string(info.short_name,,get_allocator(state));
-			new_item.sortKey = 1;
-			array_add(*state.itemList, new_item,,get_allocator(state));
+			newItem: FilesystemNavigator.Item;
+			newItem.name = copy_string(info.short_name,,get_allocator(state));
+			newItem.sortKey = 1;
+			newItem.isDirectory = info.is_directory;
+			array_add(*state.itemList, newItem,,get_allocator(state));
 		}
 		visit_files(path, false, state, visitor, visit_directories=true);
 		state.numToDisplay = state.itemList.count;

@@ -52,6 +52,8 @@ style : struct {
 	iconLock :: #run to_string(*convert_utf32_to_utf8(0xf023));
 	iconNumList :: #run to_string(*convert_utf32_to_utf8(0xf0cb));
 	iconAlignLeft :: #run to_string(*convert_utf32_to_utf8(0xf036));
+	iconFolder :: #run to_string(*convert_utf32_to_utf8(0xf07c));
+	iconFile :: #run to_string(*convert_utf32_to_utf8(0xf15b));
 
 	// animations
 	scrollAnimRate := 14;
@@ -780,7 +782,13 @@ build_ui_panel_dialogs :: (panel: *Panel) {
 					append(*builder, input_field_get_text(*panel.filesystemNav.input));
 
 					entryBox := box(ui_key("savefileItem"), .{
-						flags=.DRAW_BACKGROUND, layout=.{ width=grow(), height=fixed(elementHeight), padding=padding_all(em(0.2)), childAlignment=.CENTER },
+						flags=.DRAW_BACKGROUND,
+						layout=.{
+							width=grow(),
+							height=fixed(elementHeight),
+							padding=padding_all(em(0.2)),
+							childAlignment=.CENTER
+						},
 						palette=.{ background=style.backgroundLighter },
 					});
 					{
@@ -805,6 +813,12 @@ build_ui_panel_dialogs :: (panel: *Panel) {
 					});
 					{
 						push_parent(entryBox); defer pop_parent();
+
+						box(ui_key("%##%", ifx directoryItem.isDirectory then style.iconFolder else style.iconFile, it), .{
+							flags=.DRAW_TEXT,
+							layout=.{ width=text_content(), height=text_content() },
+							font=fontIcons
+						});
 
 						itemLabel := box(ui_key("%##commandEntry%", directoryItem.name, it), .{
 							flags=.DRAW_TEXT_HIGHLIGHTS,
