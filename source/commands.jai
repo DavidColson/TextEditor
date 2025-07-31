@@ -586,13 +586,12 @@ new_line_below :: (using panel: *Panel, args: []string) {
 }
 
 new_line_above :: (using panel: *Panel, args: []string) {
-	for < cursor.head {
-		if it == #char "\n" {
-			break;
-		}
-	}
-	cursor.anchor = cursor.head;
+	goto_line_start(panel, args);
 	insert_mode_line_break(panel, args);
+
+	document_cursor_step_one_backward(*panel.cursor.head, true);
+	panel.cursor.anchor = panel.cursor.head;
+
 	enter_insert_mode_start(panel, args);
 }
 

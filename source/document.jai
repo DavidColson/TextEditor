@@ -359,7 +359,7 @@ document_insert_text :: (doc: *Document, at: DocumentCursor, t: string) -> Docum
 
 		// bonus case, this node is the last insert node
 		// you can just add more to the mod buffer and increase the node length
-		if at.node.added == true && at.node.end == doc.addedBufferEnd {
+		if at.node.added == true && insertPos == doc.addedBufferEnd {
 			endOffset := doc.addedData.text.count;
 			endLine := doc.addedData.lineStarts.count - 1;
 			endColumn := endOffset - doc.addedData.lineStarts[endLine];
