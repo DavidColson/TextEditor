@@ -117,7 +117,6 @@ main :: () {
     window = create_window(windowWidth, windowHeight, "TextEditor");
 	platform_set_border_color();
 	init_renderer(window);
-	my_init_fonts();
 	init_font_cache();
 	load_fonts();
 	init_ui();
@@ -169,8 +168,6 @@ main :: () {
 				focusedPanel.layoutRect.y = 0;
 				focusedPanel.layoutRect.w = xx windowWidth;
 				focusedPanel.layoutRect.h = xx windowHeight;
-
-                if should_reinit my_init_fonts();  // Resize the font for the new window size.
             }
         }
 
@@ -1162,14 +1159,6 @@ load_fonts :: () {
 	fontIcons = load_font_from_memory(#run read_entire_file("fonts/Font Awesome 6 Free-Solid-900.otf"));
 }
 
-// @todo: remove
-my_init_fonts :: () {
-	// @todo: embed the default font into the exe with #run
-	my_font = New(Dynamic_Font);
-	my_font.character_height = 10;
-	my_font.mono_x_advance = 10;
-}
-
 // color stuff
 hex_to_color_vec4 :: (src_hex: string) -> Vector4 {
     hex := src_hex;
@@ -1395,15 +1384,6 @@ Utf8_Char :: struct {
     bytes: [4] u8;
     count: s32;
 }
-
-// @todo: temporary stub until we replace it with our custom renderer 
-Dynamic_Font :: struct {
-    character_height:       int = 10;
-	mono_x_advance:			int = 10;
-	render_new_lines: bool = false;
-	render_tabs: bool = false;
-}
-my_font: *Dynamic_Font;
 
 Input :: #import "Input";
 #import "Window_Creation";
