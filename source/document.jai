@@ -59,8 +59,8 @@ Buffer :: struct {
 }
 
 LineEndingMode :: enum {
-	LF;
 	CRLF;
+	LF;
 	MIXED_MAJORITY_LF;
 	MIXED_MAJORITY_CRLF;
 }
