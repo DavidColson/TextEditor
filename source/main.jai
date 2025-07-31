@@ -666,6 +666,33 @@ build_ui_panel_dialogs :: (panel: *Panel) {
 			}
 
 			scroll_list_end(ui_key("commandListScroller")); 
+
+			hintsBox := box(ui_key("hintsBox"), .{
+				flags=.DRAW_SIDE_TOP,
+				layout=.{ 
+					childLayoutAxis = .X,
+					width=grow(),
+					height=fit(),
+				},
+				borderThickness=1.0
+			});
+			{
+				push_parent(hintsBox); defer pop_parent();
+
+				spacer(.X, grow());
+
+				textCol := uiState.defaultPalette.text;
+				textCol.w = 0.6;
+				box(ui_key("<up><down> to navigate <enter> to use <escape> to dismiss"), .{
+					flags=.DRAW_TEXT,
+					layout=.{ width=text_content(), height=text_content() },
+					textAlignment=.CENTER,
+					textPadding=em(0.5),
+					palette=.{text = textCol}
+				});
+
+				spacer(.X, grow());
+			}
 		}
 	}
 
@@ -791,6 +818,33 @@ build_ui_panel_dialogs :: (panel: *Panel) {
 			}
 
 			scroll_list_end(ui_key("filesystemNavScroller")); 
+
+			hintsBox := box(ui_key("hintsBox"), .{
+				flags=.DRAW_SIDE_TOP,
+				layout=.{ 
+					childLayoutAxis = .X,
+					width=grow(),
+					height=fit(),
+				},
+				borderThickness=1.0
+			});
+			{
+				push_parent(hintsBox); defer pop_parent();
+
+				spacer(.X, grow());
+
+				textCol := uiState.defaultPalette.text;
+				textCol.w = 0.6;
+				box(ui_key("<up><down> to navigate <enter> to open file/directory <escape> to dismiss"), .{
+					flags=.DRAW_TEXT,
+					layout=.{ width=text_content(), height=text_content() },
+					textAlignment=.CENTER,
+					textPadding=em(0.5),
+					palette=.{text = textCol}
+				});
+
+				spacer(.X, grow());
+			}
 		}
 	}
 
@@ -872,13 +926,39 @@ build_ui_panel_dialogs :: (panel: *Panel) {
 					pathLabel := box(ui_key("%##fileListPathLabel", entry.doc.path), .{
 						flags=.DRAW_TEXT,
 						fontSize=em(0.7),
-						palette=.{text= ifx it == panel.fileFinder.selectedEntry then style.textPrimary else style.textSecondary},
 						layout=.{ width=text_content(), height=text_content() },
 					});
 				}
 			}
 
 			scroll_list_end(ui_key("fileFinderScroller")); 
+
+			hintsBox := box(ui_key("hintsBox"), .{
+				flags=.DRAW_SIDE_TOP,
+				layout=.{ 
+					childLayoutAxis = .X,
+					width=grow(),
+					height=fit(),
+				},
+				borderThickness=1.0
+			});
+			{
+				push_parent(hintsBox); defer pop_parent();
+
+				spacer(.X, grow());
+
+				textCol := uiState.defaultPalette.text;
+				textCol.w = 0.6;
+				box(ui_key("<up><down> to navigate <enter> to open file <escape> to dismiss"), .{
+					flags=.DRAW_TEXT,
+					layout=.{ width=text_content(), height=text_content() },
+					textAlignment=.CENTER,
+					textPadding=em(0.5),
+					palette=.{text = textCol}
+				});
+
+				spacer(.X, grow());
+			}
 		}
 	}
 }
