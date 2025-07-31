@@ -24,7 +24,7 @@ Notification :: struct {
 	timer: float64;
 }
 
-style: struct {
+style : struct {
 	// colors
 	backgroundDark := #run hex_to_color_vec4("1C1F25");
 	backgroundMid := #run hex_to_color_vec4("282C34");
@@ -115,6 +115,7 @@ main :: () {
 
 	// create window
     window = create_window(windowWidth, windowHeight, "TextEditor");
+	platform_set_border_color();
 	init_renderer(window);
 	my_init_fonts();
 	init_font_cache();
