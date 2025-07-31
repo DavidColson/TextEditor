@@ -127,9 +127,9 @@ move_one_line_down :: (using panel: *Panel, args: []string) {
 	}
 
 	// scroll the window if the cursor will now become out of view
-	startVisibleLine, endVisibleLine := panel_calculate_visible_lines(panel);
-	if newLine >= endVisibleLine {
-		panel_scroll_to_line(panel, startVisibleLine + 1);
+	startVisibleLine, range := panel_calculate_visible_lines(panel);
+	if newLine-range >= startVisibleLine {
+		panel_scroll_to_line(panel, newLine-range);
 	}
 }
 
@@ -144,11 +144,10 @@ move_one_line_up :: (using panel: *Panel, args: []string) {
 	}
 
 	// scroll the window if the cursor will now become out of view
-	startVisibleLine, endVisibleLine := panel_calculate_visible_lines(panel);
+	startVisibleLine, range := panel_calculate_visible_lines(panel);
 	if newLine < startVisibleLine {
-		panel_scroll_to_line(panel, startVisibleLine - 1);
+		panel_scroll_to_line(panel, newLine);
 	}
-
 }
 
 goto_document_start :: (using panel: *Panel, args: []string) {
@@ -663,9 +662,8 @@ next_search_result :: (using panel: *Panel, args: []string) {
 
 	// is the result off the edge of the screen? if so scroll so it's centered
 	matchLine := document_cursor_get_line(*panel.results[0].start);
-	startVisibleLine, endVisibleLine := panel_calculate_visible_lines(panel);
-	pageSize := endVisibleLine - startVisibleLine;
-	if matchLine < startVisibleLine || matchLine >= (endVisibleLine-1) {
+	startVisibleLine, pageSize := panel_calculate_visible_lines(panel);
+	if matchLine < startVisibleLine || matchLine >= (startVisibleLine+pageSize) {
 		panel_scroll_to_line(panel, matchLine - pageSize/2); 
 	}
 }
@@ -704,9 +702,8 @@ previous_search_result :: (using panel: *Panel, args: []string) {
 
 	// is the result off the edge of the screen? if so scroll so it's centered
 	matchLine := document_cursor_get_line(*panel.results[0].start);
-	startVisibleLine, endVisibleLine := panel_calculate_visible_lines(panel);
-	pageSize := endVisibleLine - startVisibleLine;
-	if matchLine < startVisibleLine || matchLine >= (endVisibleLine-1) {
+	startVisibleLine, pageSize := panel_calculate_visible_lines(panel);
+	if matchLine < startVisibleLine || matchLine >= (startVisibleLine+pageSize) {
 		panel_scroll_to_line(panel, matchLine - pageSize/2); 
 	}
 }
@@ -740,9 +737,8 @@ document_search_on_edit :: (userData: *void, input: string) {
 		// is the result off the edge of the screen? if so scroll so it's centered
 		if panel.hasMatches {
 			matchLine := document_cursor_get_line(*panel.results[0].start);
-			startVisibleLine, endVisibleLine := panel_calculate_visible_lines(panel);
-			pageSize := endVisibleLine - startVisibleLine;
-			if matchLine < startVisibleLine || matchLine >= (endVisibleLine-1) {
+			startVisibleLine, pageSize := panel_calculate_visible_lines(panel);
+			if matchLine < startVisibleLine || matchLine >= (startVisibleLine+pageSize) {
 				panel_scroll_to_line(panel, matchLine - pageSize/2); 
 			}
 		}
@@ -847,8 +843,7 @@ insert_mode_forward_delete_char :: (using panel: *Panel, args: []string) {
 // ------------------------------
 
 page_up :: (using panel: *Panel, args: []string) {
-	startVisibleLine, endVisibleLine := panel_calculate_visible_lines(panel);
-	pageSize := endVisibleLine - startVisibleLine;
+	startVisibleLine, pageSize := panel_calculate_visible_lines(panel, true);
 
 	// move the cursor up half a page
 	cursorLine := document_cursor_get_line(*focusedPanel.cursor.head);
@@ -860,8 +855,7 @@ page_up :: (using panel: *Panel, args: []string) {
 }
 
 page_down :: (using panel: *Panel, args: []string) {
-	startVisibleLine, endVisibleLine := panel_calculate_visible_lines(panel);
-	pageSize := endVisibleLine - startVisibleLine;
+	startVisibleLine, pageSize := panel_calculate_visible_lines(panel, true);
 	numLinesDocument := document_get_num_lines(panel.document);
 
 	// move the cursor down half a page
@@ -874,8 +868,7 @@ page_down :: (using panel: *Panel, args: []string) {
 }
 
 half_page_up :: (using panel: *Panel, args: []string) {
-	startVisibleLine, endVisibleLine := panel_calculate_visible_lines(panel);
-	pageSize := endVisibleLine - startVisibleLine;
+	startVisibleLine, pageSize := panel_calculate_visible_lines(panel, true);
 
 	// move the cursor up half a page
 	cursorLine := document_cursor_get_line(*focusedPanel.cursor.head);
@@ -887,8 +880,7 @@ half_page_up :: (using panel: *Panel, args: []string) {
 }
 
 half_page_down :: (using panel: *Panel, args: []string) {
-	startVisibleLine, endVisibleLine := panel_calculate_visible_lines(panel);
-	pageSize := endVisibleLine - startVisibleLine;
+	startVisibleLine, pageSize := panel_calculate_visible_lines(panel, true);
 	numLinesDocument := document_get_num_lines(panel.document);
 
 	// move the cursor down half a page

@@ -304,12 +304,13 @@ build_ui_empty_panel :: (panel: *Panel) {
 	});
 	push_parent(panelBox); defer pop_parent();
 
+	panel.headerHeight = em(2.1);
 	header := box(ui_key_nil, .{
 		flags=.DRAW_BACKGROUND | .DRAW_SIDE_BOTTOM,
 		layout=.{ 
 			childLayoutAxis = .X,
 			width=grow(),
-			height=fit(),
+			height=fixed(panel.headerHeight ),
 			padding= padding_all(em(0.3))
 		},
 		palette=.{ background=style.backgroundLight },
@@ -352,12 +353,13 @@ build_ui_panel :: (panel: *Panel) {
 	});
 	push_parent(panelBox); defer pop_parent();
 
+	panel.headerHeight = em(2.1);
 	header := box(ui_key_nil, .{
 		flags=.DRAW_BACKGROUND | .DRAW_SIDE_BOTTOM,
 		layout=.{ 
 			childLayoutAxis = .X,
 			width=grow(),
-			height=fit(),
+			height=fixed(panel.headerHeight ),
 			padding= padding_all(em(0.3)),
 			childAlignment=.CENTER
 		},
@@ -508,9 +510,10 @@ build_ui_panel :: (panel: *Panel) {
 	build_ui_panel_dialogs(panel);
 
 	// Draw the main code screen
+	codeContainerHeight := panel.layoutRect.h - panel.headerHeight;
 	codeContainer := box(ui_key_nil, .{
 		flags=.DRAW_BACKGROUND,
-		layout=.{childLayoutAxis = .X, width=grow(), height=grow()},
+		layout=.{childLayoutAxis = .X, width=grow(), height=fixed(codeContainerHeight)},
 	});
 	{
 		push_parent(codeContainer); defer pop_parent();
@@ -528,10 +531,9 @@ build_ui_panel :: (panel: *Panel) {
 		codeBox.viewBounds.y = cast(float, -(metrics.lineSpacing * numDocumentLines) + metrics.lineSpacing * 5);
 		signal_from_box(codeBox);
 
-		// @todo: you really don't want to be relying on the rect here, set it as a fixed height
-		dragDelta := scroll_bar(ui_key("codeScroll"), codeBox.viewOffset.y, codeBox.viewBounds.y, codeBox.rect.h);
+		dragDelta := scroll_bar(ui_key("codeScroll"), codeBox.viewOffset.y, codeBox.viewBounds.y, codeContainerHeight);
 
-		dragRange := (1.0 - max(abs(codeBox.rect.h/(codeBox.viewBounds.y-codeBox.rect.h)), 0.05))*codeBox.rect.h;
+		dragRange := (1.0 - max(abs(codeContainerHeight/(codeBox.viewBounds.y-codeContainerHeight)), 0.05))*codeContainerHeight;
 		scaleRatio := ifx dragRange != 0.0 then abs(codeBox.viewBounds.y)/dragRange else 1.0;
 		codeBox.viewOffset -= dragDelta * scaleRatio;
 		codeBox.viewOffset.y = clamp(codeBox.viewOffset.y, codeBox.viewBounds.y, 0);
@@ -540,6 +542,20 @@ build_ui_panel :: (panel: *Panel) {
 		codeBox.viewOffsetTarget -= dragDelta * scaleRatio;
 		codeBox.viewOffsetTarget.y = clamp(codeBox.viewOffsetTarget.y, codeBox.viewBounds.y, 0);
 		codeBox.viewOffsetTarget.x = clamp(codeBox.viewOffsetTarget.x, codeBox.viewBounds.x, 0);
+
+		// move to line visual to keep within visible range
+		// This doesn't feel amazing, I'm more inclined to go with a more VSCode style
+		// where it snaps you to the cursor, but you can click to move the cursor, but we can't do that yet
+		currentLine := document_cursor_get_line(*panel.cursor.head);
+		startVisibleLine, range := panel_calculate_visible_lines(panel, true);
+		if currentLine < startVisibleLine {
+			move_to_line_visual(panel, currentLine, startVisibleLine);
+			panel.cursor.anchor = panel.cursor.head;
+		}
+		else if currentLine > startVisibleLine+range {
+			move_to_line_visual(panel, currentLine, startVisibleLine+range);
+			panel.cursor.anchor = panel.cursor.head;
+		}
 	}
 
 	// Draw the search dialog
