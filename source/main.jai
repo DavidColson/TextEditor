@@ -102,6 +102,8 @@ tabSize :: 4;
 lineNumbers := true;
 
 Arguments :: struct {
+	fetch_grammars: bool;
+	build_grammars: bool;
 }
 
 main :: () {
@@ -115,6 +117,11 @@ main :: () {
 	if !success {
 		return;
 	}
+
+	if isSet.fetch_grammars then fetch_grammars();
+	if isSet.build_grammars then build_grammars();
+	if isSet.fetch_grammars || isSet.build_grammars then return;
+	
 	// create window
     window = create_window(windowWidth, windowHeight, "TextEditor");
 	Input.window_move_callback = update;
@@ -308,6 +315,7 @@ build_ui_empty_panel :: (panel: *Panel) {
 			childLayoutAxis = .Y,
 			width=fixed(panel.layoutRect.w),
 			height=fixed(panel.layoutRect.h),
+			childAlignment=.CENTER
 		},
 	});
 	push_parent(panelBox); defer pop_parent();
@@ -1495,8 +1503,56 @@ Utf8_Char :: struct {
     count: s32;
 }
 
+fetch_grammars :: () {
+	// Have a list of grammar repositories
+	// Clone them at a certain revision
+
+	verboseOutput := false;
+	
+	Grammar :: struct {
+		name: string;
+		url: string;
+		revision: string;
+	}
+	grammars :: Grammar.[
+		.{name="jai", url="https://github.com/constantitus/tree-sitter-jai.git", revision="e15938a94c931662aa3e38cc07dfb98cf7436a90"},
+		.{name="cpp", url="https://github.com/tree-sitter/tree-sitter-cpp.git", revision="56455f4245baf4ea4e0881c5169de69d7edd5ae7"},
+	];
+
+	// @todo: check that git actually exists on this machine
+
+	for grammars {
+		log("Fetching %", it.name);
+		directory := tprint("grammars/%", it.name);
+		make_directory_if_it_does_not_exist(directory);
+		result, output, error := run_command("git", "clone", "--no-checkout", it.url, directory, capture_and_return_output=true);
+		if verboseOutput {
+			log("%", output);
+		}
+		if result.exit_code != 0 {
+			log_error("Error!");
+			log_error("Output:\n%", output);
+			log_error("Errors:\n%", error);
+		}
+
+		result, output, error = run_command("git", "-C", directory, "checkout", it.revision, capture_and_return_output=true);
+		if verboseOutput {
+			log("%", output);
+		}
+		if result.exit_code != 0 {
+			log_error("Error!");
+			log_error("Output:\n%", output);
+			log_error("Errors:\n%", error);
+		}
+	}
+}
+
+build_grammars :: () {
+}
+
 Input :: #import "Input";
 #import "Window_Creation";
+#import "Process";
 #import "Basic";
 #import "Math";
 #import "System";
