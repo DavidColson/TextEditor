@@ -125,6 +125,9 @@ main :: () {
 	init_ui();
 	rebuild_key_map();
 
+	// treesitter test
+	parser := ts_parser_new();
+
 	registers.registerAllocator = Allocator.{ proc = flat_pool_allocator_proc, data = *registers.registerPool };
 
 	if !init(*watcher, file_change_callback, watch_recursively = false) {
@@ -1509,6 +1512,7 @@ Input :: #import "Input";
 #import "Command_Line";
 #import "File_Watcher";
 #import "Bucket_Array";
+#import "treesitter";
 
 #load "rect.jai";
 #load "command_picker.jai";

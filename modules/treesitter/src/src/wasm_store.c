@@ -1851,6 +1851,12 @@ bool ts_wasm_store_start(
   return false;
 }
 
+TSWasmStore *ts_wasm_store_new(TSWasmEngine *engine, TSWasmError *wasm_error) {
+  (void)engine;
+  (void)wasm_error;
+  return 0;
+}
+
 void ts_wasm_store_reset(TSWasmStore *self) {
   (void)self;
 }
@@ -1926,6 +1932,27 @@ bool ts_language_is_wasm(const TSLanguage *self) {
 
 void ts_wasm_language_retain(const TSLanguage *self) {
   (void)self;
+}
+
+
+TS_API const TSLanguage *ts_wasm_store_load_language(
+  TSWasmStore *self,
+  const char *name,
+  const char *wasm,
+  uint32_t wasm_len,
+  TSWasmError *error
+) {
+  (void)self;
+  (void)name;
+  (void)wasm;
+  (void)wasm_len;
+  (void)error;
+  return 0;
+}
+
+TS_API size_t ts_wasm_store_language_count(const TSWasmStore *self) {
+  (void)self;
+  return 0;
 }
 
 void ts_wasm_language_release(const TSLanguage *self) {

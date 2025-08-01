@@ -7,7 +7,7 @@ LIB_BASE_NAME :: "treesitter";
 build :: () {
 	set_build_options_dc(.{do_output=false});
 
-	    #if OS == {
+    #if OS == {
         case .WINDOWS;
             libDirectory := "windows";
         case .LINUX;
@@ -39,12 +39,12 @@ build :: () {
              "/wd4267", // disable 'possible loss of data (size_t)'
              "/wd4701", // disable 'potentially uninitialized local variable'
              "/we4022", // treat 'incompatible types' as an error
-             "/W4");
+             "/W3");
         for includePaths {
             array_add(*extraArgs, tprint("/I%/%", SOURCE_PATH, it));
         }
     } else {
-        array_add(*extraArgs, "-std=c++11", "-Wall", "-Wextra", "-Wshadow", "-Wpedantic", "-Werror=incompatible-pointer-types");
+        array_add(*extraArgs, "-std=c11", "-Wall", "-Wextra", "-Wshadow", "-Wpedantic", "-Werror=incompatible-pointer-types");
         for include_paths {
             array_add(*extraArgs, tprint("-I%/%", SOURCE_PATH, it));
         }
@@ -58,6 +58,44 @@ build :: () {
 		compiler_set_workspace_status(.FAILED);
 		return;
 	}
+
+	if !generate_bindings() {
+		compiler_set_workspace_status(.FAILED);
+		return;
+	}
+}
+
+generate_bindings :: () -> bool {
+	outputFilename: string;
+	libDirectory: string;
+    opts: Generate_Bindings_Options;
+    {
+        using opts;
+
+        #if OS == .WINDOWS {
+            outputFilename = "windows.jai";
+            libDirectory = "windows";
+            strip_flags = 0;
+        } else #if OS == .LINUX {
+            outputFilename = "linux.jai";
+            libDirectory = "linux";
+            strip_flags = 0;
+        } else #if OS == .MACOS {
+            outputFilename = "macos.jai";
+            libDirectory = "macos";
+            strip_flags = 0;
+        } else {
+            assert(false);
+        }
+
+		log_stripped_declarations = true;
+		generate_library_declarations = true;
+        array_add(*library_search_paths,  libDirectory);
+        array_add(*libraries,      .{filename="treesitter"});
+        array_add(*source_files,  tprint("%/include/tree_sitter/api.h", SOURCE_PATH));
+        array_add(*extra_clang_arguments, "-x", "c++", "");
+	}
+    return generate_bindings(opts, outputFilename);
 }
 
 #scope_file

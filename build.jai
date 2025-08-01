@@ -1,6 +1,7 @@
 #import "Basic";
 #import "Compiler";
 #import "File";
+#import "File_Utilities";
 Compiler :: #import "Compiler";
 
 #if OS == .WINDOWS {
@@ -72,6 +73,9 @@ Build :: ()
 		if !success {
             log_error("ERROR: Couldn't add manifest to executable '%'\n", exe_name);
         }
+
+		// copy dlls
+		copy_file("modules/treesitter/windows/treesitter.dll", tprint("%/treesitter.dll", build_opts.output_path));
 	}
 }
 
