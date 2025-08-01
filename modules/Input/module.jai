@@ -202,6 +202,8 @@ input_application_has_focus := false;
 
 NUM_BUTTON_STATES :: #run enum_highest_value(Key_Code) + 1;
 
+window_move_callback:() =  null;
+
 Window_Resize_Record :: struct {
     window: Window_Type;
     width:  s32;

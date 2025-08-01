@@ -75,6 +75,7 @@ pendingQuit := false;
 backupSaveTimer:float64 = 300;
 requestRedraw := true;
 deltaTime:float64 = 0.016;
+lastTime:float64 = 0.0;
 
 notifications : [10]Notification;
 numActiveNotifications := 0;
@@ -114,9 +115,9 @@ main :: () {
 	if !success {
 		return;
 	}
-
 	// create window
     window = create_window(windowWidth, windowHeight, "TextEditor");
+	Input.window_move_callback = update;
 	platform_set_border_color();
 	init_renderer(window);
 	init_font_cache();
@@ -145,78 +146,82 @@ main :: () {
 
 	platform_set_backup_timer(window, do_backup_callback);
 
-	lastTime := seconds_since_init();
+	lastTime = seconds_since_init();
     want_screenshot := false;
     while !pendingQuit {
-		if !requestRedraw platform_wait_message();
-		requestRedraw = false;
-
-		now := seconds_since_init();
-		deltaTime = min(now - lastTime, 0.016);
-		lastTime = now;
-
-        Input.update_window_events();
-
-        for Input.get_window_resizes() {
-            if it.window == window {
-                should_reinit := (it.width != windowWidth) || (it.height != windowHeight);
-
-                windowWidth  = it.width;
-                windowHeight = it.height;
-
-				resize_backbuffer();
-
-				focusedPanel.layoutRect.x = 0;
-				focusedPanel.layoutRect.y = 0;
-				focusedPanel.layoutRect.w = xx windowWidth;
-				focusedPanel.layoutRect.h = xx windowHeight;
-            }
-        }
-
-        for Input.events_this_frame {
-            if it.type == .QUIT then pendingQuit = true;
-			array_add(*uiState.events, it);
-		}
-
-		process_changes(*watcher);
-
-		newDpiScale := platform_get_dpi_scale(window);
-		if newDpiScale != dpiScale && newDpiScale != 0.0 {
-			dpiScale = newDpiScale;
-		}
-
-		build_ui();
-
-		// after ui has taken any inputs it wants, we'll give the rest to the default input handler
-		for uiState.events {
-			input_handler(it);
+		update();
 	}
-		array_reset_keeping_memory(*uiState.events);
+}
 
-		// update notifications
-		nNotificationsToRemove := 0;
-		it := 0;
-		while it < numActiveNotifications {
-			notif := *notifications[it];
-			notif.timer -= deltaTime;
-			if notif.timer < 0 {
-				nNotificationsToRemove += 1;
-			}
-			it += 1;
-		}
+update :: () {
+	if !requestRedraw platform_wait_message();
+	requestRedraw = false;
 
-		if nNotificationsToRemove > 0 {
-			memcpy(notifications.data, notifications.data + nNotificationsToRemove, (numActiveNotifications - nNotificationsToRemove)*size_of(Notification));
-			numActiveNotifications -= nNotificationsToRemove;
-		}
-		if numActiveNotifications > 0 {
-			requestRedraw = true;
-		}
+	now := seconds_since_init();
+	deltaTime = min(now - lastTime, 0.016);
+	lastTime = now;
 
-		// @todo: may want to support 120hz or higher? 
-        sleep_milliseconds(cast(s32) (16 - deltaTime/1000));
-        reset_temporary_storage();
+    Input.update_window_events();
+
+    for Input.get_window_resizes() {
+        if it.window == window {
+            should_reinit := (it.width != windowWidth) || (it.height != windowHeight);
+
+            windowWidth  = it.width;
+            windowHeight = it.height;
+
+			resize_backbuffer();
+
+			focusedPanel.layoutRect.x = 0;
+			focusedPanel.layoutRect.y = 0;
+			focusedPanel.layoutRect.w = xx windowWidth;
+			focusedPanel.layoutRect.h = xx windowHeight;
+        }
     }
+
+    for Input.events_this_frame {
+        if it.type == .QUIT then pendingQuit = true;
+		array_add(*uiState.events, it);
+	}
+
+	process_changes(*watcher);
+
+	newDpiScale := platform_get_dpi_scale(window);
+	if newDpiScale != dpiScale && newDpiScale != 0.0 {
+		dpiScale = newDpiScale;
+	}
+
+	build_ui();
+
+	// after ui has taken any inputs it wants, we'll give the rest to the default input handler
+	for uiState.events {
+		input_handler(it);
+	}
+	array_reset_keeping_memory(*uiState.events);
+
+	// update notifications
+	nNotificationsToRemove := 0;
+	it := 0;
+	while it < numActiveNotifications {
+		notif := *notifications[it];
+		notif.timer -= deltaTime;
+		if notif.timer < 0 {
+			nNotificationsToRemove += 1;
+		}
+		it += 1;
+	}
+
+	if nNotificationsToRemove > 0 {
+		memcpy(notifications.data, notifications.data + nNotificationsToRemove, (numActiveNotifications - nNotificationsToRemove)*size_of(Notification));
+		numActiveNotifications -= nNotificationsToRemove;
+	}
+	if numActiveNotifications > 0 {
+		requestRedraw = true;
+	}
+
+	// @todo: may want to support 120hz or higher? 
+    sleep_milliseconds(cast(s32) (16 - deltaTime/1000));
+    reset_temporary_storage();
 }
 
 build_ui :: () {

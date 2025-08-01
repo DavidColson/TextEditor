@@ -108,9 +108,33 @@ MyWindowProc :: (hwnd: HWND, message: u32,
             input_application_has_focus = true;
           case WM_KILLFOCUS;
             input_application_has_focus = false;
+          case WM_SIZE;
+            if wParam == {
+              case SIZE_MAXIMIZED;
+                window_minimized = false;
+                add_resize_record(hwnd);
+              case SIZE_RESTORED;
+                  if window_minimized window_minimized = false;
+                  else add_resize_record(hwnd);
+              case SIZE_MINIMIZED;
+                  window_minimized = true;
+            }
+            ps: PAINTSTRUCT;
+            BeginPaint(hwnd, *ps);
+            if window_move_callback {
+                window_move_callback();
+            }
+            EndPaint(hwnd, *ps);
+            return 0;
           case WM_PAINT;
-		    ValidateRect(hwnd, null);
-	        return DefWindowProcW(hwnd, message, wParam, lParam);
+            ps: PAINTSTRUCT;
+            BeginPaint(hwnd, *ps);
+            if window_move_callback {
+                window_move_callback();
+            }
+            EndPaint(hwnd, *ps);
+	        // return DefWindowProcW(hwnd, message, wParam, lParam);
+	        return 0;
 
           case WM_LBUTTONDOWN; #through;
           case WM_LBUTTONUP;
@@ -170,18 +194,6 @@ MyWindowProc :: (hwnd: HWND, message: u32,
             }
 
             DefWindowProcW(hwnd, message, wParam, lParam);  // This is required for some reason.    // @@ Why?
-          case WM_SIZE;
-            if wParam == {
-              case SIZE_MAXIMIZED;
-                window_minimized = false;
-                add_resize_record(hwnd);
-              case SIZE_RESTORED;
-                  if window_minimized window_minimized = false;
-                  else add_resize_record(hwnd);
-              case SIZE_MINIMIZED;
-                  window_minimized = true;
-            }
-            return 0;
           case WM_MOVE;
             add_move_record(hwnd);
             return 0;
@@ -1114,6 +1126,19 @@ vk_to_key_code_array :: Vk_To_Key_Code.[
     .{ VK_PAUSE,      PAUSE },
     .{ VK_SCROLL,     SCROLL_LOCK },
 ];
+
+PAINTSTRUCT :: struct {
+    hdc: HDC;
+    fErase: bool;
+    rcPaint: RECT;
+    fRestore: bool;
+    fIncUpdate: bool;
+    rgbReserved: [32]u8;
+}
+
+user32   :: #system_library "user32";
+BeginPaint :: (hWnd: HWND, lpPaint: *PAINTSTRUCT) -> HDC #foreign user32;
+EndPaint :: (hWnd: HWND, lpPaint: *PAINTSTRUCT) -> bool #foreign user32;
 
 #scope_file;
 using,except(END) Key_Code; // Key_Current_State.END would conflict with this. Sigh.
