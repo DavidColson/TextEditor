@@ -137,8 +137,35 @@ main :: () {
 	rebuild_key_map();
 
 	// treesitter test
-	// parser := ts_parser_new();
-	// ts_parser_set_language(parser, tree_sitter_jai());
+	parser := ts_parser_new();
+
+	// @todo: this syntax breaks the treesitter parser
+	{
+		language := get_grammar("jai")();
+		log("name %", to_string(ts_language_name(language)));
+		log("abi %", ts_language_abi_version(language));
+
+		result := ts_parser_set_language(parser, language);
+		log("setLangResult %", result);
+	}
+	
+	treesitter_logger :: (payload: *void, log_type: TSLogType, buffer: *u8) #c_call {
+	    push_context {
+	        log("%", to_string(buffer));
+	    }
+	}
+	
+	ts_parser_set_logger(parser, .{null, treesitter_logger});
+
+	exampleCpp := "myVariable := 5;";
+	tree := ts_parser_parse_string(parser, null, exampleCpp.data, xx exampleCpp.count);
+
+	if tree {
+		rootNode := ts_tree_root_node(tree);
+		debug := to_string(ts_node_string(rootNode));
+		log("%", debug);
+	}
+
 
 	registers.registerAllocator = Allocator.{ proc = flat_pool_allocator_proc, data = *registers.registerPool };
 
@@ -1518,6 +1545,27 @@ grammars :: Grammar.[
 	.{name="cpp", url="https://github.com/tree-sitter/tree-sitter-cpp.git", revision="56455f4245baf4ea4e0881c5169de69d7edd5ae7"},
 ];
 
+LanguageFunc :: #type () -> *TSLanguage #c_call;
+loadedGrammars: Table(string, LanguageFunc);
+
+get_grammar :: (language: string) -> LanguageFunc {
+	success, func := table_find_new(*loadedGrammars, language);
+	if success {
+		return func;
+	}
+
+	// @todo: In packaged builds this should be the base directory of the exe
+	// @todo: windows specific code here, need to move to platform_windows
+	exePath := path_strip_filename(get_path_of_running_executable());
+	libPath := tprint("%../../grammars/%.dll", exePath, language);
+	grammarLib := LoadLibraryA(libPath.data);
+
+	functionName := tprint("tree_sitter_%", language);
+    loadFunc := cast(LanguageFunc, GetProcAddress(grammarLib, temp_c_string(functionName)));
+	table_add(*loadedGrammars, language, loadFunc);
+	return loadFunc;
+}
+
 fetch_grammars :: () {
 	// Have a list of grammar repositories
 	// Clone them at a certain revision
@@ -1579,6 +1627,7 @@ build_grammars :: () {
         array_add(*args,
             "/O2",                      // Maximize speed.
             "/Oi",                      // Enable intrinsics.
+            "/Zi",                      // Enable intrinsics.
         );
 
         array_add(*args,
