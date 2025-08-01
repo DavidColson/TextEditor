@@ -106,6 +106,10 @@ Arguments :: struct {
 	build_grammars: bool;
 }
 
+// you really want a dynamic load here no?
+// jai :: #library "../grammars/jai";
+// tree_sitter_jai :: () -> *TSLanguage #foreign jai;
+
 main :: () {
     #if OS == .WINDOWS {
         Windows :: #import "Windows";
@@ -133,7 +137,8 @@ main :: () {
 	rebuild_key_map();
 
 	// treesitter test
-	parser := ts_parser_new();
+	// parser := ts_parser_new();
+	// ts_parser_set_language(parser, tree_sitter_jai());
 
 	registers.registerAllocator = Allocator.{ proc = flat_pool_allocator_proc, data = *registers.registerPool };
 
@@ -1503,27 +1508,28 @@ Utf8_Char :: struct {
     count: s32;
 }
 
+Grammar :: struct {
+	name: string;
+	url: string;
+	revision: string;
+}
+grammars :: Grammar.[
+	.{name="jai", url="https://github.com/constantitus/tree-sitter-jai.git", revision="e15938a94c931662aa3e38cc07dfb98cf7436a90"},
+	.{name="cpp", url="https://github.com/tree-sitter/tree-sitter-cpp.git", revision="56455f4245baf4ea4e0881c5169de69d7edd5ae7"},
+];
+
 fetch_grammars :: () {
 	// Have a list of grammar repositories
 	// Clone them at a certain revision
 
 	verboseOutput := false;
-	
-	Grammar :: struct {
-		name: string;
-		url: string;
-		revision: string;
-	}
-	grammars :: Grammar.[
-		.{name="jai", url="https://github.com/constantitus/tree-sitter-jai.git", revision="e15938a94c931662aa3e38cc07dfb98cf7436a90"},
-		.{name="cpp", url="https://github.com/tree-sitter/tree-sitter-cpp.git", revision="56455f4245baf4ea4e0881c5169de69d7edd5ae7"},
-	];
 
 	// @todo: check that git actually exists on this machine
+	// @todo: error if not on windows
 
 	for grammars {
 		log("Fetching %", it.name);
-		directory := tprint("grammars/%", it.name);
+		directory := tprint("grammars/sources/%", it.name);
 		make_directory_if_it_does_not_exist(directory);
 		result, output, error := run_command("git", "clone", "--no-checkout", it.url, directory, capture_and_return_output=true);
 		if verboseOutput {
@@ -1548,6 +1554,62 @@ fetch_grammars :: () {
 }
 
 build_grammars :: () {
+	// set up compile environment
+    vcPath, linkerPath := find_visual_studio_in_a_ridiculous_garbage_way();
+    compiler := join(linkerPath, "\\", "cl.exe");
+    windowsKit := find_windows_kit_root();
+    vcIncludePath := join(vcPath, "\\..\\..\\include");
+    windowsKitInclude := replace(windowsKit, "Lib", "Include");
+
+	// @todo: error if you can't find visual studio
+
+	verboseOutput := false;
+	for grammars {
+		log("Compiling %..", it.name);
+		directory := tprint("grammars/sources/%", it.name);
+
+	    args: [..] string;
+	    array_add(*args, compiler);
+	    defer array_free(args);
+
+		array_add(*args, "src\\parser.c");
+		if file_exists(tprint("%\\src\\scanner.c", directory)) {
+			array_add(*args, "src\\scanner.c");
+		}
+        array_add(*args,
+            "/O2",                      // Maximize speed.
+            "/Oi",                      // Enable intrinsics.
+        );
+
+        array_add(*args,
+            tprint("/I%", vcIncludePath),
+            tprint("/I%\\um", windowsKitInclude),
+            tprint("/I%\\ucrt", windowsKitInclude),
+            tprint("/I%\\shared", windowsKitInclude),
+        );
+		
+		array_add(*args, "/link");
+		array_add(*args, "/DLL");
+		array_add(*args, "/MACHINE:AMD64");
+		array_add(*args, tprint("/OUT:%.dll", it.name));
+		array_add(*args,
+            tprint("/libpath:%", vcPath),
+            tprint("/libpath:%\\um\\x64", windowsKit),
+            tprint("/libpath:%\\ucrt\\x64", windowsKit),
+		);
+		
+		result, output, error := run_command(..args, capture_and_return_output=true, working_directory=directory);
+		if verboseOutput {
+			log("%", output);
+		}
+		if result.exit_code != 0 {
+			log_error("Error!");
+			log_error("Output:\n%", output);
+			log_error("Errors:\n%", error);
+			return;
+		}
+		copy_file(tprint("%/%.dll", directory, it.name), tprint("grammars/%.dll", it.name));
+	}
 }
 
 Input :: #import "Input";
@@ -1585,6 +1647,7 @@ Input :: #import "Input";
 
 #if OS == .WINDOWS {
 	#load "platform_windows.jai";
+	#import "Windows_Resources";
 }
 
 
