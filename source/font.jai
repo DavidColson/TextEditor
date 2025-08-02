@@ -1,16 +1,4 @@
 
-// fonts?
-
-// how should this work?
-
-// consider how the renderer will work
-// when you draw text, we will want to produce however many instance groups are required to render said text
-// drawing code (with colors n shit) is ultimately not that different really, 
-// presumably draw text will allow ranges with colors and boldness etc, other highlights
-
-
-// this is presumably what we'll store in the atlas information
-
 FontCache :: struct {
 	freetype : FT_Library;
 	atlasList: [..]Atlas;
@@ -58,6 +46,8 @@ GlyphData :: struct {
 
 TextRun :: struct {
 	instances: []Instance;
+	byteOffsets: []s32;
+	 
 	// in pixels
 	height: float;
 	width: float; 
@@ -183,14 +173,19 @@ generate_text_run :: (text: string, size: int, font: *Font, startCol := 0) -> Te
 	result.width = 0;
 	result.height = 0;
 	result.instances = NewArray(nCodepoints,Instance);
+	result.byteOffsets = NewArray(nCodepoints,s32);
 
 	textCopy = text;
 	prevGlyphIndex: u32 = 0;
 	i := 0;
 	x := 0.0;
+	byteOffsetCounter := 0;
 	col := startCol;
 	while textCopy.count > 0 {
+		countStart := textCopy.count;
 		utf32,success := utf8_next_character(*textCopy);
+		bytes := countStart - textCopy.count;
+
 		if success == .CONVERSION_OK {
 			glyphData := find_or_make_glyph(font, size, utf32);
 			glyphIndex := get_glyph_index(font, utf32);
@@ -211,7 +206,9 @@ generate_text_run :: (text: string, size: int, font: *Font, startCol := 0) -> Te
 				borderThickness = 0.0,
 				texture = *fontCache.atlasList[glyphData.atlas].texture,
 				shader = .TEXT
-			} ;
+			};
+
+			result.byteOffsets[i] = xx byteOffsetCounter;
 
 			// tab handling
 			width: float;
@@ -231,6 +228,7 @@ generate_text_run :: (text: string, size: int, font: *Font, startCol := 0) -> Te
 
 			prevGlyphIndex = glyphIndex;
 		}
+		byteOffsetCounter += bytes;
 		i += 1;
 	}
 	return result;
