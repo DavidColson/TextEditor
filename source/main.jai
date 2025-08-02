@@ -106,10 +106,6 @@ Arguments :: struct {
 	build_grammars: bool;
 }
 
-// you really want a dynamic load here no?
-// jai :: #library "../grammars/jai";
-// tree_sitter_jai :: () -> *TSLanguage #foreign jai;
-
 main :: () {
     #if OS == .WINDOWS {
         Windows :: #import "Windows";
@@ -135,37 +131,6 @@ main :: () {
 	load_fonts();
 	init_ui();
 	rebuild_key_map();
-
-	// treesitter test
-	parser := ts_parser_new();
-
-	// @todo: this syntax breaks the treesitter parser
-	{
-		language := get_grammar("jai")();
-		log("name %", to_string(ts_language_name(language)));
-		log("abi %", ts_language_abi_version(language));
-
-		result := ts_parser_set_language(parser, language);
-		log("setLangResult %", result);
-	}
-	
-	treesitter_logger :: (payload: *void, log_type: TSLogType, buffer: *u8) #c_call {
-	    push_context {
-	        log("%", to_string(buffer));
-	    }
-	}
-	
-	ts_parser_set_logger(parser, .{null, treesitter_logger});
-
-	exampleCpp := "myVariable := 5;";
-	tree := ts_parser_parse_string(parser, null, exampleCpp.data, xx exampleCpp.count);
-
-	if tree {
-		rootNode := ts_tree_root_node(tree);
-		debug := to_string(ts_node_string(rootNode));
-		log("%", debug);
-	}
-
 
 	registers.registerAllocator = Allocator.{ proc = flat_pool_allocator_proc, data = *registers.registerPool };
 
@@ -504,7 +469,7 @@ build_ui_panel :: (panel: *Panel) {
 		spacer(.X, fixed(em(2.0)));
 
 		// file type
-		box(ui_key("Jai"), .{
+		box(ui_key(panel.document.language), .{
 			flags=.DRAW_TEXT,
 			layout=.{ width=text_content(), height=text_content() },
 		});
@@ -1535,12 +1500,12 @@ Utf8_Char :: struct {
     count: s32;
 }
 
-Grammar :: struct {
+Language :: struct {
 	name: string;
 	url: string;
 	revision: string;
 }
-grammars :: Grammar.[
+languages :: Language.[
 	.{name="jai", url="https://github.com/constantitus/tree-sitter-jai.git", revision="e15938a94c931662aa3e38cc07dfb98cf7436a90"},
 	.{name="cpp", url="https://github.com/tree-sitter/tree-sitter-cpp.git", revision="56455f4245baf4ea4e0881c5169de69d7edd5ae7"},
 ];
@@ -1548,22 +1513,26 @@ grammars :: Grammar.[
 LanguageFunc :: #type () -> *TSLanguage #c_call;
 loadedGrammars: Table(string, LanguageFunc);
 
-get_grammar :: (language: string) -> LanguageFunc {
+get_language_grammar :: (language: string) -> *TSLanguage {
 	success, func := table_find_new(*loadedGrammars, language);
 	if success {
-		return func;
+		return func();
 	}
 
 	// @todo: In packaged builds this should be the base directory of the exe
 	// @todo: windows specific code here, need to move to platform_windows
 	exePath := path_strip_filename(get_path_of_running_executable());
 	libPath := tprint("%../../grammars/%.dll", exePath, language);
+	if !file_exists(libPath) {
+		return null;
+	}
+
 	grammarLib := LoadLibraryA(libPath.data);
 
 	functionName := tprint("tree_sitter_%", language);
     loadFunc := cast(LanguageFunc, GetProcAddress(grammarLib, temp_c_string(functionName)));
 	table_add(*loadedGrammars, language, loadFunc);
-	return loadFunc;
+	return loadFunc();
 }
 
 fetch_grammars :: () {
@@ -1575,7 +1544,7 @@ fetch_grammars :: () {
 	// @todo: check that git actually exists on this machine
 	// @todo: error if not on windows
 
-	for grammars {
+	for languages {
 		log("Fetching %", it.name);
 		directory := tprint("grammars/sources/%", it.name);
 		make_directory_if_it_does_not_exist(directory);
@@ -1612,7 +1581,7 @@ build_grammars :: () {
 	// @todo: error if you can't find visual studio
 
 	verboseOutput := false;
-	for grammars {
+	for languages {
 		log("Compiling %..", it.name);
 		directory := tprint("grammars/sources/%", it.name);
 

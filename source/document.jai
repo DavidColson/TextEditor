@@ -87,7 +87,8 @@ PieceChainSpan :: struct {
 	boundary: bool;
 	documentOffset: s64;
 	documentSize: s64;
-	size: s64;
+	oldSize: s64;
+	newSize: s64;
 }
 
 ParsePayload :: struct {
@@ -303,7 +304,6 @@ document_load_from_disk :: (doc: *Document) {
 
 		// TODO:
 		// - Test with more complex piece chain
-		// - Test with file larger than 32kb
 		// - Test with absolutely massive file for memory and time use
 		
 		root:= ts_tree_root_node(doc.tree);
@@ -407,6 +407,8 @@ document_insert_text :: (doc: *Document, at: DocumentCursor, t: string) -> Docum
 	insertBuffer: = ifx at.node.added then *doc.addedData else *doc.originalData;
 	insertPos := buffer_offset_to_cursor(insertBuffer, at.node, at.documentOffset - at.nodeStartOffset);
 
+	document_update_ts_tree(doc, at.documentOffset, at.documentOffset, at.documentOffset+text.count);
+
 	newspan: PieceChainSpan;
 
 	array_reset_keeping_memory(*doc.redoStack);
@@ -426,13 +428,13 @@ document_insert_text :: (doc: *Document, at: DocumentCursor, t: string) -> Docum
 			doc.addedBufferEnd = at.node.end;
 
 			lastundo := *doc.undoStack[doc.undoStack.count-1];
-			lastundo.size += text.count;
+			lastundo.newSize += text.count;
 			lastundo.documentSize += text.count;
 			return at;
 		}
 
 		newCursor: DocumentCursor;
-		oldspan := new_undo_event(doc, doc.size-text.count, at.documentOffset, text.count);
+		oldspan := new_undo_event(doc, doc.size-text.count, at.documentOffset, 0, text.count);
 
 		if insertPos == at.node.end {
 			span_boundary(oldspan, at.node, at.node.next);
@@ -473,7 +475,7 @@ document_insert_text :: (doc: *Document, at: DocumentCursor, t: string) -> Docum
 	}
 	else {
 		// case 2: splitting a node
-		oldspan := new_undo_event(doc, doc.size-text.count, at.documentOffset, text.count);
+		oldspan := new_undo_event(doc, doc.size-text.count, at.documentOffset, 0, text.count);
 		span_append(oldspan, at.node);
 
 		// copy the old node and then trim left and right to get the new nodes
@@ -532,6 +534,8 @@ document_delete_text :: (doc: *Document, startAt: DocumentCursor, endAt: Documen
 
 	doc.size -= count;
 
+	document_update_ts_tree(doc, startAt.documentOffset, endAt.documentOffset, startAt.documentOffset);
+
 	newCursor: DocumentCursor;
 	newCursor.doc = doc;
 	newCursor.documentOffset = startAt.documentOffset;
@@ -557,8 +561,8 @@ document_delete_text :: (doc: *Document, startAt: DocumentCursor, endAt: Documen
 			doc.lastDeletionOffset = startAt.documentOffset;
 
 			lastundo := *doc.undoStack[doc.undoStack.count-1];
-			lastundo.size -= count;
-			lastundo.documentSize -= count;
+			lastundo.oldSize += count;
+ 			lastundo.documentSize -= count;
 			return newCursor;
 		}
 	}
@@ -566,7 +570,7 @@ document_delete_text :: (doc: *Document, startAt: DocumentCursor, endAt: Documen
 	// General case
 	newspan: PieceChainSpan;
 	newspan.boundary = true; // by default we insert nothing
-	oldspan := new_undo_event(doc, doc.size+count, startAt.documentOffset, -count);
+	oldspan := new_undo_event(doc, doc.size+count, startAt.documentOffset, count, 0);
 
 	node := startAt.node;
 	doc.lastDeletionOffset = startAt.documentOffset;
@@ -644,6 +648,11 @@ document_undo :: (doc: *Document, cursor: DocumentCursor) -> DocumentCursor {
 	cursorOffset := span.documentOffset;
 	restore_span(doc, *span);
 	array_add(*doc.redoStack, span);
+	
+	log("start % oldend %(%) newend %(%)",
+	 cursorOffset, cursorOffset+span.oldSize, span.oldSize, cursorOffset+span.newSize, span.newSize);
+
+	document_update_ts_tree(doc, cursorOffset, cursorOffset+span.oldSize, cursorOffset+span.newSize);
 
 	return document_create_cursor(doc, cursorOffset); 
 }
@@ -654,42 +663,18 @@ document_redo :: (doc: *Document, cursor: DocumentCursor) -> DocumentCursor  {
 		return cursor;
 	}
 	span := pop(*doc.redoStack);
+	docSizeInitial := span.documentSize;
 	cursorOffset := span.documentOffset;
 	restore_span(doc, *span);
+	delta := docSizeInitial - span.documentSize;
 	array_add(*doc.undoStack, span);
 
+	log("start % oldend %(%) newend %(%)",
+	 cursorOffset, cursorOffset+span.oldSize, span.oldSize, cursorOffset+span.newSize, span.newSize);
+
+	document_update_ts_tree(doc, cursorOffset, cursorOffset+span.oldSize, cursorOffset+span.newSize);
+
 	return document_create_cursor(doc, cursorOffset); 
-}
-
-document_parse_read :: (payload: *void, byteOffset: u32, position: TSPoint, bytesRead: *u32) -> *u8 #c_call {
-	push_context {
-		parsePayload := cast(*ParsePayload, payload);
-
-		cursor := document_create_cursor(parsePayload.doc, byteOffset);
-
-		remainingBytes := parsePayload.buffer.count;
-		bytesRead.* = 0;
-		while cursor.node != parsePayload.doc.pieceChainTail && remainingBytes > 0 { 
-			buffer: = ifx cursor.node.added then *cursor.doc.addedData else *cursor.doc.originalData;
-			offsetInNode := max(cursor.documentOffset - cursor.nodeStartOffset, 0);
-			bufferStartOffset := buffer_cursor_to_offset(buffer, cursor.node.start) + offsetInNode;
-
-			destOffset := parsePayload.buffer.count - remainingBytes;
-			amountToCopy := min(remainingBytes, cursor.node.length - offsetInNode);
-			memcpy(parsePayload.buffer.data + destOffset, buffer.text.data + bufferStartOffset, amountToCopy);
-			remainingBytes -= amountToCopy;
-			bytesRead.* += cast(u32, amountToCopy);
-
-			// move cursor to next node
-			cursor.documentOffset += cursor.node.length;
-			cursor.nodeStartOffset += cursor.node.length;
-			cursor.nodeStartLine += cursor.node.lineFeedCount;
-			cursor.node = cursor.node.next;
-		}
-
-		// Note: log dump this buffer if you want to debug why parsing is going fucky
-		return parsePayload.buffer.data;
-	}
 }
 
 document_get_line_content :: (doc: *Document, lineNum: s64) -> string {
@@ -1118,13 +1103,14 @@ document_debug_print_undos :: (doc: *Document) {
 	for < doc.undoStack {
 		print_to_builder(*builder, "\n----- Change #% -----\n", it_index);
 		span := it;
+		spanDelta := span.newSize - span.oldSize;
 
 		changeOpenBracket:u8 = #char "[";
 		changeCloseBracket:u8 = #char "]";
 
 		// this span is a deletion, so we'll perform the undo, then
 		// print the text, which will show us the deleted text
-		if span.size < 0 {
+		if spanDelta < 0 {
 			restore_span(doc, *span);
 			array_add(*redostack, span);
 			changeOpenBracket = #char "]";
@@ -1155,11 +1141,11 @@ document_debug_print_undos :: (doc: *Document) {
 				array_add(*text, changeOpenBracket ,,temp);
 			}
 
-			if it_index == spanStart+abs(span.size) {
+			if it_index == spanStart+abs(spanDelta) {
 				array_add(*text, changeCloseBracket ,,temp);
 			}
 
-			if it_index > (paddingCount+abs(span.size)) {
+			if it_index > (paddingCount+abs(spanDelta)) {
 				if it == #char "\n" {
 					paddingLines-=1;
 				}
@@ -1169,7 +1155,7 @@ document_debug_print_undos :: (doc: *Document) {
 
 		// this span is an addition, so we've printed the document 
 		// BEFORE doing the undo, so we can see the added text
-		if span.size > 0 {
+		if spanDelta > 0 {
 			restore_span(doc, *span);
 			array_add(*redostack, span);
 		}
@@ -1340,11 +1326,12 @@ span_boundary :: (span: *PieceChainSpan, before: *PieceChainNode, after: *PieceC
 	span.boundary = true;
 }
 
-new_undo_event :: (doc: *Document, docSize: s64, docOffset: s64, size: s64) -> *PieceChainSpan {
+new_undo_event :: (doc: *Document, docSize: s64, docOffset: s64, oldSize: s64, newSize: s64) -> *PieceChainSpan {
 	span := array_add(*doc.undoStack);
 	span.documentSize = docSize;
 	span.documentOffset = docOffset;
-	span.size = size;
+	span.oldSize = oldSize;
+	span.newSize = newSize;
 	return span;
 }
 
@@ -1432,7 +1419,54 @@ restore_span :: (doc: *Document, span: *PieceChainSpan) {
 		}
 	}
 
+	// The span has now become it's inverse, so flip the sizes and deltas
 	currentSize := doc.size;
 	doc.size = span.documentSize;
 	span.documentSize = currentSize;
+
+	temp := span.newSize;
+	span.newSize = span.oldSize;
+	span.oldSize = temp;
+}
+
+document_parse_read :: (payload: *void, byteOffset: u32, position: TSPoint, bytesRead: *u32) -> *u8 #c_call {
+	push_context {
+		parsePayload := cast(*ParsePayload, payload);
+
+		cursor := document_create_cursor(parsePayload.doc, byteOffset);
+
+		remainingBytes := parsePayload.buffer.count;
+		bytesRead.* = 0;
+		while cursor.node != parsePayload.doc.pieceChainTail && remainingBytes > 0 { 
+			buffer: = ifx cursor.node.added then *cursor.doc.addedData else *cursor.doc.originalData;
+			offsetInNode := max(cursor.documentOffset - cursor.nodeStartOffset, 0);
+			bufferStartOffset := buffer_cursor_to_offset(buffer, cursor.node.start) + offsetInNode;
+
+			destOffset := parsePayload.buffer.count - remainingBytes;
+			amountToCopy := min(remainingBytes, cursor.node.length - offsetInNode);
+			memcpy(parsePayload.buffer.data + destOffset, buffer.text.data + bufferStartOffset, amountToCopy);
+			remainingBytes -= amountToCopy;
+			bytesRead.* += cast(u32, amountToCopy);
+
+			// move cursor to next node
+			cursor.documentOffset += cursor.node.length;
+			cursor.nodeStartOffset += cursor.node.length;
+			cursor.nodeStartLine += cursor.node.lineFeedCount;
+			cursor.node = cursor.node.next;
+		}
+
+		// Note: log dump this buffer if you want to debug why parsing is going fucky
+		return parsePayload.buffer.data;
+	}
+}
+
+document_update_ts_tree :: (doc: *Document, startOffset: s64, oldEndOffset: s64, newEndOffset: s64) {
+	inputEdit := TSInputEdit.{start_byte=xx startOffset, old_end_byte=xx oldEndOffset, new_end_byte=xx newEndOffset};
+	ts_tree_edit(doc.tree, *inputEdit);
+	
+	parsePayload: ParsePayload;
+	parsePayload.doc = doc;
+	parsePayload.buffer = NewArray(32*1024, u8);
+	doc.tree = ts_parser_parse(doc.parser, null, .{payload=*parsePayload, read=document_parse_read, encoding=.UTF8});
+	free(parsePayload.buffer.data);
 }
