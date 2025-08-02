@@ -39,6 +39,7 @@ build :: () {
              "/wd4267", // disable 'possible loss of data (size_t)'
              "/wd4701", // disable 'potentially uninitialized local variable'
              "/we4022", // treat 'incompatible types' as an error
+             "/MD",
              "/W3");
         for includePaths {
             array_add(*extraArgs, tprint("/I%/%", SOURCE_PATH, it));

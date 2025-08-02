@@ -31,6 +31,11 @@ Document :: struct {
 	unsaved: bool;
 	diskLastModtime: Apollo_Time;
 	lastDeletionOffset: s64;
+
+	// parser stuff
+	language: string;
+	parser: *TSParser;
+	tree: *TSTree;
 }
 
 DocumentCursor :: struct {
@@ -85,6 +90,11 @@ PieceChainSpan :: struct {
 	size: s64;
 }
 
+ParsePayload :: struct {
+	doc: *Document;
+	buffer: []u8;
+}
+
 open_documents: Bucket_Array(Document, 128); // might want more when we load full projects in?
 open_document_table: Table(string, Bucket_Locator);
 
@@ -116,6 +126,29 @@ document_open :: (path: string) -> *Document {
 		doc.path = copy_string(get_absolute_path(path));
 	}
 	path_overwrite_separators(doc.path, #char "/");
+
+	// Setup document language and parsing
+	doc.language = path_extension(doc.path);
+	languageGrammar := get_language_grammar(doc.language);
+	if languageGrammar == null {
+		log("No language support for file '%' with language '%'", doc.path, doc.language);
+	}
+	else {
+		doc.parser = ts_parser_new();
+		if !ts_parser_set_language(doc.parser, languageGrammar) {
+			log("Language ABI mismatch: Language(%) is % and treesitter is %", doc.language, TREE_SITTER_LANGUAGE_VERSION, ts_language_abi_version(languageGrammar));
+		}
+
+		tsVerboseLogging := false;
+		if tsVerboseLogging {
+			treesitter_logger :: (payload: *void, log_type: TSLogType, buffer: *u8) #c_call {
+			    push_context {
+			        log("%", to_string(buffer));
+			    }
+			}
+			ts_parser_set_logger(doc.parser, .{null, treesitter_logger});
+		}
+	}
 
 	doc.locator = locator;
 	table_add(*open_document_table, doc.path, doc.locator); 
@@ -251,6 +284,32 @@ document_load_from_disk :: (doc: *Document) {
 		node.next = doc.pieceChainTail;
 		doc.pieceChainTail.prev = node;
 	}
+
+	// parse the document, assuming we are able to
+	if doc.parser {
+
+		// allocate a buffer to store the flattened document
+		// first test, parse in 32kb chunks
+
+		parsePayload: ParsePayload;
+		parsePayload.doc = doc;
+		parsePayload.buffer = NewArray(32*1024, u8);
+
+		ts_parser_reset(doc.parser);
+		doc.tree = ts_parser_parse(doc.parser, null, .{payload=*parsePayload, read=document_parse_read, encoding=.UTF8});
+
+		// @todo: potentially keep this around and reuse in future re-parses?
+		free(parsePayload.buffer.data);
+
+		// TODO:
+		// - Test with more complex piece chain
+		// - Test with file larger than 32kb
+		// - Test with absolutely massive file for memory and time use
+		
+		root:= ts_tree_root_node(doc.tree);
+		
+		// log("%", to_string(ts_node_string(root)));
+	}
 }
 
 document_close :: (doc: *Document) {
@@ -280,11 +339,9 @@ document_save :: (doc: *Document, path: string, backup := false) {
 
 	fileHandle, success := file_open(path, true, false);
 	if success {
-		cursor: DocumentCursor;
-		cursor.doc = doc;
-		cursor.node = doc.pieceChainHead;
+		cursor := document_create_cursor(doc);
 
-		while cursor.node != null {
+		while cursor.node != doc.pieceChainTail {
 			buffer: = ifx cursor.node.added then *cursor.doc.addedData else *cursor.doc.originalData;
 			bufferStartOffset := buffer_cursor_to_offset(buffer, cursor.node.start);
 
@@ -602,6 +659,37 @@ document_redo :: (doc: *Document, cursor: DocumentCursor) -> DocumentCursor  {
 	array_add(*doc.undoStack, span);
 
 	return document_create_cursor(doc, cursorOffset); 
+}
+
+document_parse_read :: (payload: *void, byteOffset: u32, position: TSPoint, bytesRead: *u32) -> *u8 #c_call {
+	push_context {
+		parsePayload := cast(*ParsePayload, payload);
+
+		cursor := document_create_cursor(parsePayload.doc, byteOffset);
+
+		remainingBytes := parsePayload.buffer.count;
+		bytesRead.* = 0;
+		while cursor.node != parsePayload.doc.pieceChainTail && remainingBytes > 0 { 
+			buffer: = ifx cursor.node.added then *cursor.doc.addedData else *cursor.doc.originalData;
+			offsetInNode := max(cursor.documentOffset - cursor.nodeStartOffset, 0);
+			bufferStartOffset := buffer_cursor_to_offset(buffer, cursor.node.start) + offsetInNode;
+
+			destOffset := parsePayload.buffer.count - remainingBytes;
+			amountToCopy := min(remainingBytes, cursor.node.length - offsetInNode);
+			memcpy(parsePayload.buffer.data + destOffset, buffer.text.data + bufferStartOffset, amountToCopy);
+			remainingBytes -= amountToCopy;
+			bytesRead.* += cast(u32, amountToCopy);
+
+			// move cursor to next node
+			cursor.documentOffset += cursor.node.length;
+			cursor.nodeStartOffset += cursor.node.length;
+			cursor.nodeStartLine += cursor.node.lineFeedCount;
+			cursor.node = cursor.node.next;
+		}
+
+		// Note: log dump this buffer if you want to debug why parsing is going fucky
+		return parsePayload.buffer.data;
+	}
 }
 
 document_get_line_content :: (doc: *Document, lineNum: s64) -> string {
@@ -1096,6 +1184,16 @@ document_debug_print_undos :: (doc: *Document) {
 	}
 
 	print(builder_to_string(*builder,,temp));
+}
+
+document_dump_tree_to_dot_graph :: (doc: *Document) {
+	O_RDWR    :: 0x2;     // Open for reading and writing
+	Crt      :: #system_library "msvcrt";
+	_open_osfhandle :: (osfhandle: s64, flags: s32) -> s32 #foreign Crt;
+
+	f, success := file_open("dotGraph.gv", for_writing=true);
+	fd := _open_osfhandle(cast(s64, f.handle), O_RDWR);
+	ts_tree_print_dot_graph(doc.tree, fd);
 }
 
 operator == :: (a: Coordinate, b: Coordinate) -> bool {
