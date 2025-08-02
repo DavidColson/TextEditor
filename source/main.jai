@@ -57,6 +57,12 @@ style : struct {
 
 	// animations
 	scrollAnimRate := 14;
+
+	// Code colors
+	codeDefault := #run hex_to_color_vec4("C3C7D0");
+	codeFunction := #run hex_to_color_vec4("61AFEF");
+	codeType := #run hex_to_color_vec4("E5C07B");
+	codeKeyword := #run hex_to_color_vec4("E06C75");
 };
 
 EDITOR_MODE_NUM :: #run enum_highest_value(EditorMode) + 1;
@@ -1037,15 +1043,15 @@ custom_draw_code :: (box: *UIBox, udata: *void) {
 		documentLines := document_get_num_lines(panel.document);
 		cursorLine := document_cursor_get_line(*panel.cursor.head);
 
-		startVisibleLines : s64;
-		endVisibleLines : s64;
+		startVisibleLine : s64;
+		endVisibleLine : s64;
 		visibleLines: [..]string;
 		visibleLines.allocator = temp;
 
-		startVisibleLines = clamp(cast(s64) (-box.viewOffset.y / metrics.lineSpacing) - 1, 0, documentLines - 1);
-		endVisibleLines = clamp(startVisibleLines + cast(s64)box.rect.h / metrics.lineSpacing + 2, 0, documentLines - 1);
+		startVisibleLine = clamp(cast(s64) (-box.viewOffset.y / metrics.lineSpacing) - 1, 0, documentLines - 1);
+		endVisibleLine = clamp(startVisibleLine + cast(s64)box.rect.h / metrics.lineSpacing + 2, 0, documentLines - 1);
 
-		startOffset := (startVisibleLines+2) * metrics.lineSpacing - metrics.lineSpacing;
+		startOffset := (startVisibleLine+2) * metrics.lineSpacing - metrics.lineSpacing;
 
 		// Draw line numbers
 		gutterWidth := 0;
@@ -1054,7 +1060,7 @@ custom_draw_code :: (box: *UIBox, udata: *void) {
 			maxLinesRun := generate_text_run(tprint(" % ", documentLines), xx box.fontSize, box.font,,temp);
 			gutterWidth = xx maxLinesRun.width;
 
-			for startVisibleLines..endVisibleLines {
+			for startVisibleLine..endVisibleLine {
 				lineNoRun := generate_text_run(tprint("% ", it+1), xx box.fontSize, box.font,,temp);
 				draw_text_run(lineNoRun, box.rect.x + (gutterWidth - lineNoRun.width), y, style.textSecondary);
 				y += metrics.lineSpacing;
@@ -1064,15 +1070,36 @@ custom_draw_code :: (box: *UIBox, udata: *void) {
 		textAreaX := box.rect.x + gutterWidth;
 		textAreaY := box.rect.y + startOffset + box.viewOffset.y;
 
-		// @todo: refactor to use document cursors to walk through text rather than get_line_content for every line
-		linesOnScreen: [..]string;
+		linesOnScreen: [..]LineContent;
 		linesOnScreen.allocator = temp;
-		for startVisibleLines..endVisibleLines {
-			array_add(*linesOnScreen, document_get_line_content(panel.document, xx it));
+		{
+			startByteOffset := document_get_line_start(panel.document, startVisibleLine);
+			cursor := document_create_cursor(panel.document, startByteOffset);
+
+			linesToCollect := endVisibleLine - startVisibleLine;
+			lineStart := startByteOffset;
+			while linesToCollect > 0 {
+				builder: String_Builder;
+				builder.allocator = temp;
+
+				lineEnd := 0;
+				for cursor {
+					append(*builder, it);
+					if it == #char "\n" {
+						// cursor is now sat on the next line
+						lineEnd = lineStart + it_index;
+						break;
+					}
+				}
+
+				array_add(*linesOnScreen, .{builder_to_string(*builder,,temp), lineStart, lineEnd});
+				lineStart = lineEnd + 1;
+				linesToCollect -= 1;
+			}
 		}
 
 		// Draw cursor selection
-		if panel.activeDialog != .SEARCH && cursorLine >= startVisibleLines && cursorLine <= endVisibleLines {
+		if panel.activeDialog != .SEARCH && cursorLine >= startVisibleLine && cursorLine <= endVisibleLine {
 			if panel.cursor.head.documentOffset != panel.cursor.anchor.documentOffset {
 				draw_cursor_range(box.font,
 									xx box.fontSize,
@@ -1081,7 +1108,7 @@ custom_draw_code :: (box: *UIBox, udata: *void) {
 									panel.cursor.head,
 									panel.cursor.anchor,
 									linesOnScreen,
-									startVisibleLines,
+									startVisibleLine,
 									true);
 			}
 		}
@@ -1096,29 +1123,50 @@ custom_draw_code :: (box: *UIBox, udata: *void) {
 									it.start,
 									it.end,
 									linesOnScreen,
-									startVisibleLines,
+									startVisibleLine,
 									false);
 			}
 		}
+
+
+
+		// before drawing the text, setup your query
+		// So set the byte range of all the lines in the viewport
+		// Find the nearest tree node
+		// Run the query
+		// Get your captures and their offsets
 
 		// Draw the text
 		x :float = textAreaX;
 		y :float = textAreaY;
 		for line: linesOnScreen {
-			run := generate_text_run(line, xx box.fontSize, box.font,,temp);
+			run := generate_text_run(line.text, xx box.fontSize, box.font,,temp);
+
+			// right how tf are we gonna do this?
+			// I think first swap to submitting instances manually in here so we can have more control
+			// For each line, we'll generate our text run and then iterate every glyph in the run
+			// Consider for a second multibyte support here too
+			// We need to know the byte offset of everything we render
+			// So the text run can store alongside each instance the number of bytes for that instance
+			//
+			// For each line, you must know their byte offset start
+			// Generate your text run, then start iterating the instances
+			// If you are inside the current match range, then paint the appropriate color
+			// Then find the next match
+			
 			draw_text_run(run, x, y, style.textPrimary);
 			y += metrics.lineSpacing;
 		}
 
 		// Draw cursor
-		if panel.activeDialog != .SEARCH && cursorLine >= startVisibleLines && cursorLine <= endVisibleLines {
-			line := linesOnScreen[cursorLine - startVisibleLines];
-			line.count = panel.cursor.head.documentOffset - document_get_line_start(panel.document, cursorLine);
+		if panel.activeDialog != .SEARCH && cursorLine >= startVisibleLine && cursorLine <= endVisibleLine {
+			lineCopy := linesOnScreen[cursorLine - startVisibleLine];
+			lineCopy.text.count = panel.cursor.head.documentOffset - document_get_line_start(panel.document, cursorLine);
 
 			// figuring out the width of the cursor requires knowing which vertical column of text
 			// we're in, including previous tabs
 			col:=0;
-			for line {
+			for lineCopy.text {
 				if it != #char "\t" {
 					col += 1;
 				} else {
@@ -1129,8 +1177,8 @@ custom_draw_code :: (box: *UIBox, udata: *void) {
 			cursorChar := document_cursor_get_char(*panel.cursor.head);
 			cursorRun := generate_text_run(cast(string) u8.[cursorChar], xx box.fontSize, box.font, col,,temp);
 
-			cursorX := textAreaX + generate_text_run(line, xx box.fontSize, box.font,,temp).width;
-			cursorY := textAreaY - metrics.typicalDescender + metrics.lineSpacing * (cursorLine-startVisibleLines-1);
+			cursorX := textAreaX + generate_text_run(lineCopy.text, xx box.fontSize, box.font,,temp).width;
+			cursorY := textAreaY - metrics.typicalDescender + metrics.lineSpacing * (cursorLine-startVisibleLine-1);
 
 			submit_instance(.{
 				dstRect = .{
@@ -1144,13 +1192,13 @@ custom_draw_code :: (box: *UIBox, udata: *void) {
 			});
 
 			if cursorChar != 0 {
-				draw_text_run(cursorRun, cursorX, textAreaY + metrics.lineSpacing * (cursorLine-startVisibleLines), style.backgroundMid);
+				draw_text_run(cursorRun, cursorX, textAreaY + metrics.lineSpacing * (cursorLine-startVisibleLine), style.backgroundMid);
 			}
 		}
 	}
 }
 
-draw_cursor_range :: (font: *Font, fontSize: int, textAreaX: float, textAreaY: float, cursor1: DocumentCursor, cursor2: DocumentCursor, linesOnScreen: []string, startVisibleLine: s64, includeCursor := false) {
+draw_cursor_range :: (font: *Font, fontSize: int, textAreaX: float, textAreaY: float, cursor1: DocumentCursor, cursor2: DocumentCursor, linesOnScreen: []LineContent, startVisibleLine: s64, includeCursor := false) {
 	metrics := get_font_metrics(font, fontSize);
 	rangeStart, rangeEnd := convert_cursors_to_coordinate_range(cursor1, cursor2, includeCursor);
 	lineWidths: [..] s32;
@@ -1164,7 +1212,7 @@ draw_cursor_range :: (font: *Font, fontSize: int, textAreaX: float, textAreaY: f
 		if 0 > lineIndex || lineIndex >= linesOnScreen.count then continue;
 
 		line := linesOnScreen[it - startVisibleLine];
-		lineWidth := generate_text_run(line, fontSize, font,,temp).width;
+		lineWidth := generate_text_run(line.text, fontSize, font,,temp).width;
 
 		isFirstLine:= it == rangeStart.line;
 		isLastLine:= it == rangeEnd.line;
@@ -1172,11 +1220,11 @@ draw_cursor_range :: (font: *Font, fontSize: int, textAreaX: float, textAreaY: f
 		selectionX := 0;
 		selectionW := lineWidth;
 		if isFirstLine {
-			selectionX = xx generate_text_run(string.{rangeStart.col,line.data}, fontSize, font,,temp).width;
+			selectionX = xx generate_text_run(string.{rangeStart.col,line.text.data}, fontSize, font,,temp).width;
 			selectionW = lineWidth - selectionX;
 		}
 		if isLastLine {
-			selectionW = generate_text_run(string.{rangeEnd.col,line.data}, fontSize, font,,temp).width - selectionX;
+			selectionW = generate_text_run(string.{rangeEnd.col,line.text.data}, fontSize, font,,temp).width - selectionX;
 		}
 
 		submit_instance(.{

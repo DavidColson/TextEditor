@@ -70,6 +70,12 @@ LineEndingMode :: enum {
 	MIXED_MAJORITY_CRLF;
 }
 
+LineContent :: struct {
+	text: string;
+	startByteOffset: s64;
+	endByteOffset: s64;
+}
+
 PieceChainNode :: struct {
 	next: *PieceChainNode;
 	prev: *PieceChainNode;
@@ -677,81 +683,6 @@ document_redo :: (doc: *Document, cursor: DocumentCursor) -> DocumentCursor  {
 	return document_create_cursor(doc, cursorOffset); 
 }
 
-document_get_line_content :: (doc: *Document, lineNum: s64) -> string {
-	builder: String_Builder;
-	builder.allocator = temp;
-
-	// @todo: potential optimization here is to cache the last visited nodes
-	// and then search nearby, such that you can skip iterating all nodes for local queries of line content
-
-	// additionally you can cache the last queried line, under the assumption that there
-	// will be repeated queries for the line the cursor is currently sat on
-
-
-	// lets optimize using document cursors
-	// You don't need to do any initial searching since the cursor is where you want to be
-	// Use the iterator to iterate single chars from the cursor until you hit a newline sequence
-	// copy each one and that's basically all you need to do
-
-	// another alternative is using a similar strategy to the jump to functions
-	// calculate the document coordinates at the end of the cursor node
-	// if the line end is less than that, then copy the whole line
-	// if it's past that, then copy up to end of buffer, and go to next node
-	// then repeat, if end is in this node, copy up to that, otherwise go to end of node
-
-	// since lineNum is 0 indexed, if you give line 0, there is "1" line remaining to find
-	linesRemaining := lineNum;
-	node: *PieceChainNode = doc.pieceChainHead;
-
-	while node != null {
-		buffer : *Buffer;
-		ifx node.added then buffer = *doc.addedData else buffer = *doc.originalData;
-
-		if linesRemaining == 0 {
-			// line has been found, so we're looking for the rest of it
-			if node.lineFeedCount == 0 {
-				// the line does not end here, so copy the whole node
-				startOffset:= buffer_cursor_to_offset(buffer, node.start);
-				endOffset := buffer_cursor_to_offset(buffer, node.end);
-				append(*builder, buffer.text.data + startOffset, endOffset - startOffset);
-			}
-			else {
-				// the line ends here, so copy up to the first line
-				startOffset:= buffer_cursor_to_offset(buffer, node.start);
-				endOffset := buffer_cursor_to_offset(buffer, .{node.start.line+1, 0});
-				append(*builder, buffer.text.data + startOffset, endOffset - startOffset);
-				break;
-			}
-			node = node.next;
-
-		}
-		else if linesRemaining < node.lineFeedCount {
-			// the line must start and end in this node
-			startOffset:= buffer_cursor_to_offset(buffer, .{node.start.line + linesRemaining, 0});
-			endOffset := buffer_cursor_to_offset(buffer, .{node.start.line + linesRemaining + 1, 0});
-			append(*builder, buffer.text.data + startOffset, endOffset - startOffset);
-			node = node.next;
-			break;
-		}
-		else if linesRemaining == node.lineFeedCount {
-			// the line starts in this node, but does not end here (potentially the document ends too)
-			startOffset:= buffer_cursor_to_offset(buffer, .{node.start.line + linesRemaining, 0});
-			endOffset := buffer_cursor_to_offset(buffer, node.end);
-			append(*builder, buffer.text.data + startOffset, endOffset - startOffset);
-			linesRemaining -= node.lineFeedCount;
-			node = node.next;
-		}
-		else {
-			// the line is past this node so skip it
-			linesRemaining -= node.lineFeedCount;
-			node = node.next;
-		}
-
-	}
-
-	return builder_to_string(*builder,,temp);
-}
-
 document_create_cursor :: (document: *Document, startOffset: s64 = 0) -> DocumentCursor {
 	newCursor : DocumentCursor;
 	newCursor.doc = document;
@@ -937,14 +868,14 @@ document_get_line_range :: (doc: *Document, line: s64, excludeLineEndings := fal
 	if excludeLineEndings {
 		tempCursor := document_create_cursor(doc, lineStartNext-2);
 		if document_cursor_get_char(*tempCursor) == #char "\r" {
-			return document_get_line_start(doc, line), lineStartNext-2;
+			return document_get_line_start(doc, line), lineStartNext-3;
 		}
 		else {
-			return document_get_line_start(doc, line), lineStartNext-1;
+			return document_get_line_start(doc, line), lineStartNext-2;
 		}
 	}
 
-	return document_get_line_start(doc, line), lineStartNext;
+	return document_get_line_start(doc, line), lineStartNext-1;
 }
 
 document_get_num_lines :: (doc: *Document) -> s64 {
