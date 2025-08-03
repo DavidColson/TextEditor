@@ -1285,6 +1285,30 @@ evaluate_query_predicates :: (query: *TSQuery, tsMatch: TSQueryMatch, document: 
 
 			// A lot of repeated code between predicates, something to tidy up
 			
+			// large amount of string matching here
+			// It would be nice to pre-prepare the predicates for each pattern
+			// Is there information enough here to put them in a table
+			// For use later?
+			//
+			// Consider that each individual capture in the _query_ has a static ID
+			// So we could, at load time of the query, associate each capture ID with a syntax type
+			// So then we never have to do string matches on the capture names
+			//
+			// The queries strings also have an ID in the query. This implies we could
+			// Pre-prepare a compiled regex for each ID (assuming it is a regex of course)
+			//
+			// Of course the predicates for any given pattern are known also at query compile time
+			// So what could we distill a predicate down into to do the minimal checks during highlighting time?
+			//
+			// For any given pattern index we have some set of predicates
+			// We'd need to know the type of the predicate (an enum)
+			// The capture index it operates on (which we can compare to the captures in the match)
+			// And a list of strings or regex's which we can prep
+			//
+			// So as we are doing our syntax highlighting, we just pass the match to our system
+			// It looks to see if there is one or more predicate associated with the given pattern index, and then
+			// Do what we need to do, the only string check being against the capture node content and the regex
+			
 			if predicateName == "match?" {
 				// expect capture, then string
 				i += 1;
