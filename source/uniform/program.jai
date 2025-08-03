@@ -374,6 +374,10 @@ is_match :: (prog: *Prog, i_in: Inst) -> bool {
 
 empty_flags :: (text: string, pos: int) -> EmptyOp {
 	flags: EmptyOp;
+	if pos >= text.count {
+		flags |= EmptyOp.kEmptyEndText | .kEmptyEndLine;
+		return flags;
+	}
 
 	// ^ and \A
 	if pos == 0 {

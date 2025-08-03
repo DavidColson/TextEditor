@@ -136,14 +136,15 @@ document_open :: (path: string) -> *Document {
 
 	// Setup document language and parsing
 	doc.language = path_extension(doc.path);
-	languageGrammar := get_language_grammar(doc.language);
-	if languageGrammar == null {
+	language: Language;
+	success, language = get_language(doc.language);
+	if !success {
 		log("No language support for file '%' with language '%'", doc.path, doc.language);
 	}
 	else {
 		doc.parser = ts_parser_new();
-		if !ts_parser_set_language(doc.parser, languageGrammar) {
-			log("Language ABI mismatch: Language(%) is % and treesitter is %", doc.language, TREE_SITTER_LANGUAGE_VERSION, ts_language_abi_version(languageGrammar));
+		if !ts_parser_set_language(doc.parser, language.treesitterLang) {
+			log("Language ABI mismatch: Language(%) is % and treesitter is %", doc.language, TREE_SITTER_LANGUAGE_VERSION, ts_language_abi_version(language.treesitterLang));
 		}
 
 		tsVerboseLogging := false;

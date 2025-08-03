@@ -43,7 +43,7 @@ style : struct {
 
 	// fonts
 	fontSize := 15;
-	codeFont := string.["FiraMonoNerdFontMono-Regular.ttf", "consola.ttf"];
+	codeFont := string.["CaskaydiaMonoNerdFont-Regular.ttf", "consola.ttf"];
 	uiFont := string.["segoeui.ttf"];
 
 	// Icons
@@ -59,10 +59,17 @@ style : struct {
 	scrollAnimRate := 14;
 
 	// Code colors
+	// Must match the order of HighlightType
 	codeDefault := #run hex_to_color_vec4("C3C7D0");
 	codeFunction := #run hex_to_color_vec4("61AFEF");
-	codeType := #run hex_to_color_vec4("E5C07B");
 	codeKeyword := #run hex_to_color_vec4("E06C75");
+	codeVariable := #run hex_to_color_vec4("C3C7D0");
+	codeConstant := #run hex_to_color_vec4("56B6C2");
+	codeString := #run hex_to_color_vec4("98C379");
+	codeType := #run hex_to_color_vec4("E5C07B");
+	codeComment := #run hex_to_color_vec4("5C6370");
+#place codeDefault;
+	codeColors: [HighlightType.COUNT]Vector4 = ---;
 };
 
 EDITOR_MODE_NUM :: #run enum_highest_value(EditorMode) + 1;
@@ -159,20 +166,23 @@ main :: () {
 
 	platform_set_backup_timer(window, do_backup_callback);
 
-	lastTime = seconds_since_init();
+	deltaTime: float64 = 0.0;
     want_screenshot := false;
     while !pendingQuit {
-		update();
+		frameStart := seconds_since_init();
+		update(deltaTime);
+		deltaTime = seconds_since_init() - frameStart;
+
+		// not ideal, should vsync to something else if above 16ms
+		timeToSleep := max(16 - deltaTime*1000, 0);
+	    sleep_milliseconds(cast(s32) timeToSleep);
 	}
 }
 
-update :: () {
+update :: (deltaTime: float64) {
 	if !requestRedraw platform_wait_message();
 	requestRedraw = false;
 
-	now := seconds_since_init();
-	deltaTime = min(now - lastTime, 0.016);
-	lastTime = now;
 
     Input.update_window_events();
 
@@ -233,7 +243,6 @@ update :: () {
 	}
 
 	// @todo: may want to support 120hz or higher? 
-    sleep_milliseconds(cast(s32) (16 - deltaTime/1000));
     reset_temporary_storage();
 }
 
@@ -1128,34 +1137,88 @@ custom_draw_code :: (box: *UIBox, udata: *void) {
 			}
 		}
 
+		// Draw code
+		queryCursor := ts_query_cursor_new();
+		success, language := get_language(panel.document.language);
+		if success && language.highlightsQuery {
+			rangeStartByte := linesOnScreen[0].startByteOffset;
+			rangeEndByte := linesOnScreen[linesOnScreen.count-1].endByteOffset;
 
+			ts_query_cursor_set_byte_range(queryCursor, xx rangeStartByte, xx rangeEndByte);
 
-		// before drawing the text, setup your query
-		// So set the byte range of all the lines in the viewport
-		// Find the nearest tree node
-		// Run the query
-		// Get your captures and their offsets
+			treeNode := ts_tree_root_node(panel.document.tree);
+			treeNode = ts_node_descendant_for_byte_range(treeNode, xx rangeStartByte, xx rangeEndByte);
 
-		// Draw the text
-		x :float = textAreaX;
-		y :float = textAreaY;
-		for line: linesOnScreen {
-			run := generate_text_run(line.text, xx box.fontSize, box.font,,temp);
+			ts_query_cursor_exec(queryCursor, language.highlightsQuery, treeNode);
 
-			// right how tf are we gonna do this?
-			// I think first swap to submitting instances manually in here so we can have more control
-			// For each line, we'll generate our text run and then iterate every glyph in the run
-			// Consider for a second multibyte support here too
-			// We need to know the byte offset of everything we render
-			// So the text run can store alongside each instance the number of bytes for that instance
-			//
-			// For each line, you must know their byte offset start
-			// Generate your text run, then start iterating the instances
-			// If you are inside the current match range, then paint the appropriate color
-			// Then find the next match
-			
-			draw_text_run(run, x, y, style.textPrimary);
-			y += metrics.lineSpacing;
+			highlights: [..]Highlight;
+			highlights.allocator = temp;
+
+			// collect all the highlights for the region of code we must render
+			while true {
+				tsMatch: TSQueryMatch;
+				captureId: u32;
+				result := ts_query_cursor_next_capture(queryCursor, *tsMatch, *captureId);
+				if result == false then break;
+				capture := tsMatch.captures[captureId];
+
+				captureName: string;
+				len:u32;
+				captureName.data = ts_query_capture_name_for_id(language.highlightsQuery, capture.index, *len);
+				captureName.count = xx len;
+
+				startByte := ts_node_start_byte(capture.node);
+				endByte := ts_node_end_byte(capture.node);
+				type := to_string(ts_node_grammar_type(capture.node));
+
+				if evaluate_query_predicates(language.highlightsQuery, tsMatch, panel.document) {
+					if highlights.count > 0 {
+						if highlights[highlights.count-1].start == startByte {
+							// override the previous range if there's a newer (better) one
+							highlights[highlights.count-1] = .{startByte, endByte, capture_name_to_highlight_type(captureName)};
+							continue;
+						}
+					}
+					array_add(*highlights, .{startByte, endByte, capture_name_to_highlight_type(captureName)});
+				}
+			}
+
+			x :float = textAreaX;
+			y :float = textAreaY;
+			currentHighlightIndex := 0;
+			for line: linesOnScreen {
+				run := generate_text_run(line.text, xx box.fontSize, box.font,,temp);
+				for run.instances {
+					byteOffset := line.startByteOffset + run.byteOffsets[it_index];
+
+					if currentHighlightIndex < highlights.count && byteOffset >= highlights[currentHighlightIndex].end {
+						currentHighlightIndex += 1;
+					}
+
+					color := style.codeDefault;
+					if currentHighlightIndex < highlights.count && byteOffset >= highlights[currentHighlightIndex].start && byteOffset < highlights[currentHighlightIndex].end {
+						color = style.codeColors[highlights[currentHighlightIndex].type];
+					}
+
+					instance := it;
+					instance.dstRect.x = round(x + instance.dstRect.x);
+					instance.dstRect.y = round(y + instance.dstRect.y);
+					instance.color = color;
+					submit_instance(instance);
+
+				}
+				y += metrics.lineSpacing;
+			}
+		}
+		else {
+			// draw text with no highlighting
+			x :float = textAreaX;
+			y :float = textAreaY;
+			for line: linesOnScreen {
+				run := generate_text_run(line.text, xx box.fontSize, box.font,,temp);
+				draw_text_run(run, x, y, style.textPrimary);
+				y += metrics.lineSpacing;
+			}
 		}
 
 		// Draw cursor
@@ -1196,6 +1259,176 @@ custom_draw_code :: (box: *UIBox, udata: *void) {
 			}
 		}
 	}
+}
+
+evaluate_query_predicates :: (query: *TSQuery, tsMatch: TSQueryMatch, document: *Document) -> bool 
+{
+	steps: *TSQueryPredicateStep;
+	stepCount: u32;
+	steps = ts_query_predicates_for_pattern(query, tsMatch.pattern_index, *stepCount);
+
+	if stepCount == 0 {
+		return true;
+	}
+
+	pass := false;
+
+	i: u32 = 0;
+	while i<stepCount {
+
+		if steps[i].type == .String {
+			predicateName:string;
+			len: u32;
+			predicateName.data = ts_query_string_value_for_id(query, steps[i].value_id, *len);
+			predicateName.count = len;
+			
+
+			// A lot of repeated code between predicates, something to tidy up
+			
+			if predicateName == "match?" {
+				// expect capture, then string
+				i += 1;
+				if steps[i].type != .Capture {
+					log("Expected capture as first argument of match predicate");
+					return true;
+				}
+
+				// find the capture
+				capture: TSQueryCapture;
+				for 0..tsMatch.capture_count-1 {
+					if tsMatch.captures[it].index == steps[i].value_id {
+						capture = tsMatch.captures[it];
+						break;
+					}
+				}
+				
+				startByte := ts_node_start_byte(capture.node);
+				endByte := ts_node_end_byte(capture.node);
+
+				// need to find the text corresponding to this node
+				captureText := alloc_string(endByte-startByte,,temp);
+				docCursor := document_create_cursor(document, startByte);
+				for docCursor {
+					if it_index >= captureText.count break;
+					captureText[it_index] = it;
+				}
+
+				// now grab the regex string
+				i += 1;
+				if steps[i].type != .String {
+					log("Expected string as second argument of match predicate");
+					return true;
+				}
+
+				regex:string;
+				len: u32;
+				regex.data = ts_query_string_value_for_id(query, steps[i].value_id, *len);
+				regex.count = len;
+
+				matched, captures := match(captureText, regex);
+				pass = matched;
+				i += 1;
+			}
+			else if predicateName == "any-of?" {
+				i += 1;
+				if steps[i].type != .Capture {
+					log("Expected capture as first argument of any-of predicate");
+					return true;
+				}
+
+				// find the capture
+				capture: TSQueryCapture;
+				for 0..tsMatch.capture_count-1 {
+					if tsMatch.captures[it].index == steps[i].value_id {
+						capture = tsMatch.captures[it];
+						break;
+					}
+				}
+				
+				startByte := ts_node_start_byte(capture.node);
+				endByte := ts_node_end_byte(capture.node);
+
+				// need to find the text corresponding to this node
+				captureText := alloc_string(endByte-startByte,,temp);
+				docCursor := document_create_cursor(document, startByte);
+				for docCursor {
+					if it_index >= captureText.count break;
+					captureText[it_index] = it;
+				}
+				
+				matched := false;
+				i += 1;
+				while steps[i].type != .Done {
+					if steps[i].type != .String {
+						log("Expected string as argument of any-of predicate");
+						return true;
+					}
+
+					candidate:string;
+					len: u32;
+					candidate.data = ts_query_string_value_for_id(query, steps[i].value_id, *len);
+					candidate.count = len;
+
+					i += 1;
+					if captureText == candidate {
+						pass = true;
+					}
+				}
+			}
+			else if predicateName == "eq?" {
+				i += 1;
+				if steps[i].type != .Capture {
+					log("Expected capture as first argument of any-of predicate");
+					return true;
+				}
+
+				// find the capture
+				capture: TSQueryCapture;
+				for 0..tsMatch.capture_count-1 {
+					if tsMatch.captures[it].index == steps[i].value_id {
+						capture = tsMatch.captures[it];
+						break;
+					}
+				}
+				
+				startByte := ts_node_start_byte(capture.node);
+				endByte := ts_node_end_byte(capture.node);
+
+				// need to find the text corresponding to this node
+				captureText := alloc_string(endByte-startByte,,temp);
+				docCursor := document_create_cursor(document, startByte);
+				for docCursor {
+					if it_index >= captureText.count break;
+					captureText[it_index] = it;
+				}
+
+				// now grab the string to compare against
+				i += 1;
+				if steps[i].type != .String {
+					log("Expected string as second argument of eq predicate");
+					return true;
+				}
+
+				otherStr:string;
+				len: u32;
+				otherStr.data = ts_query_string_value_for_id(query, steps[i].value_id, *len);
+				otherStr.count = len;
+
+				if captureText == otherStr {
+					pass = true;
+				}
+				i += 1;
+			}
+		}
+		else if steps[i].type == .Done {
+			break;
+		}
+		else {
+			log("Unexpected element in predicate");
+		}
+	}
+
+	return pass;
 }
 
 draw_cursor_range :: (font: *Font, fontSize: int, textAreaX: float, textAreaY: float, cursor1: DocumentCursor, cursor2: DocumentCursor, linesOnScreen: []LineContent, startVisibleLine: s64, includeCursor := false) {
@@ -1314,7 +1547,7 @@ load_fonts :: () {
 	// attempt to load my personal font, then fallback to consolas
 	// @todo: ideally my font would be in a config file somewhere not in here
 	success: bool;
-	fontCode,success = load_font("FiraMonoNerdFontMono-Regular.ttf");
+	fontCode,success = load_font("CaskaydiaMonoNerdFont-Regular.ttf");
 	if !success { 
 		fontCode,_ = load_font("consola.ttf");
 	}
@@ -1405,8 +1638,9 @@ round :: (f: float) -> float {
 
 // fuzzy searching
 Highlight :: struct {
-	start: s32;
-	end: s32;
+	start: u32;
+	end: u32;
+	type: HighlightType;
 }
 
 fuzzy_search :: (stringToSearch: string, filter: string) -> score: s32, highlights: [..]Highlight {
@@ -1422,7 +1656,7 @@ fuzzy_search :: (stringToSearch: string, filter: string) -> score: s32, highligh
 		if i >= 0 {
 			// match!
 			score := (200 + cast(s32, filter.count)) * (MAX_CHARS - i);
-			array_add(*highlights, Highlight.{xx i, cast(s32, i + filter.count)});
+			array_add(*highlights, Highlight.{xx i, cast(u32, i + filter.count), .NONE});
 			return xx score, highlights; 
 		}
 	}
@@ -1444,7 +1678,7 @@ fuzzy_search :: (stringToSearch: string, filter: string) -> score: s32, highligh
 
 		// found a match!
 		score += 5 * (MAX_CHARS - i); 
-		array_add(*highlights, Highlight.{xx i, cast(s32, i + substr.count)});
+		array_add(*highlights, Highlight.{xx i, cast(u32, i + substr.count), .NONE});
 
 		// start the next search after this one, so we find ordered highlights of chars
 		pos = i + substr.count;
@@ -1548,39 +1782,114 @@ Utf8_Char :: struct {
     count: s32;
 }
 
+// Languages
+
 Language :: struct {
 	name: string;
 	url: string;
 	revision: string;
+	treesitterLang: *TSLanguage;
+	highlightsQuery: *TSQuery;
 }
-languages :: Language.[
+
+HighlightType :: enum {
+	NONE;
+	FUNCTION;
+	KEYWORD;
+	VARIABLE;
+	CONSTANT;
+	STRING;
+	TYPE;
+	COMMENT;
+	COUNT;
+}
+
+// should probably be in a config file or something?
+staticLanguageData :: Language.[
 	.{name="jai", url="https://github.com/constantitus/tree-sitter-jai.git", revision="e15938a94c931662aa3e38cc07dfb98cf7436a90"},
 	.{name="cpp", url="https://github.com/tree-sitter/tree-sitter-cpp.git", revision="56455f4245baf4ea4e0881c5169de69d7edd5ae7"},
 ];
 
 LanguageFunc :: #type () -> *TSLanguage #c_call;
-loadedGrammars: Table(string, LanguageFunc);
+languages: Table(string, Language);
 
-get_language_grammar :: (language: string) -> *TSLanguage {
-	success, func := table_find_new(*loadedGrammars, language);
+get_language :: (languageName: string) -> bool, Language {
+	success, lang := table_find_new(*languages, languageName);
 	if success {
-		return func();
+		return true, lang;
 	}
 
 	// @todo: In packaged builds this should be the base directory of the exe
-	// @todo: windows specific code here, need to move to platform_windows
 	exePath := path_strip_filename(get_path_of_running_executable());
-	libPath := tprint("%../../grammars/%.dll", exePath, language);
+	libPath := tprint("%../../grammars/%.dll", exePath, languageName);
 	if !file_exists(libPath) {
-		return null;
+		return false, .{};
 	}
 
+	for staticLanguageData {
+		if it.name==languageName {
+			lang = it;
+			break;
+		}
+	}
+
+	// @todo: windows specific code here, need to move to platform_windows
 	grammarLib := LoadLibraryA(libPath.data);
 
-	functionName := tprint("tree_sitter_%", language);
+	functionName := tprint("tree_sitter_%", languageName);
     loadFunc := cast(LanguageFunc, GetProcAddress(grammarLib, temp_c_string(functionName)));
-	table_add(*loadedGrammars, language, loadFunc);
-	return loadFunc();
+	lang.treesitterLang = loadFunc();
+	
+	highlightsQueryPath := tprint("%../../queries/%/highlights.scm", exePath, languageName);
+	file: string;
+	file, success = read_entire_file(highlightsQueryPath,,temp);
+	if success {
+		errorLocation: u32;
+		errorType: TSQueryError;
+		lang.highlightsQuery = ts_query_new(lang.treesitterLang, file.data, xx file.count, *errorLocation, *errorType);
+		if lang.highlightsQuery == null {
+			errorTypeStr := "None";
+			if errorType == {
+				case .None; errorTypeStr = "None";
+				case .Syntax; errorTypeStr = "Syntax";
+				case .NodeType; errorTypeStr = "NodeType";
+				case .Field; errorTypeStr = "Field";
+				case .Capture; errorTypeStr = "Capture";
+				case .Structure; errorTypeStr = "Structure";
+				case .Language; errorTypeStr = "Language";
+			}
+			// @todo: can probably make this nicer, figure out the line/column etc
+			log("Query Error in file %: %Error at %", highlightsQueryPath, errorTypeStr, errorLocation);
+		}
+	}
+	
+	table_add(*languages, languageName, lang);
+	return true, lang;
+}
+
+capture_name_to_highlight_type :: (name: string) -> HighlightType {
+	if contains(name, "function") {
+		return .FUNCTION;
+	}
+	if contains(name, "keyword") {
+		return .KEYWORD;
+	}
+	if contains(name, "variable") {
+		return .VARIABLE;
+	}
+	if contains(name, "constant") {
+		return .CONSTANT;
+	}
+	if contains(name, "string") {
+		return .STRING;
+	}
+	if contains(name, "type") {
+		return .TYPE;
+	}
+	if contains(name, "comment") {
+		return .COMMENT;
+	}
+	return .NONE;
 }
 
 fetch_grammars :: () {
@@ -1644,7 +1953,7 @@ build_grammars :: () {
         array_add(*args,
             "/O2",                      // Maximize speed.
             "/Oi",                      // Enable intrinsics.
-            "/Zi",                      // Enable intrinsics.
+            // "/Zi",
         );
 
         array_add(*args,
