@@ -1166,24 +1166,20 @@ custom_draw_code :: (box: *UIBox, udata: *void) {
 				if result == false then break;
 				capture := tsMatch.captures[captureId];
 
-				captureName: string;
-				len:u32;
-				captureName.data = ts_query_capture_name_for_id(language.highlightsQuery, capture.index, *len);
-				captureName.count = xx len;
-
 				startByte := ts_node_start_byte(capture.node);
 				endByte := ts_node_end_byte(capture.node);
 				type := to_string(ts_node_grammar_type(capture.node));
 
-				if evaluate_query_predicates(language.highlightsQuery, tsMatch, panel.document) {
+				success, highlightType := table_find_new(*language.captureToHighlight, capture.index);
+				if evaluate_query_predicates(language, tsMatch, panel.document) {
 					if highlights.count > 0 {
 						if highlights[highlights.count-1].start == startByte {
 							// override the previous range if there's a newer (better) one
-							highlights[highlights.count-1] = .{startByte, endByte, capture_name_to_highlight_type(captureName)};
+							highlights[highlights.count-1] = .{startByte, endByte, highlightType};
 							continue;
 						}
 					}
-					array_add(*highlights, .{startByte, endByte, capture_name_to_highlight_type(captureName)});
+					array_add(*highlights, .{startByte, endByte, highlightType});
 				}
 			}
 
@@ -1268,198 +1264,55 @@ custom_draw_code :: (box: *UIBox, udata: *void) {
 	}
 }
 
-evaluate_query_predicates :: (query: *TSQuery, tsMatch: TSQueryMatch, document: *Document) -> bool 
-{
-	steps: *TSQueryPredicateStep;
-	stepCount: u32;
-	steps = ts_query_predicates_for_pattern(query, tsMatch.pattern_index, *stepCount);
+evaluate_query_predicates :: (lang: *Language, tsMatch: TSQueryMatch, document: *Document) -> bool {
+	predicateList := table_find_pointer(*lang.predicates, tsMatch.pattern_index);
+	if predicateList == null then return true;
 
-	if stepCount == 0 {
-		return true;
+	get_capture_content :: (tsMatch: TSQueryMatch, document: *Document, captureIndex: u32) -> string {
+		capture: TSQueryCapture;
+		for 0..tsMatch.capture_count-1 {
+			if tsMatch.captures[it].index == captureIndex {
+				capture = tsMatch.captures[it];
+				break;
+			}
+		}
+		
+		startByte := ts_node_start_byte(capture.node);
+		endByte := ts_node_end_byte(capture.node);
+
+		// need to find the text corresponding to this node
+		captureText := alloc_string(endByte-startByte,,temp);
+		docCursor := document_create_cursor(document, startByte);
+		for docCursor {
+			if it_index >= captureText.count break;
+			captureText[it_index] = it;
+		}
+		return captureText;
 	}
 
-	pass := false;
-
-	i: u32 = 0;
-	while i<stepCount {
-
-		if steps[i].type == .String {
-			predicateName:string;
-			len: u32;
-			predicateName.data = ts_query_string_value_for_id(query, steps[i].value_id, *len);
-			predicateName.count = len;
-			
-
-			// A lot of repeated code between predicates, something to tidy up
-			
-			// large amount of string matching here
-			// It would be nice to pre-prepare the predicates for each pattern
-			// Is there information enough here to put them in a table
-			// For use later?
-			//
-			// Consider that each individual capture in the _query_ has a static ID
-			// So we could, at load time of the query, associate each capture ID with a syntax type
-			// So then we never have to do string matches on the capture names
-			//
-			// The queries strings also have an ID in the query. This implies we could
-			// Pre-prepare a compiled regex for each ID (assuming it is a regex of course)
-			//
-			// Of course the predicates for any given pattern are known also at query compile time
-			// So what could we distill a predicate down into to do the minimal checks during highlighting time?
-			//
-			// For any given pattern index we have some set of predicates
-			// We'd need to know the type of the predicate (an enum)
-			// The capture index it operates on (which we can compare to the captures in the match)
-			// And a list of strings or regex's which we can prep
-			//
-			// So as we are doing our syntax highlighting, we just pass the match to our system
-			// It looks to see if there is one or more predicate associated with the given pattern index, and then
-			// Do what we need to do, the only string check being against the capture node content and the regex
-			
-			if predicateName == "match?" {
-				// expect capture, then string
-				i += 1;
-				if steps[i].type != .Capture {
-					log("Expected capture as first argument of match predicate");
-					return true;
-				}
-
-				// find the capture
-				capture: TSQueryCapture;
-				for 0..tsMatch.capture_count-1 {
-					if tsMatch.captures[it].index == steps[i].value_id {
-						capture = tsMatch.captures[it];
-						break;
-					}
-				}
-				
-				startByte := ts_node_start_byte(capture.node);
-				endByte := ts_node_end_byte(capture.node);
-
-				// need to find the text corresponding to this node
-				captureText := alloc_string(endByte-startByte,,temp);
-				docCursor := document_create_cursor(document, startByte);
-				for docCursor {
-					if it_index >= captureText.count break;
-					captureText[it_index] = it;
-				}
-
-				// now grab the regex string
-				i += 1;
-				if steps[i].type != .String {
-					log("Expected string as second argument of match predicate");
-					return true;
-				}
-
-				regex:string;
-				len: u32;
-				regex.data = ts_query_string_value_for_id(query, steps[i].value_id, *len);
-				regex.count = len;
-
-				matched, captures := match(captureText, regex);
-				pass = matched;
-				i += 1;
-			}
-			else if predicateName == "any-of?" {
-				i += 1;
-				if steps[i].type != .Capture {
-					log("Expected capture as first argument of any-of predicate");
-					return true;
-				}
-
-				// find the capture
-				capture: TSQueryCapture;
-				for 0..tsMatch.capture_count-1 {
-					if tsMatch.captures[it].index == steps[i].value_id {
-						capture = tsMatch.captures[it];
-						break;
-					}
-				}
-				
-				startByte := ts_node_start_byte(capture.node);
-				endByte := ts_node_end_byte(capture.node);
-
-				// need to find the text corresponding to this node
-				captureText := alloc_string(endByte-startByte,,temp);
-				docCursor := document_create_cursor(document, startByte);
-				for docCursor {
-					if it_index >= captureText.count break;
-					captureText[it_index] = it;
-				}
-				
+	for predicate: predicateList.* {
+		if predicate.type == {
+			case .MATCH;
+				captureText := get_capture_content(tsMatch, document, predicate.captureIndex);
+				matched, captures := match(captureText, predicate.regex);
+				if !matched return false;
+			case .ANY_OF;
+				captureText := get_capture_content(tsMatch, document, predicate.captureIndex);
 				matched := false;
-				i += 1;
-				while steps[i].type != .Done {
-					if steps[i].type != .String {
-						log("Expected string as argument of any-of predicate");
-						return true;
-					}
-
-					candidate:string;
-					len: u32;
-					candidate.data = ts_query_string_value_for_id(query, steps[i].value_id, *len);
-					candidate.count = len;
-
-					i += 1;
-					if captureText == candidate {
-						pass = true;
-					}
+				for predicate.strings {
+					if captureText == it then matched = true;
 				}
-			}
-			else if predicateName == "eq?" {
-				i += 1;
-				if steps[i].type != .Capture {
-					log("Expected capture as first argument of any-of predicate");
-					return true;
-				}
-
-				// find the capture
-				capture: TSQueryCapture;
-				for 0..tsMatch.capture_count-1 {
-					if tsMatch.captures[it].index == steps[i].value_id {
-						capture = tsMatch.captures[it];
-						break;
-					}
-				}
-				
-				startByte := ts_node_start_byte(capture.node);
-				endByte := ts_node_end_byte(capture.node);
-
-				// need to find the text corresponding to this node
-				captureText := alloc_string(endByte-startByte,,temp);
-				docCursor := document_create_cursor(document, startByte);
-				for docCursor {
-					if it_index >= captureText.count break;
-					captureText[it_index] = it;
-				}
-
-				// now grab the string to compare against
-				i += 1;
-				if steps[i].type != .String {
-					log("Expected string as second argument of eq predicate");
-					return true;
-				}
-
-				otherStr:string;
-				len: u32;
-				otherStr.data = ts_query_string_value_for_id(query, steps[i].value_id, *len);
-				otherStr.count = len;
-
-				if captureText == otherStr {
-					pass = true;
-				}
-				i += 1;
-			}
-		}
-		else if steps[i].type == .Done {
-			break;
-		}
-		else {
-			log("Unexpected element in predicate");
+				if !matched return false;
+			case .EQ;
+				captureText := get_capture_content(tsMatch, document, predicate.captureIndex);
+				if captureText != predicate.basicStr then return false;
+			case;
+				return true;
 		}
 	}
 
-	return pass;
+	// all predicates passed
+	return true;
 }
 
 draw_cursor_range :: (font: *Font, fontSize: int, textAreaX: float, textAreaY: float, cursor1: DocumentCursor, cursor2: DocumentCursor, linesOnScreen: []LineContent, startVisibleLine: s64, includeCursor := false) {
@@ -1816,11 +1669,31 @@ Utf8_Char :: struct {
 // Languages
 
 Language :: struct {
+	// note we allocate memory for this (arrays/tables)
+	// But it's intended this lives the whole duration of the program
+	// So we do not free it
 	name: string;
 	url: string;
 	revision: string;
 	treesitterLang: *TSLanguage;
+
+	Predicate :: struct {
+		Type :: enum {
+			MATCH;
+			EQ;
+			ANY_OF;
+		}
+		type: Type;
+		captureIndex: u32;
+		regex: Regexp;
+		basicStr: string;
+		strings: [..]string;
+	}
+
+	// information for a query (will probably refactor into query object)
 	highlightsQuery: *TSQuery;
+	predicates: Table(u32, [..]Predicate);
+	captureToHighlight: Table(u32, HighlightType);
 }
 
 HighlightType :: enum {
@@ -1845,9 +1718,9 @@ staticLanguageData :: Language.[
 LanguageFunc :: #type () -> *TSLanguage #c_call;
 languages: Table(string, Language);
 
-get_language :: (languageName: string) -> bool, Language {
-	success, lang := table_find_new(*languages, languageName);
-	if success {
+get_language :: (languageName: string) -> bool, *Language {
+	lang, added := find_or_add(*languages, languageName);
+	if !added {
 		return true, lang;
 	}
 
@@ -1855,12 +1728,12 @@ get_language :: (languageName: string) -> bool, Language {
 	exePath := path_strip_filename(get_path_of_running_executable());
 	libPath := tprint("%../../grammars/%.dll", exePath, languageName);
 	if !file_exists(libPath) {
-		return false, .{};
+		return false, null;
 	}
 
 	for staticLanguageData {
 		if it.name==languageName {
-			lang = it;
+			lang.* = it;
 			break;
 		}
 	}
@@ -1868,13 +1741,14 @@ get_language :: (languageName: string) -> bool, Language {
 	// @todo: windows specific code here, need to move to platform_windows
 	grammarLib := LoadLibraryA(temp_c_string(libPath));
 
+	// Load the treesitter language structure
 	functionName := tprint("tree_sitter_%", languageName);
     loadFunc := cast(LanguageFunc, GetProcAddress(grammarLib, temp_c_string(functionName)));
 	lang.treesitterLang = loadFunc();
 	
+	// Load queries
 	highlightsQueryPath := tprint("%../../queries/%/highlights.scm", exePath, languageName);
-	file: string;
-	file, success = read_entire_file(highlightsQueryPath,,temp);
+	file, success := read_entire_file(highlightsQueryPath,,temp);
 	if success {
 		errorLocation: u32;
 		errorType: TSQueryError;
@@ -1892,6 +1766,164 @@ get_language :: (languageName: string) -> bool, Language {
 			}
 			// @todo: can probably make this nicer, figure out the line/column etc
 			log("Query Error in file %: %Error at %", highlightsQueryPath, errorTypeStr, errorLocation);
+		}
+		else {
+			// Prepare information to speed up query use, such as predicate information
+			
+			patternCount := ts_query_pattern_count(lang.highlightsQuery);
+			captureCount := ts_query_capture_count(lang.highlightsQuery);
+			stringCount := ts_query_string_count(lang.highlightsQuery);
+
+			// loop over all the patterns looking for predicates
+			// We will save them all in a table to use later
+			for patternIndex: 0..patternCount-1 {
+				steps: *TSQueryPredicateStep;
+				stepCount: u32;
+				steps = ts_query_predicates_for_pattern(lang.highlightsQuery, patternIndex, *stepCount);
+
+				i: u32 = 0;
+				while i<stepCount {
+					if steps[i].type == .String {
+						predicateName:string;
+						len: u32;
+						predicateName.data = ts_query_string_value_for_id(lang.highlightsQuery, steps[i].value_id, *len);
+						predicateName.count = len;
+
+						if predicateName == "match?" {
+							matchPredicate: Language.Predicate;
+							matchPredicate.type = .MATCH;
+
+							// expect capture, then string
+							i += 1;
+							if steps[i].type != .Capture {
+								log("Expected capture as first argument of match predicate");
+								continue patternIndex;
+							}
+
+							matchPredicate.captureIndex = steps[i].value_id;
+
+							// now grab the regex string
+							i += 1;
+							if steps[i].type != .String {
+								log("Expected string as second argument of match predicate");
+								continue patternIndex;
+							}
+
+							regex:string;
+							len: u32;
+							regex.data = ts_query_string_value_for_id(lang.highlightsQuery, steps[i].value_id, *len);
+							regex.count = len;
+
+							success, captures := match("HELLO", regex);
+							matchPredicate.regex = compile(regex);
+
+							predicateList, _ := find_or_add(*lang.predicates, patternIndex);
+							array_add(predicateList, matchPredicate);
+							i += 1;
+						}
+						else if predicateName == "any-of?" {
+							anyOfPredicate: Language.Predicate;
+							anyOfPredicate.type = .ANY_OF;
+
+							i += 1;
+							if steps[i].type != .Capture {
+								log("Expected capture as first argument of any-of predicate");
+								continue patternIndex;
+							}
+
+							anyOfPredicate.captureIndex = steps[i].value_id;
+
+							i += 1;
+							while steps[i].type != .Done {
+								if steps[i].type != .String {
+									log("Expected string as argument of any-of predicate");
+									continue patternIndex;
+								}
+
+								candidate:string;
+								len: u32;
+								candidate.data = ts_query_string_value_for_id(lang.highlightsQuery, steps[i].value_id, *len);
+								candidate.count = len;
+
+								i += 1;
+								array_add(*anyOfPredicate.strings, candidate);
+							}
+
+							predicateList, _ := find_or_add(*lang.predicates, patternIndex);
+							array_add(predicateList, anyOfPredicate);
+						}
+						else if predicateName == "eq?" {
+							eqPredicate: Language.Predicate;
+							eqPredicate.type = .EQ;
+
+							i += 1;
+							if steps[i].type != .Capture {
+								log("Expected capture as first argument of eq predicate");
+								continue patternIndex;
+							}
+
+							eqPredicate.captureIndex = steps[i].value_id;
+
+							i += 1;
+							if steps[i].type != .String {
+								log("Expected string as second argument of eq predicate");
+								continue patternIndex;
+							}
+
+							otherStr:string;
+							len: u32;
+							otherStr.data = ts_query_string_value_for_id(lang.highlightsQuery, steps[i].value_id, *len);
+							otherStr.count = len;
+
+							eqPredicate.basicStr = otherStr;
+
+							predicateList, _ := find_or_add(*lang.predicates, patternIndex);
+							array_add(predicateList, eqPredicate);
+							i += 1;
+						}
+					}
+					else if steps[i].type == .Done {
+						break;
+					}
+					else {
+						log("Unexpected element in predicate");
+					}
+				}
+			}
+
+			// Loop over all the captures looking at their names, and matching them
+			// to highlight types
+			
+			for captureIndex: 0..captureCount-1 {
+				captureName: string;
+				len:u32;
+				captureName.data = ts_query_capture_name_for_id(lang.highlightsQuery, captureIndex, *len);
+				captureName.count = xx len;
+
+				highlightType := HighlightType.NONE;
+				if contains(captureName, "function") {
+					highlightType = .FUNCTION;
+				}
+				if contains(captureName, "keyword") {
+					highlightType = .KEYWORD;
+				}
+				if contains(captureName, "variable") {
+					highlightType = .VARIABLE;
+				}
+				if contains(captureName, "constant") {
+					highlightType = .CONSTANT;
+				}
+				if contains(captureName, "string") {
+					highlightType = .STRING;
+				}
+				if contains(captureName, "type") {
+					highlightType = .TYPE;
+				}
+				if contains(captureName, "comment") {
+					highlightType = .COMMENT;
+				}
+				table_add(*lang.captureToHighlight, captureIndex, highlightType);
+			}
 		}
 	}
 	
