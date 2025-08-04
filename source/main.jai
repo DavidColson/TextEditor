@@ -1085,7 +1085,7 @@ custom_draw_code :: (box: *UIBox, udata: *void) {
 			startByteOffset := document_get_line_start(panel.document, startVisibleLine);
 			cursor := document_create_cursor(panel.document, startByteOffset);
 
-			linesToCollect := endVisibleLine - startVisibleLine;
+			linesToCollect := (endVisibleLine - startVisibleLine)+1;
 			lineStart := startByteOffset;
 			while linesToCollect > 0 {
 				builder: String_Builder;
@@ -1099,6 +1099,10 @@ custom_draw_code :: (box: *UIBox, udata: *void) {
 						lineEnd = lineStart + it_index;
 						break;
 					}
+				}
+
+				if cursor.documentOffset == cursor.doc.size {
+					lineEnd = cursor.doc.size;
 				}
 
 				array_add(*linesOnScreen, .{builder_to_string(*builder,,temp), lineStart, lineEnd});
