@@ -1839,6 +1839,7 @@ HighlightType :: enum {
 staticLanguageData :: Language.[
 	.{name="jai", url="https://github.com/constantitus/tree-sitter-jai.git", revision="e15938a94c931662aa3e38cc07dfb98cf7436a90"},
 	.{name="cpp", url="https://github.com/tree-sitter/tree-sitter-cpp.git", revision="56455f4245baf4ea4e0881c5169de69d7edd5ae7"},
+	.{name="c", url="https://github.com/tree-sitter/tree-sitter-c.git", revision="7fa1be1b694b6e763686793d97da01f36a0e5c12"},
 ];
 
 LanguageFunc :: #type () -> *TSLanguage #c_call;
@@ -1865,7 +1866,7 @@ get_language :: (languageName: string) -> bool, Language {
 	}
 
 	// @todo: windows specific code here, need to move to platform_windows
-	grammarLib := LoadLibraryA(libPath.data);
+	grammarLib := LoadLibraryA(temp_c_string(libPath));
 
 	functionName := tprint("tree_sitter_%", languageName);
     loadFunc := cast(LanguageFunc, GetProcAddress(grammarLib, temp_c_string(functionName)));
@@ -1932,9 +1933,15 @@ fetch_grammars :: () {
 	// @todo: check that git actually exists on this machine
 	// @todo: error if not on windows
 
-	for languages {
-		log("Fetching %", it.name);
+	for staticLanguageData {
 		directory := tprint("grammars/sources/%", it.name);
+
+		// @todo: check if directory exists and if so check what revision before doing a clone
+		if file_exists(directory) {
+			delete_directory(directory);
+		}
+		
+		log("Fetching %..", it.name);
 		make_directory_if_it_does_not_exist(directory);
 		result, output, error := run_command("git", "clone", "--no-checkout", it.url, directory, capture_and_return_output=true);
 		if verboseOutput {
@@ -1969,7 +1976,7 @@ build_grammars :: () {
 	// @todo: error if you can't find visual studio
 
 	verboseOutput := false;
-	for languages {
+	for staticLanguageData {
 		log("Compiling %..", it.name);
 		directory := tprint("grammars/sources/%", it.name);
 
