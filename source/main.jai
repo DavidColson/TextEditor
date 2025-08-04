@@ -1138,9 +1138,9 @@ custom_draw_code :: (box: *UIBox, udata: *void) {
 		}
 
 		// Draw code
-		queryCursor := ts_query_cursor_new();
 		success, language := get_language(panel.document.language);
 		if success && language.highlightsQuery {
+			queryCursor := ts_query_cursor_new();
 			rangeStartByte := linesOnScreen[0].startByteOffset;
 			rangeEndByte := linesOnScreen[linesOnScreen.count-1].endByteOffset;
 
@@ -1209,6 +1209,9 @@ custom_draw_code :: (box: *UIBox, udata: *void) {
 				}
 				y += metrics.lineSpacing;
 			}
+
+			// potentially cheaper to reuse the same cursor?
+			ts_query_cursor_delete(queryCursor);
 		}
 		else {
 			// draw text with no highlighting

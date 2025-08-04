@@ -97,11 +97,6 @@ PieceChainSpan :: struct {
 	newSize: s64;
 }
 
-ParsePayload :: struct {
-	doc: *Document;
-	buffer: []u8;
-}
-
 open_documents: Bucket_Array(Document, 128); // might want more when we load full projects in?
 open_document_table: Table(string, Bucket_Locator);
 
@@ -295,27 +290,12 @@ document_load_from_disk :: (doc: *Document) {
 
 	// parse the document, assuming we are able to
 	if doc.parser {
-
-		// allocate a buffer to store the flattened document
-		// first test, parse in 32kb chunks
-
-		parsePayload: ParsePayload;
-		parsePayload.doc = doc;
-		parsePayload.buffer = NewArray(32*1024, u8);
-
 		ts_parser_reset(doc.parser);
-		doc.tree = ts_parser_parse(doc.parser, null, .{payload=*parsePayload, read=document_parse_read, encoding=.UTF8});
-
-		// @todo: potentially keep this around and reuse in future re-parses?
-		free(parsePayload.buffer.data);
-
-		// TODO:
-		// - Test with more complex piece chain
-		// - Test with absolutely massive file for memory and time use
 		
+		cursor := document_create_cursor(doc);
+		doc.tree = ts_parser_parse(doc.parser, null, .{payload=*cursor, read=document_parse_read, encoding=.UTF8});
+
 		root:= ts_tree_root_node(doc.tree);
-		
-		// log("%", to_string(ts_node_string(root)));
 	}
 }
 
@@ -414,7 +394,7 @@ document_insert_text :: (doc: *Document, at: DocumentCursor, t: string) -> Docum
 	insertBuffer: = ifx at.node.added then *doc.addedData else *doc.originalData;
 	insertPos := buffer_offset_to_cursor(insertBuffer, at.node, at.documentOffset - at.nodeStartOffset);
 
-	document_update_ts_tree(doc, at.documentOffset, at.documentOffset, at.documentOffset+text.count);
+	defer document_update_ts_tree(doc, at.documentOffset, at.documentOffset, at.documentOffset+text.count);
 
 	newspan: PieceChainSpan;
 
@@ -541,7 +521,7 @@ document_delete_text :: (doc: *Document, startAt: DocumentCursor, endAt: Documen
 
 	doc.size -= count;
 
-	document_update_ts_tree(doc, startAt.documentOffset, endAt.documentOffset, startAt.documentOffset);
+	defer document_update_ts_tree(doc, startAt.documentOffset, endAt.documentOffset, startAt.documentOffset);
 
 	newCursor: DocumentCursor;
 	newCursor.doc = doc;
@@ -1363,32 +1343,38 @@ restore_span :: (doc: *Document, span: *PieceChainSpan) {
 
 document_parse_read :: (payload: *void, byteOffset: u32, position: TSPoint, bytesRead: *u32) -> *u8 #c_call {
 	push_context {
-		parsePayload := cast(*ParsePayload, payload);
+		cursor := cast(*DocumentCursor, payload);
 
-		cursor := document_create_cursor(parsePayload.doc, byteOffset);
+		if cursor.documentOffset != byteOffset {
+			document_cursor_jump_to_offset(cursor, byteOffset);
+		}
 
-		remainingBytes := parsePayload.buffer.count;
-		bytesRead.* = 0;
-		while cursor.node != parsePayload.doc.pieceChainTail && remainingBytes > 0 { 
-			buffer: = ifx cursor.node.added then *cursor.doc.addedData else *cursor.doc.originalData;
-			offsetInNode := max(cursor.documentOffset - cursor.nodeStartOffset, 0);
-			bufferStartOffset := buffer_cursor_to_offset(buffer, cursor.node.start) + offsetInNode;
-
-			destOffset := parsePayload.buffer.count - remainingBytes;
-			amountToCopy := min(remainingBytes, cursor.node.length - offsetInNode);
-			memcpy(parsePayload.buffer.data + destOffset, buffer.text.data + bufferStartOffset, amountToCopy);
-			remainingBytes -= amountToCopy;
-			bytesRead.* += cast(u32, amountToCopy);
-
-			// move cursor to next node
-			cursor.documentOffset += cursor.node.length;
-			cursor.nodeStartOffset += cursor.node.length;
-			cursor.nodeStartLine += cursor.node.lineFeedCount;
+		// if we lie at the end of a node which isn't the tail, then step onto the next node before returning anything
+		if cursor.node != cursor.doc.pieceChainTail && cursor.documentOffset == (cursor.nodeStartOffset + cursor.node.length) {
+			cursor.documentOffset = cursor.nodeStartOffset + cursor.node.length;
+			cursor.nodeStartOffset = cursor.documentOffset;
+			cursor.nodeStartLine = cursor.nodeStartLine + cursor.node.lineFeedCount;
 			cursor.node = cursor.node.next;
 		}
 
-		// Note: log dump this buffer if you want to debug why parsing is going fucky
-		return parsePayload.buffer.data;
+		// @todo: this pattern is used a lot, might be nice to have a function like "get_node/cursor_buffer"
+		// which returns to you the start pointer and length
+		 
+		buffer: = ifx cursor.node.added then *cursor.doc.addedData else *cursor.doc.originalData;
+		offsetInNode := cursor.documentOffset - cursor.nodeStartOffset;
+		bufferOffset := buffer_cursor_to_offset(buffer, cursor.node.start) + offsetInNode;
+		
+		bytesRead.* = cast(u32, cursor.node.length - offsetInNode);
+
+		// step the cursor one node for next iteration
+		if cursor.node != cursor.doc.pieceChainTail {
+			cursor.documentOffset = cursor.nodeStartOffset + cursor.node.length;
+			cursor.nodeStartOffset = cursor.documentOffset;
+			cursor.nodeStartLine = cursor.nodeStartLine + cursor.node.lineFeedCount;
+			cursor.node = cursor.node.next;
+		}
+		
+		return buffer.text.data + bufferOffset;
 	}
 }
 
@@ -1396,9 +1382,6 @@ document_update_ts_tree :: (doc: *Document, startOffset: s64, oldEndOffset: s64,
 	inputEdit := TSInputEdit.{start_byte=xx startOffset, old_end_byte=xx oldEndOffset, new_end_byte=xx newEndOffset};
 	ts_tree_edit(doc.tree, *inputEdit);
 	
-	parsePayload: ParsePayload;
-	parsePayload.doc = doc;
-	parsePayload.buffer = NewArray(32*1024, u8);
-	doc.tree = ts_parser_parse(doc.parser, null, .{payload=*parsePayload, read=document_parse_read, encoding=.UTF8});
-	free(parsePayload.buffer.data);
+	cursor := document_create_cursor(doc);
+	doc.tree = ts_parser_parse(doc.parser, doc.tree, .{payload=*cursor, read=document_parse_read, encoding=.UTF8});
 }

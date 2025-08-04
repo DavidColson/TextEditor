@@ -122,7 +122,7 @@ MyWindowProc :: (hwnd: HWND, message: u32,
             ps: PAINTSTRUCT;
             BeginPaint(hwnd, *ps);
             if window_move_callback {
-                window_move_callback();
+                window_move_callback(0.016);
             }
             EndPaint(hwnd, *ps);
             return 0;
@@ -130,7 +130,7 @@ MyWindowProc :: (hwnd: HWND, message: u32,
             ps: PAINTSTRUCT;
             BeginPaint(hwnd, *ps);
             if window_move_callback {
-                window_move_callback();
+                window_move_callback(0.016); // hack, do properly
             }
             EndPaint(hwnd, *ps);
 	        // return DefWindowProcW(hwnd, message, wParam, lParam);
