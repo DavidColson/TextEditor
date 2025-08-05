@@ -131,7 +131,7 @@ document_open :: (path: string) -> *Document {
 
 	// Setup document language and parsing
 	doc.language = path_extension(doc.path);
-	language: Language;
+	language: *Language;
 	success, language = get_language(doc.language);
 	if !success {
 		log("No language support for file '%' with language '%'", doc.path, doc.language);
