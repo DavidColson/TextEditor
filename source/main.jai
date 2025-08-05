@@ -697,7 +697,7 @@ build_ui_panel_dialogs :: (panel: *Panel) {
 					box(ui_key_nil, .{ layout=.{width=grow()}});
 
 					if mappingStr {
-						box(ui_key("%", mappingStr), .{
+						box(ui_key("%##%", mappingStr, it), .{
 							flags=.DRAW_TEXT | .DRAW_BACKGROUND,
 							layout=.{ width=text_content(), height=text_content() },
 							palette=.{ background=style.backgroundMid },
@@ -1929,31 +1929,6 @@ get_language :: (languageName: string) -> bool, *Language {
 	
 	table_add(*languages, languageName, lang);
 	return true, lang;
-}
-
-capture_name_to_highlight_type :: (name: string) -> HighlightType {
-	if contains(name, "function") {
-		return .FUNCTION;
-	}
-	if contains(name, "keyword") {
-		return .KEYWORD;
-	}
-	if contains(name, "variable") {
-		return .VARIABLE;
-	}
-	if contains(name, "constant") {
-		return .CONSTANT;
-	}
-	if contains(name, "string") {
-		return .STRING;
-	}
-	if contains(name, "type") {
-		return .TYPE;
-	}
-	if contains(name, "comment") {
-		return .COMMENT;
-	}
-	return .NONE;
 }
 
 fetch_grammars :: () {

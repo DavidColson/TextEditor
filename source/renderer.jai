@@ -9,8 +9,7 @@ RendererState :: struct {
 	resolutionUniformLocation: GLint;
 	whiteDefaultTex: GLuint;
 
-    MAX_INSTANCES :: 10000;
-    instances: [MAX_INSTANCES] Instance;
+    instances: [..] Instance;
 	numInstances: s32;
 
 	MAX_GROUPS :: 256;
@@ -203,6 +202,7 @@ render_frame :: () {
 
 	platform_swap_buffers(window);
 
+	array_reset_keeping_memory(*instances);
 	numInstances = 0;
 	numGroups = 0;
 }
@@ -243,7 +243,7 @@ submit_instance :: (instance: Instance) {
 		numGroups += 1;
 		setScissor = false;
 	}
-	instances[numInstances] = instance;
+	array_add(*instances, instance);
 	numInstances += 1;
 }
 
