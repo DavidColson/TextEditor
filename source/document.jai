@@ -636,9 +636,6 @@ document_undo :: (doc: *Document, cursor: DocumentCursor) -> DocumentCursor {
 	restore_span(doc, *span);
 	array_add(*doc.redoStack, span);
 	
-	log("start % oldend %(%) newend %(%)",
-	 cursorOffset, cursorOffset+span.oldSize, span.oldSize, cursorOffset+span.newSize, span.newSize);
-
 	document_update_ts_tree(doc, cursorOffset, cursorOffset+span.oldSize, cursorOffset+span.newSize);
 
 	return document_create_cursor(doc, cursorOffset); 
@@ -655,9 +652,6 @@ document_redo :: (doc: *Document, cursor: DocumentCursor) -> DocumentCursor  {
 	restore_span(doc, *span);
 	delta := docSizeInitial - span.documentSize;
 	array_add(*doc.undoStack, span);
-
-	log("start % oldend %(%) newend %(%)",
-	 cursorOffset, cursorOffset+span.oldSize, span.oldSize, cursorOffset+span.newSize, span.newSize);
 
 	document_update_ts_tree(doc, cursorOffset, cursorOffset+span.oldSize, cursorOffset+span.newSize);
 

@@ -558,18 +558,21 @@ build_ui_panel :: (panel: *Panel) {
 		signal := signal_from_box(codeBox);
 
 		// mouse cursor control
-		if signal.pressed {
-			gutterWidth := generate_text_run(tprint(" % ", numDocumentLines), xx codeBox.fontSize, codeBox.font,,temp).width;
+		//
+
+		set_cursor_to_mouse_location :: (cursor: *DocumentCursor, numDocumentLines: s64, box: *UIBox) {
+			gutterWidth := generate_text_run(tprint(" % ", numDocumentLines), xx box.fontSize, box.font,,temp).width;
 		
 		    x, y, success := get_mouse_pointer_position(window, false);
-			mouseX := abs(codeBox.viewOffset.x) + (cast(float, x) - codeBox.rect.x - gutterWidth);
-			mouseY := abs(codeBox.viewOffset.y) + (cast(float, y) - codeBox.rect.y);
+			mouseX := abs(box.viewOffset.x) + (cast(float, x) - box.rect.x - gutterWidth);
+			mouseY := abs(box.viewOffset.y) + (cast(float, y) - box.rect.y);
 
+			metrics := get_font_metrics(box.font, xx box.fontSize);
 			clickedLine := clamp(cast(s64) (mouseY / metrics.lineSpacing), 0, numDocumentLines - 1);
-			document_cursor_jump_to_line(*panel.cursor.head, clickedLine);
+			document_cursor_jump_to_line(cursor, clickedLine);
 
 			// collect the line content of this line (so we can figure out how wide it is in pixels)
-			tempCursor := panel.cursor.head;
+			tempCursor := cursor;
 			builder: String_Builder;
 			builder.allocator = temp;
 			lineStart := tempCursor.documentOffset;
@@ -586,10 +589,19 @@ build_ui_panel :: (panel: *Panel) {
 				lineEnd = tempCursor.doc.size;
 			}
 
-			run := generate_text_run(builder_to_string(*builder,,temp), xx codeBox.fontSize, codeBox.font, stopAtWidth=mouseX,,temp);
-			document_cursor_jump_to_offset(*panel.cursor.head, lineStart+run.byteOffsets[run.byteOffsets.count-1]);
-			panel.cursor.anchor = panel.cursor.head;
+			run := generate_text_run(builder_to_string(*builder,,temp), xx box.fontSize, box.font, stopAtWidth=mouseX,,temp);
+			document_cursor_jump_to_offset(cursor, lineStart+run.byteOffsets[run.byteOffsets.count-1]);
 		}
+		
+		if signal.pressed {
+			set_cursor_to_mouse_location (*panel.cursor.anchor, numDocumentLines, codeBox);
+			panel.cursor.head = panel.cursor.anchor;
+		}
+
+		if signal.holding {
+			set_cursor_to_mouse_location (*panel.cursor.head, numDocumentLines, codeBox);
+		}
+
 
 		// @todo: find a way to not rely on this codebox rect
 		dragDelta := scroll_bar(ui_key("codeScroll"), codeBox.viewOffset.y, codeBox.viewBounds.y, codeBox.rect.h);

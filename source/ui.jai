@@ -44,6 +44,8 @@ UIBox :: struct {
 	hotTimer: float;
 	activeTimer: float;
 	dragPrevPos: Vector2;
+	// @todo: actually maintain the whole signal state from the previous frame for this
+	leftClickStateLastFrame: bool;
 }
 
 UILayoutData :: struct {
@@ -57,6 +59,10 @@ UILayoutData :: struct {
     size: [2]UISize = ---;
 }
 
+// @todo: this needs to be much better
+// Needs different mouse buttons, needs
+// transient states like "onpressed" to be implemented better than now
+// also needs "double click" events
 UISignal :: struct {
 	hovering: bool;
 	pressed: bool;
@@ -294,7 +300,10 @@ signal_from_box :: (box: *UIBox) -> UISignal {
 				// left click press
 				if box.flags & .MOUSE_CLICKABLE && it.key_pressed && it.key_code == .MOUSE_BUTTON_LEFT && box_contains_cursor { 
 					uiState.activeBoxKey = box.key;
-					signal.pressed = true;
+					if box.leftClickStateLastFrame == false {
+						signal.pressed = true;
+					}
+					box.leftClickStateLastFrame = true;
 					box.dragPrevPos = .{xx x,xx y};
 					remove it;
 				}
@@ -306,6 +315,7 @@ signal_from_box :: (box: *UIBox) -> UISignal {
 					&& box_contains_cursor { 
 
 					signal.released = true;
+					box.leftClickStateLastFrame = false;
 					uiState.activeBoxKey = ui_key_nil;
 					remove it;
 				}
@@ -317,6 +327,7 @@ signal_from_box :: (box: *UIBox) -> UISignal {
 					&& uiState.activeBoxKey == box.key
 					&& !box_contains_cursor { 
 
+					box.leftClickStateLastFrame = false;
 					uiState.hotBoxKey = ui_key_nil;
 					uiState.activeBoxKey = ui_key_nil;
 					remove it;
@@ -344,6 +355,10 @@ signal_from_box :: (box: *UIBox) -> UISignal {
 		yDist := y - box.dragPrevPos.y;
 		signal.dragDelta = .{xDist, yDist};
 		box.dragPrevPos = .{xx x,xx y};
+	}
+
+	if box.leftClickStateLastFrame == true {
+		signal.holding = true;
 	}
 
 	return signal;
