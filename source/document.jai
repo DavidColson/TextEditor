@@ -1379,9 +1379,11 @@ document_parse_read :: (payload: *void, byteOffset: u32, position: TSPoint, byte
 }
 
 document_update_ts_tree :: (doc: *Document, startOffset: s64, oldEndOffset: s64, newEndOffset: s64) {
-	inputEdit := TSInputEdit.{start_byte=xx startOffset, old_end_byte=xx oldEndOffset, new_end_byte=xx newEndOffset};
-	ts_tree_edit(doc.tree, *inputEdit);
+	if doc.parser && doc.language {
+		inputEdit := TSInputEdit.{start_byte=xx startOffset, old_end_byte=xx oldEndOffset, new_end_byte=xx newEndOffset};
+		ts_tree_edit(doc.tree, *inputEdit);
 	
-	cursor := document_create_cursor(doc);
-	doc.tree = ts_parser_parse(doc.parser, doc.tree, .{payload=*cursor, read=document_parse_read, encoding=.UTF8});
+		cursor := document_create_cursor(doc);
+		doc.tree = ts_parser_parse(doc.parser, doc.tree, .{payload=*cursor, read=document_parse_read, encoding=.UTF8});
+	}
 }
