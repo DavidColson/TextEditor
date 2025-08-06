@@ -67,6 +67,7 @@ style : struct {
 	codeConstant := #run hex_to_color_vec4("56B6C2");
 	codeString := #run hex_to_color_vec4("98C379");
 	codeType := #run hex_to_color_vec4("E5C07B");
+	codeNamespace := #run hex_to_color_vec4("E5C07B");
 	codeComment := #run hex_to_color_vec4("5C6370");
 #place codeDefault;
 	codeColors: [HighlightType.COUNT]Vector4 = ---;
@@ -1293,19 +1294,23 @@ evaluate_query_predicates :: (lang: *Language, tsMatch: TSQueryMatch, document: 
 	for predicate: predicateList.* {
 		if predicate.type == {
 			case .MATCH;
-				captureText := get_capture_content(tsMatch, document, predicate.captureIndex);
+				captureText := get_capture_content(tsMatch, document, predicate.captureIndex1);
 				matched, captures := match(captureText, predicate.regex);
 				if !matched return false;
 			case .ANY_OF;
-				captureText := get_capture_content(tsMatch, document, predicate.captureIndex);
+				captureText := get_capture_content(tsMatch, document, predicate.captureIndex1);
 				matched := false;
 				for predicate.strings {
 					if captureText == it then matched = true;
 				}
 				if !matched return false;
-			case .EQ;
-				captureText := get_capture_content(tsMatch, document, predicate.captureIndex);
+			case .EQ_TEXT;
+				captureText := get_capture_content(tsMatch, document, predicate.captureIndex1);
 				if captureText != predicate.basicStr then return false;
+			case .EQ_CAPTURE;
+				captureText1 := get_capture_content(tsMatch, document, predicate.captureIndex1);
+				captureText2 := get_capture_content(tsMatch, document, predicate.captureIndex2);
+				if captureText1 != captureText2 then return false;
 			case;
 				return true;
 		}
@@ -1680,11 +1685,13 @@ Language :: struct {
 	Predicate :: struct {
 		Type :: enum {
 			MATCH;
-			EQ;
+			EQ_TEXT;
+			EQ_CAPTURE;
 			ANY_OF;
 		}
 		type: Type;
-		captureIndex: u32;
+		captureIndex1: u32;
+		captureIndex2: u32;
 		regex: Regexp;
 		basicStr: string;
 		strings: [..]string;
@@ -1704,6 +1711,7 @@ HighlightType :: enum {
 	CONSTANT;
 	STRING;
 	TYPE;
+	NAMESPACE;
 	COMMENT;
 	COUNT;
 }
@@ -1800,7 +1808,7 @@ get_language :: (languageName: string) -> bool, *Language {
 								continue patternIndex;
 							}
 
-							matchPredicate.captureIndex = steps[i].value_id;
+							matchPredicate.captureIndex1 = steps[i].value_id;
 
 							// now grab the regex string
 							i += 1;
@@ -1831,7 +1839,7 @@ get_language :: (languageName: string) -> bool, *Language {
 								continue patternIndex;
 							}
 
-							anyOfPredicate.captureIndex = steps[i].value_id;
+							anyOfPredicate.captureIndex1 = steps[i].value_id;
 
 							i += 1;
 							while steps[i].type != .Done {
@@ -1854,7 +1862,7 @@ get_language :: (languageName: string) -> bool, *Language {
 						}
 						else if predicateName == "eq?" {
 							eqPredicate: Language.Predicate;
-							eqPredicate.type = .EQ;
+							eqPredicate.type = .EQ_TEXT;
 
 							i += 1;
 							if steps[i].type != .Capture {
@@ -1862,20 +1870,26 @@ get_language :: (languageName: string) -> bool, *Language {
 								continue patternIndex;
 							}
 
-							eqPredicate.captureIndex = steps[i].value_id;
+							eqPredicate.captureIndex1 = steps[i].value_id;
 
 							i += 1;
-							if steps[i].type != .String {
-								log("Expected string as second argument of eq predicate");
+							if steps[i].type == .String {
+								eqPredicate.type = .EQ_TEXT;
+
+								otherStr:string;
+								len: u32;
+								otherStr.data = ts_query_string_value_for_id(lang.highlightsQuery, steps[i].value_id, *len);
+								otherStr.count = len;
+								eqPredicate.basicStr = otherStr;
+							}
+							else if steps[i].type == .Capture {
+								eqPredicate.captureIndex2 = steps[i].value_id;
+								eqPredicate.type = .EQ_CAPTURE;
+							}
+							else {
+								log("Unexpected second predicate argument in eq predicate, must be string or capture");
 								continue patternIndex;
 							}
-
-							otherStr:string;
-							len: u32;
-							otherStr.data = ts_query_string_value_for_id(lang.highlightsQuery, steps[i].value_id, *len);
-							otherStr.count = len;
-
-							eqPredicate.basicStr = otherStr;
 
 							predicateList, _ := find_or_add(*lang.predicates, patternIndex);
 							array_add(predicateList, eqPredicate);
@@ -1918,6 +1932,9 @@ get_language :: (languageName: string) -> bool, *Language {
 				}
 				if contains(captureName, "type") {
 					highlightType = .TYPE;
+				}
+				if contains(captureName, "namespace") {
+					highlightType = .NAMESPACE;
 				}
 				if contains(captureName, "comment") {
 					highlightType = .COMMENT;
