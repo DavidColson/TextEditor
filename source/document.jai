@@ -712,6 +712,58 @@ document_cursor_jump_to_offset :: (cursor: *DocumentCursor, offset: s64) {
 	}
 }
 
+document_cursor_jump_to_line :: (cursor: *DocumentCursor, line: s64) {
+	currentLine := document_cursor_get_line(cursor);
+
+	// If we're already on the right line, just go back to it's start
+	if currentLine == line {
+		for < :skip_returns cursor {
+			if it == #char "\n" {
+				document_cursor_step_one_forward(cursor, true);
+				break;
+			}
+		}
+		return;
+	}
+
+	nodeStartOffset: s64 = cursor.nodeStartOffset;
+	nodeStartLine: s64 = cursor.nodeStartLine;
+
+	direction := ifx line < currentLine then -1 else 1;
+
+	// now we loop through nodes in the desired direction
+	node := cursor.node;
+	while node != null {
+		// we now calculate the document end coordinates
+		nodeEndOffset: s64 = nodeStartOffset + node.length;
+		nodeEndLine: s64 = nodeStartLine + node.lineFeedCount;
+
+		if (line > nodeStartLine && line <= nodeEndLine) || (line == 0 && node.prev == null) {
+			// the target line is inside this node
+			cursor.node = node;
+			cursor.nodeStartOffset = nodeStartOffset;
+			cursor.nodeStartLine = nodeStartLine;
+
+			lineInThisNode := node.start.line + (line - nodeStartLine);
+			buffer: = ifx node.added then *cursor.doc.addedData else *cursor.doc.originalData;
+			offsetInThisNode := buffer.lineStarts[lineInThisNode] - buffer_cursor_to_offset(buffer, node.start);
+			cursor.documentOffset = nodeStartOffset + offsetInThisNode;
+			return;
+		}
+
+		// if this is not the desired node, update the start position and move on to next node
+		if direction > 0 {
+			nodeStartOffset = nodeEndOffset;
+			nodeStartLine = nodeEndLine;
+			node = node.next;
+		}
+		else {
+			node = node.prev;
+			nodeStartOffset = nodeStartOffset - node.length;
+			nodeStartLine = nodeStartLine - node.lineFeedCount;
+		}
+	}
+}
 
 document_cursor_step_one_forward :: (cursor: *DocumentCursor, skipReturns := false) -> u8 {
 	buffer: = ifx cursor.node.added then *cursor.doc.addedData else *cursor.doc.originalData;

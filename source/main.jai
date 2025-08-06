@@ -545,7 +545,7 @@ build_ui_panel :: (panel: *Panel) {
 		push_parent(codeContainer); defer pop_parent();
 
 		codeBox := box(ui_key("code"), .{
-			flags=.CLIP_CONTENTS,
+			flags=.CLIP_CONTENTS | .MOUSE_CLICKABLE,
 			layout=.{width=grow(), height=grow()},
 			font=fontCode
 		});
@@ -555,7 +555,41 @@ build_ui_panel :: (panel: *Panel) {
 		numDocumentLines := document_get_num_lines(panel.document);
 		metrics := get_font_metrics(codeBox.font, xx codeBox.fontSize);
 		codeBox.viewBounds.y = cast(float, -(metrics.lineSpacing * numDocumentLines) + metrics.lineSpacing * 5);
-		signal_from_box(codeBox);
+		signal := signal_from_box(codeBox);
+
+		// mouse cursor control
+		if signal.pressed {
+			gutterWidth := generate_text_run(tprint(" % ", numDocumentLines), xx codeBox.fontSize, codeBox.font,,temp).width;
+		
+		    x, y, success := get_mouse_pointer_position(window, false);
+			mouseX := abs(codeBox.viewOffset.x) + (cast(float, x) - codeBox.rect.x - gutterWidth);
+			mouseY := abs(codeBox.viewOffset.y) + (cast(float, y) - codeBox.rect.y);
+
+			clickedLine := clamp(cast(s64) (mouseY / metrics.lineSpacing), 0, numDocumentLines - 1);
+			document_cursor_jump_to_line(*panel.cursor.head, clickedLine);
+
+			// collect the line content of this line (so we can figure out how wide it is in pixels)
+			tempCursor := panel.cursor.head;
+			builder: String_Builder;
+			builder.allocator = temp;
+			lineStart := tempCursor.documentOffset;
+			lineEnd := 0;
+			for tempCursor {
+				append(*builder, it);
+				if it == #char "\n" {
+					// cursor is now sat on the next line
+					lineEnd = lineStart + it_index;
+					break;
+				}
+			}
+			if tempCursor.documentOffset == tempCursor.doc.size {
+				lineEnd = tempCursor.doc.size;
+			}
+
+			run := generate_text_run(builder_to_string(*builder,,temp), xx codeBox.fontSize, codeBox.font, stopAtWidth=mouseX,,temp);
+			document_cursor_jump_to_offset(*panel.cursor.head, lineStart+run.byteOffsets[run.byteOffsets.count-1]);
+			panel.cursor.anchor = panel.cursor.head;
+		}
 
 		// @todo: find a way to not rely on this codebox rect
 		dragDelta := scroll_bar(ui_key("codeScroll"), codeBox.viewOffset.y, codeBox.viewBounds.y, codeBox.rect.h);

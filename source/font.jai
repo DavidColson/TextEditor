@@ -159,7 +159,7 @@ get_font_metrics :: (font: *Font, size: int) -> FontMetrics {
 	return fontStyle.metrics;
 }
 
-generate_text_run :: (text: string, size: int, font: *Font, startCol := 0) -> TextRun {
+generate_text_run :: (text: string, size: int, font: *Font, startCol := 0, stopAtWidth := FLOAT32_MAX) -> TextRun {
 	textCopy := text;
 	nCodepoints := 0;
 	while textCopy.count > 0 {
@@ -227,9 +227,16 @@ generate_text_run :: (text: string, size: int, font: *Font, startCol := 0) -> Te
 			result.height = max(glyphData.subRect.h, result.height);
 
 			prevGlyphIndex = glyphIndex;
+
 		}
 		byteOffsetCounter += bytes;
 		i += 1;
+
+		if result.width >= stopAtWidth {
+			result.instances.count = i;
+			result.byteOffsets.count = i;
+			break;
+		}
 	}
 	return result;
 }
