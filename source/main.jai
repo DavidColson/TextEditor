@@ -589,7 +589,9 @@ build_ui_panel :: (panel: *Panel) {
 				lineEnd = tempCursor.doc.size;
 			}
 
-			run := generate_text_run(builder_to_string(*builder,,temp), xx box.fontSize, box.font, stopAtWidth=mouseX,,temp);
+			line := builder_to_string(*builder,,temp);
+			if line[line.count-2] == #char "\r" then line.count -= 1;
+			run := generate_text_run(line, xx box.fontSize, box.font, stopAtWidth=mouseX,,temp);
 			document_cursor_jump_to_offset(cursor, lineStart+run.byteOffsets[run.byteOffsets.count-1]);
 		}
 		
