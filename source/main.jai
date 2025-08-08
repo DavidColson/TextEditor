@@ -1338,21 +1338,21 @@ evaluate_query_predicates :: (lang: *Language, tsMatch: TSQueryMatch, document: 
 			case .MATCH;
 				captureText := get_capture_content(tsMatch, document, predicate.captureIndex1);
 				matched, captures := match(captureText, predicate.regex);
-				if !matched return false;
+				if !matched return false ^ predicate.not;
 			case .ANY_OF;
 				captureText := get_capture_content(tsMatch, document, predicate.captureIndex1);
 				matched := false;
 				for predicate.strings {
-					if captureText == it then matched = true;
+					if captureText == it then matched = true ^ predicate.not;
 				}
-				if !matched return false;
+				if !matched return false ^ predicate.not;
 			case .EQ_TEXT;
 				captureText := get_capture_content(tsMatch, document, predicate.captureIndex1);
-				if captureText != predicate.basicStr then return false;
+				if captureText != predicate.basicStr then return false ^ predicate.not;
 			case .EQ_CAPTURE;
 				captureText1 := get_capture_content(tsMatch, document, predicate.captureIndex1);
 				captureText2 := get_capture_content(tsMatch, document, predicate.captureIndex2);
-				if captureText1 != captureText2 then return false;
+				if captureText1 != captureText2 then return false ^ predicate.not;
 			case;
 				return true;
 		}
@@ -1738,6 +1738,7 @@ Language :: struct {
 			ANY_OF;
 		}
 		type: Type;
+		not: bool;
 		captureIndex1: u32;
 		captureIndex2: u32;
 		regex: Regexp;
@@ -1845,9 +1846,13 @@ get_language :: (languageName: string) -> bool, *Language {
 						predicateName.data = ts_query_string_value_for_id(lang.highlightsQuery, steps[i].value_id, *len);
 						predicateName.count = len;
 
-						if predicateName == "match?" {
+						if predicateName == "match?" || predicateName == "not-match?" {
 							matchPredicate: Language.Predicate;
 							matchPredicate.type = .MATCH;
+
+							if contains(predicateName, "not") {
+								matchPredicate.not = true;
+							}
 
 							// expect capture, then string
 							i += 1;
@@ -1877,9 +1882,13 @@ get_language :: (languageName: string) -> bool, *Language {
 							array_add(predicateList, matchPredicate);
 							i += 1;
 						}
-						else if predicateName == "any-of?" {
+						else if predicateName == "any-of?" || predicateName == "not-any-of?" {
 							anyOfPredicate: Language.Predicate;
 							anyOfPredicate.type = .ANY_OF;
+
+							if contains(predicateName, "not") {
+								anyOfPredicate.not = true;
+							}
 
 							i += 1;
 							if steps[i].type != .Capture {
@@ -1908,9 +1917,13 @@ get_language :: (languageName: string) -> bool, *Language {
 							predicateList, _ := find_or_add(*lang.predicates, patternIndex);
 							array_add(predicateList, anyOfPredicate);
 						}
-						else if predicateName == "eq?" {
+						else if predicateName == "eq?" || predicateName == "not-eq?" {
 							eqPredicate: Language.Predicate;
 							eqPredicate.type = .EQ_TEXT;
+
+							if contains(predicateName, "not") {
+								eqPredicate.not = true;
+							}
 
 							i += 1;
 							if steps[i].type != .Capture {
