@@ -95,7 +95,7 @@ match :: (doc: *Document, start: s64, end: s64, re: Regexp, re_anchor_in: Anchor
 		documentPrefix := alloc_string(re.prefix.count,,temp);
 		tempCursor := document_create_cursor(doc, start);
 		for 0..re.prefix.count-1 {
-			documentPrefix[it] = document_cursor_step_one_forward(*tempCursor);
+			documentPrefix[it] = document_cursor_step_one_forward(*tempCursor, false);
 		}
 
 		if re.prefix.count > doc.size {

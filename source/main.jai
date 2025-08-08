@@ -576,7 +576,7 @@ build_ui_panel :: (panel: *Panel) {
 			builder.allocator = temp;
 			lineStart := tempCursor.documentOffset;
 			lineEnd := 0;
-			for tempCursor {
+			for :raw_bytes tempCursor {
 				append(*builder, it);
 				if it == #char "\n" {
 					// cursor is now sat on the next line
@@ -1135,7 +1135,7 @@ custom_draw_code :: (box: *UIBox, udata: *void) {
 				builder.allocator = temp;
 
 				lineEnd := 0;
-				for cursor {
+				for :raw_bytes cursor {
 					append(*builder, it);
 					if it == #char "\n" {
 						// cursor is now sat on the next line
@@ -1326,7 +1326,7 @@ evaluate_query_predicates :: (lang: *Language, tsMatch: TSQueryMatch, document: 
 		// need to find the text corresponding to this node
 		captureText := alloc_string(endByte-startByte,,temp);
 		docCursor := document_create_cursor(document, startByte);
-		for docCursor {
+		for :raw_bytes docCursor {
 			if it_index >= captureText.count break;
 			captureText[it_index] = it;
 		}

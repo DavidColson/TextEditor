@@ -1065,7 +1065,7 @@ prefix_accel :: (using prog: *Prog, doc: *Document, pos: int) -> int {
 		cursor := document_create_cursor(doc, pos);
 		result: int = -1;
 		found := false;
-		for cursor {
+		for :raw_bytes cursor {
 			if cast(u8)prefix_front == it {
 				result = cursor.documentOffset-1;
 				found = true;
@@ -1089,7 +1089,7 @@ prefix_accel_front_and_back :: (using prog: *Prog, doc: *Document, pos: int) -> 
 	while cursorFront.documentOffset < (doc.size - prefix_size + 1) {
 		cursorBack := cursorFront;
 		document_cursor_jump_to_offset(*cursorBack, cursorFront.documentOffset + prefix_size - 1);
-		front := document_cursor_step_one_forward(*cursorFront);
+		front := document_cursor_step_one_forward(*cursorFront, false);
 		back := document_cursor_get_char(*cursorBack);
 
 		if front == prefix_front && back == prefix_back {

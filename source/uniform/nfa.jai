@@ -206,7 +206,7 @@ match_nfa :: (prog: *Prog, doc: *Document, start: s64, end: s64, prefix_offset: 
 				testChars: [2]u8;
 				tempCursor := cursor;
 				testChars[1] = document_cursor_get_char(*tempCursor);
-				document_cursor_step_one_backward(*tempCursor);
+				document_cursor_step_one_backward(*tempCursor, false);
 				testChars[0] = document_cursor_get_char(*tempCursor);
 				emptyFlags = empty_flags(string.{testChars.count, testChars.data}, 1);
 			}

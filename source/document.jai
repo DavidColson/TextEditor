@@ -711,9 +711,9 @@ document_cursor_jump_to_line :: (cursor: *DocumentCursor, line: s64) {
 
 	// If we're already on the right line, just go back to it's start
 	if currentLine == line {
-		for < :skip_returns cursor {
+		for < cursor {
 			if it == #char "\n" {
-				document_cursor_step_one_forward(cursor, true);
+				document_cursor_step_one_forward(cursor);
 				break;
 			}
 		}
@@ -759,7 +759,7 @@ document_cursor_jump_to_line :: (cursor: *DocumentCursor, line: s64) {
 	}
 }
 
-document_cursor_step_one_forward :: (cursor: *DocumentCursor, skipReturns := false) -> u8 {
+document_cursor_step_one_forward :: (cursor: *DocumentCursor, skipReturns := true) -> u8 {
 	buffer: = ifx cursor.node.added then *cursor.doc.addedData else *cursor.doc.originalData;
 	offsetInNode := cursor.documentOffset - cursor.nodeStartOffset;
 
@@ -784,12 +784,12 @@ document_cursor_step_one_forward :: (cursor: *DocumentCursor, skipReturns := fal
 
 	// CRLF handling, skip over the return, pretending it's not there
 	if skipReturns && character == #char "\r" {
-		return document_cursor_step_one_forward(cursor);
+		return document_cursor_step_one_forward(cursor, false);
 	}
 	return character;
 }
 
-document_cursor_step_one_backward :: (cursor: *DocumentCursor, skipReturns := false) -> u8 {
+document_cursor_step_one_backward :: (cursor: *DocumentCursor, skipReturns := true) -> u8 {
 	cursor.documentOffset -= 1;
 	buffer: = ifx cursor.node.added then *cursor.doc.addedData else *cursor.doc.originalData;
 	offsetInNode := cursor.documentOffset - cursor.nodeStartOffset;
@@ -813,17 +813,30 @@ document_cursor_step_one_backward :: (cursor: *DocumentCursor, skipReturns := fa
 
 	// CRLF handling, skip over the return, pretending it's not there
 	if skipReturns && character == #char "\n" {
-		newChar := document_cursor_step_one_backward(cursor);
+		newChar := document_cursor_step_one_backward(cursor, false);
 		if newChar == #char "\r" {
 			return character;
 		}
 		else {
 			// if no CRLF ending, just undo what we did
-			return document_cursor_step_one_forward(cursor);
+			return document_cursor_step_one_forward(cursor, false);
 		}
 	}
 
 	return character;
+}
+
+raw_bytes :: (cursor: *DocumentCursor, body: Code, flags: For_Flags) #expand {
+	counter := 0;
+	while cursor.documentOffset <= cursor.doc.size {
+		// this tells you how far you've iterated since the start
+		`it_index := counter;
+		`it := ifx flags & .REVERSE then document_cursor_step_one_backward(cursor, false) else document_cursor_step_one_forward(cursor, false);
+		#insert body;
+		counter += 1;
+		if cursor.documentOffset == 0 then break;
+		if cursor.documentOffset == cursor.doc.size then break;
+	}
 }
 
 for_expansion :: (cursor: *DocumentCursor, body: Code, flags: For_Flags) #expand {
@@ -832,19 +845,6 @@ for_expansion :: (cursor: *DocumentCursor, body: Code, flags: For_Flags) #expand
 		// this tells you how far you've iterated since the start
 		`it_index := counter;
 		`it := ifx flags & .REVERSE then document_cursor_step_one_backward(cursor) else document_cursor_step_one_forward(cursor);
-		#insert body;
-		counter += 1;
-		if cursor.documentOffset == 0 then break;
-		if cursor.documentOffset == cursor.doc.size then break;
-	}
-}
-
-skip_returns :: (cursor: *DocumentCursor, body: Code, flags: For_Flags) #expand {
-	counter := 0;
-	while cursor.documentOffset <= cursor.doc.size {
-		// this tells you how far you've iterated since the start
-		`it_index := counter;
-		`it := ifx flags & .REVERSE then document_cursor_step_one_backward(cursor, true) else document_cursor_step_one_forward(cursor, true);
 		#insert body;
 		counter += 1;
 		if cursor.documentOffset == 0 then break;
@@ -959,40 +959,40 @@ document_normalize_line_endings :: (doc: *Document, desiredEndings: LineEndingMo
 	// manually implemented for_expansion so we can edit the cursor as we iterate
 	counter := 0;
 	while cursor.documentOffset <= cursor.doc.size {
-		it := document_cursor_step_one_forward(*cursor);
+		it := document_cursor_step_one_forward(*cursor, false);
 
 		if it == #char "\r" {
 			// lookahead one
 			cursorCopy := cursor;
-			next := document_cursor_step_one_forward(*cursorCopy);
+			next := document_cursor_step_one_forward(*cursorCopy, false);
 			if next == #char "\n" {
 				// crlf
 				if desiredEndings == .LF {
 					cursorStart := cursor;
-					document_cursor_step_one_backward(*cursorStart);
+					document_cursor_step_one_backward(*cursorStart, false);
 					cursorEnd := cursor;
-					document_cursor_step_one_forward(*cursorEnd);
+					document_cursor_step_one_forward(*cursorEnd, false);
 					cursor = document_delete_text(doc, cursorStart, cursorEnd);
 					cursor = document_insert_text(doc, cursor, "\n");
 				}
-				document_cursor_step_one_forward(*cursor); // step over \n
+				document_cursor_step_one_forward(*cursor, false); // step over \n
 			}
 			else {
 				// cr
 				if desiredEndings == .LF {
 					cursorStart := cursor;
-					document_cursor_step_one_backward(*cursorStart);
+					document_cursor_step_one_backward(*cursorStart, false);
 					cursor = document_delete_text(doc, cursorStart, cursor);
 					cursor = document_insert_text(doc, cursor, "\n");
-					document_cursor_step_one_forward(*cursor);
+					document_cursor_step_one_forward(*cursor, false);
 				}
 				else if desiredEndings == .CRLF {
 					cursorStart := cursor;
-					document_cursor_step_one_backward(*cursorStart);
+					document_cursor_step_one_backward(*cursorStart, false);
 					cursor = document_delete_text(doc, cursorStart, cursor);
 					cursor = document_insert_text(doc, cursor, "\r\n");
-					document_cursor_step_one_forward(*cursor);
-					document_cursor_step_one_forward(*cursor); // step over new newline
+					document_cursor_step_one_forward(*cursor, false);
+					document_cursor_step_one_forward(*cursor, false); // step over new newline
 				}
 			}
 		}
@@ -1000,11 +1000,11 @@ document_normalize_line_endings :: (doc: *Document, desiredEndings: LineEndingMo
 			// lf
 			if desiredEndings == .CRLF {
 				cursorStart := cursor;
-				document_cursor_step_one_backward(*cursorStart);
+				document_cursor_step_one_backward(*cursorStart, false);
 				cursor = document_delete_text(doc, cursorStart, cursor);
 				cursor = document_insert_text(doc, cursor, "\r\n");
-				document_cursor_step_one_forward(*cursor);
-				document_cursor_step_one_forward(*cursor); // step over new newline
+				document_cursor_step_one_forward(*cursor, false);
+				document_cursor_step_one_forward(*cursor, false); // step over new newline
 			}
 		}
 		counter += 1;
@@ -1080,7 +1080,7 @@ document_debug_print_undos :: (doc: *Document) {
 		// iterate backward to get to the start of the line, and then go back one more line
 		paddingLines := 2;
 		paddingCount := 0;
-		for < cursor {
+		for < :raw_bytes cursor {
 			if it == #char "\n" {
 				paddingLines -= 1;
 				if paddingLines == 0 break;
@@ -1092,7 +1092,7 @@ document_debug_print_undos :: (doc: *Document) {
 		paddingLines = 3;
 		text: [..]u8;
 		spanStart := span.documentOffset - cursor.documentOffset - 1;
-		for cursor {
+		for :raw_bytes cursor {
 			array_add(*text, it,,temp);
 
 			if it_index == spanStart {

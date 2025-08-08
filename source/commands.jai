@@ -3,7 +3,7 @@
 // ------------------------------------
 
 move_one_char_left :: (using panel: *Panel, args: []string) {
-	character := document_cursor_step_one_backward(*cursor.head, true);
+	character := document_cursor_step_one_backward(*cursor.head);
 
 	if character == #char "\t" {
 		cursor.virtualColumn -= chars_to_tabstop(cursor.virtualColumn);
@@ -40,7 +40,7 @@ move_one_char_left :: (using panel: *Panel, args: []string) {
 }
 
 move_one_char_right :: (using panel: *Panel, args: []string) {
-	character := document_cursor_step_one_forward(*cursor.head, true);
+	character := document_cursor_step_one_forward(*cursor.head);
 
 	if character == #char "\t" {
 		cursor.virtualColumn += chars_to_tabstop(cursor.virtualColumn);
@@ -169,9 +169,9 @@ goto_document_end :: (using panel: *Panel, args: []string) {
 }
 
 goto_line_end :: (using panel: *Panel, args: []string) { 
-	for :skip_returns cursor.head {
+	for cursor.head {
 		if it == #char "\n" {
-			document_cursor_step_one_backward(*cursor.head, true);
+			document_cursor_step_one_backward(*cursor.head);
 			break;
 		}
 	}
@@ -183,9 +183,9 @@ goto_line_end :: (using panel: *Panel, args: []string) {
 }
 
 goto_line_start :: (using panel: *Panel, args: []string) { 
-	for < :skip_returns cursor.head {
+	for < cursor.head {
 		if it == #char "\n" {
-			document_cursor_step_one_forward(*cursor.head, true);
+			document_cursor_step_one_forward(*cursor.head);
 			break;
 		}
 	}
@@ -265,7 +265,7 @@ move_word_reverse :: (using panel: *Panel, checkPosition: (u8, u8, CharCategory,
 		cursor.anchor = cursor.head;
 	}
 	prev := document_cursor_get_char(*cursor.head);
-	for < :skip_returns cursor.head {
+	for < cursor.head {
 		nextCharCategory := categorize_char(it);
 		prevCharCategory := categorize_char(prev);
 		if checkPosition(prev, it, prevCharCategory, nextCharCategory) {
@@ -273,7 +273,7 @@ move_word_reverse :: (using panel: *Panel, checkPosition: (u8, u8, CharCategory,
 				if !extendSelections then cursor.anchor = cursor.head;
 			}
 			else {
-				document_cursor_step_one_forward(*cursor.head, true);
+				document_cursor_step_one_forward(*cursor.head);
 				break;
 			}
 		}
@@ -419,7 +419,7 @@ jump_to_before_last_char :: (using panel: *Panel, args: []string) {
 	for < cursor.head {
 		// @todo: assumes the args are single char, this may not always be true
 		if args[0][0] == it {
-			document_cursor_step_one_forward(*cursor.head, true);
+			document_cursor_step_one_forward(*cursor.head);
 			break;
 		}
 	}
@@ -449,7 +449,7 @@ enter_insert_mode_end :: (using panel: *Panel, args: []string) {
 	if cursor.head.documentOffset < cursor.anchor.documentOffset {
 		flip_cursors(*cursor.head, *cursor.anchor);
 	}
-	document_cursor_step_one_forward(*focusedPanel.cursor.head, true);
+	document_cursor_step_one_forward(*focusedPanel.cursor.head);
 	panel_reset_dialogs(panel);
 	editorMode = .INSERT;
 	panel_scroll_to_cursor(panel);
@@ -458,6 +458,7 @@ enter_insert_mode_end :: (using panel: *Panel, args: []string) {
 enter_insert_mode_line_start :: (using panel: *Panel, args: []string) {
 	extendSelections = false;
 	goto_line_start(panel, args);
+	// not really sure what this does, try without
 	cursorChar := document_cursor_get_char(*cursor.head);
 	if is_space(cursorChar) {
 		for cursor.head {
@@ -492,12 +493,12 @@ select_register :: (using panel: *Panel, args: []string) {
 delete_selection :: (using panel: *Panel, args: []string) {
 	if cursor.head.documentOffset < cursor.anchor.documentOffset {
 		end := cursor.anchor;
-		document_cursor_step_one_forward(*end, true);
+		document_cursor_step_one_forward(*end);
 		cursor.head = document_delete_text(document, cursor.head, end);
 	}
 	else {
 		end := cursor.head;
-		document_cursor_step_one_forward(*end, true);
+		document_cursor_step_one_forward(*end);
 		cursor.head = document_delete_text(document, cursor.anchor, end);
 	}
 	cursor.anchor = cursor.head;
@@ -524,7 +525,7 @@ yank_selection :: (using panel: *Panel, args: []string) {
 	}
 
 	text: [..]u8;
-	for readCursor {
+	for :raw_bytes readCursor {
 		array_add(*text, it,,temp);
 		if readCursor.documentOffset >= stopCursor.documentOffset+1 then break;
 	}
@@ -541,13 +542,13 @@ paste_after_selection :: (using panel: *Panel, args: []string) {
 
 	// insert into document
 	at := cursor.head;
-	document_cursor_step_one_forward(*at, true);
+	document_cursor_step_one_forward(*at);
 	cursor.anchor = document_insert_text(document, at, textToPaste);
 
 	// move cursor head to the right side of the pasted region
 	cursor.head = cursor.anchor;
 	if textToPaste.count > 0 {
-		for cursor.head {
+		for :raw_bytes cursor.head {
 			if it_index >= textToPaste.count-2 then break;
 		}
 	}
@@ -564,7 +565,7 @@ paste_before_selection :: (using panel: *Panel, args: []string) {
 	// move cursor head to the right side of the pasted region
 	cursor.head = cursor.anchor;
 	if textToPaste.count > 0 {
-		for cursor.head {
+		for :raw_bytes cursor.head {
 			if it_index >= textToPaste.count-2 then break;
 		}
 	}
@@ -589,7 +590,7 @@ replace_selection :: (using panel: *Panel, args: []string) {
 	// update cursor positions
 	focusedPanel.cursor.anchor = focusedPanel.cursor.head;
 	if rangeLength > 0 {
-		for focusedPanel.cursor.head {
+		for :raw_bytes focusedPanel.cursor.head {
 			if it_index >= rangeLength-1 then break;
 		}
 	}
@@ -606,7 +607,7 @@ new_line_above :: (using panel: *Panel, args: []string) {
 	goto_line_start(panel, args);
 	insert_mode_line_break(panel, args);
 
-	document_cursor_step_one_backward(*panel.cursor.head, true);
+	document_cursor_step_one_backward(*panel.cursor.head,);
 	panel.cursor.anchor = panel.cursor.head;
 
 	enter_insert_mode_start(panel, args);
@@ -778,12 +779,12 @@ insert_mode_insert_string :: (input: string) {
 	// update the anchor
 	focusedPanel.cursor.anchor = focusedPanel.cursor.head;
 	if distanceToAnchor > 0 {
-		for focusedPanel.cursor.anchor {
+		for :raw_bytes focusedPanel.cursor.anchor {
 			if it_index >= distanceToAnchor-1 then break;
 		}
 	}
 	else if distanceToAnchor < 0 {
-		for < focusedPanel.cursor.anchor {
+		for < :raw_bytes focusedPanel.cursor.anchor {
 			if it_index >= abs(distanceToAnchor)-1 then break;
 		}
 	}
@@ -792,7 +793,7 @@ insert_mode_insert_string :: (input: string) {
 	// head will move right, anchor will also move if it's ahead of the head
 	extendSelections = true;
 	if focusedPanel.cursor.head.documentOffset <= focusedPanel.cursor.anchor.documentOffset {
-		document_cursor_step_one_forward(*focusedPanel.cursor.anchor, true);
+		document_cursor_step_one_forward(*focusedPanel.cursor.anchor);
 	}
 	move_one_char_right(*focusedPanel, string.[]);
 	extendSelections = false;
@@ -821,25 +822,25 @@ insert_mode_backward_delete_char :: (using panel: *Panel, args: []string) {
 	distanceToAnchor := focusedPanel.cursor.anchor.documentOffset - focusedPanel.cursor.head.documentOffset;
 
 	stepCursor := cursor.head;
-	document_cursor_step_one_backward(*stepCursor, true);
+	document_cursor_step_one_backward(*stepCursor);
 	cursor.head = document_delete_text(document, stepCursor, cursor.head);
 
 	// update the anchor
 	focusedPanel.cursor.anchor = focusedPanel.cursor.head;
 	if distanceToAnchor > 0 {
-		for focusedPanel.cursor.anchor {
+		for :raw_bytes focusedPanel.cursor.anchor {
 			if it_index >= distanceToAnchor-1 then break;
 		}
 	}
 	else if distanceToAnchor < 0 {
-		for < focusedPanel.cursor.anchor {
+		for < :raw_bytes focusedPanel.cursor.anchor {
 			if it_index >= abs(distanceToAnchor)-1 then break;
 		}
 	}
 
 	// move anchor as appropriate
 	if focusedPanel.cursor.head.documentOffset > focusedPanel.cursor.anchor.documentOffset {
-		document_cursor_step_one_forward(*focusedPanel.cursor.anchor, true);
+		document_cursor_step_one_forward(*focusedPanel.cursor.anchor);
 	}
 	panel_scroll_to_cursor(panel);
 }
@@ -848,12 +849,12 @@ insert_mode_forward_delete_char :: (using panel: *Panel, args: []string) {
 	distanceToAnchor := focusedPanel.cursor.anchor.documentOffset - focusedPanel.cursor.head.documentOffset;
 
 	stepCursor := cursor.head;
-	document_cursor_step_one_forward(*stepCursor, true);
+	document_cursor_step_one_forward(*stepCursor);
 	cursor.head = document_delete_text(document, cursor.head, stepCursor);
 
 	// if the anchor is ahead of us, it should move back one
 	if distanceToAnchor > 0 {
-	 	document_cursor_step_one_backward(*focusedPanel.cursor.anchor, true);
+	 	document_cursor_step_one_backward(*focusedPanel.cursor.anchor);
 	}
 	else if distanceToAnchor == 0 {
 		focusedPanel.cursor.anchor = focusedPanel.cursor.head;
