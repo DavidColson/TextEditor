@@ -115,6 +115,9 @@ commandList :: Command.[
 	.{ "Jump to just before last occurence of {char}", .REPEATABLE, jump_to_before_last_char, .[
 		.{ mode=.NORMAL, keys="T{char}"},
 	]},
+	.{ "Expand selection to full lines", .REPEATABLE, expand_selection_to_lines, .[
+		.{ mode=.NORMAL, keys="x"},
+	]},
 
 	// view commands
 	.{ "Page Up", 0, page_up, .[

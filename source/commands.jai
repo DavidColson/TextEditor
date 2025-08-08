@@ -426,6 +426,41 @@ jump_to_before_last_char :: (using panel: *Panel, args: []string) {
 	panel_scroll_to_cursor(panel);
 }
 
+expand_selection_to_lines :: (using panel: *Panel, args: []string) { 
+	startLine := document_cursor_get_line(*cursor.head);
+	nextLineStart := document_get_line_start(panel.document, startLine+1);
+	lineEndingSize := ifx panel.document.lineEndings == .CRLF then 2 else 1;
+
+	// if we are already on the end of a line, select the next one
+	if nextLineStart == cursor.head.documentOffset+lineEndingSize {
+		for cursor.head {
+			currentLine := document_cursor_get_line(*cursor.head);
+			if currentLine > startLine+1 {
+				document_cursor_step_one_backward(*cursor.head);
+				break;
+			}
+		}
+	}
+	else {
+		for cursor.head {
+			currentLine := document_cursor_get_line(*cursor.head);
+			if currentLine > startLine {
+				document_cursor_step_one_backward(*cursor.head);
+				break;
+			}
+		}
+	}
+
+	// iterate anchor to start of the line
+	for < cursor.anchor {
+		if it == #char "\n" {
+			document_cursor_step_one_forward(*cursor.anchor);
+			break;
+		}
+	}
+	
+	panel_scroll_to_cursor(panel);
+}
 
 // Normal Mode Changes
 // ------------------------------
