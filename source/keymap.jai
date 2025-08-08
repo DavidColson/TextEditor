@@ -181,6 +181,12 @@ commandList :: Command.[
 	.{ "New line above selection", 0, new_line_above, .[
 		.{ mode=.NORMAL, keys="O"},
 	]},
+	.{ "Indent line", 0, indent_line, .[
+		.{ mode=.NORMAL, keys=">"},
+	]},
+	.{ "Unindent line", 0, unindent_line, .[
+		.{ mode=.NORMAL, keys="<"},
+	]},
 	.{ "Undo", 0, undo, .[
 		.{ mode=.NORMAL, keys="u"},
 	]},
@@ -314,6 +320,12 @@ rebuild_key_map :: ()  {
 					advance(*keys, 8); 
 				}
 				else if begins_with(keys, "<space>") {
+					advance(*keys, 7); 
+				}
+				else if begins_with(keys, "<pageup>") {
+					advance(*keys, 7); 
+				}
+				else if begins_with(keys, "<pagedown>") {
 					advance(*keys, 7); 
 				}
 				else {
