@@ -36,6 +36,7 @@ move_one_char_left :: (using panel: *Panel, args: []string) {
 	if !extendSelections {
 		cursor.anchor = cursor.head;
 	}
+	panel_scroll_to_cursor(panel);
 }
 
 move_one_char_right :: (using panel: *Panel, args: []string) {
@@ -54,6 +55,7 @@ move_one_char_right :: (using panel: *Panel, args: []string) {
 	if !extendSelections {
 		cursor.anchor = cursor.head;
 	}
+	panel_scroll_to_cursor(panel);
 }
 
 chars_to_tabstop :: (column: s64) -> s64 {
@@ -126,11 +128,7 @@ move_one_line_down :: (using panel: *Panel, args: []string) {
 		cursor.anchor = cursor.head;
 	}
 
-	// scroll the window if the cursor will now become out of view
-	startVisibleLine, range := panel_calculate_visible_lines(panel);
-	if newLine-range >= startVisibleLine {
-		panel_scroll_to_line(panel, newLine-range);
-	}
+	panel_scroll_to_cursor(panel);
 }
 
 move_one_line_up :: (using panel: *Panel, args: []string) {
@@ -143,11 +141,7 @@ move_one_line_up :: (using panel: *Panel, args: []string) {
 		cursor.anchor = cursor.head;
 	}
 
-	// scroll the window if the cursor will now become out of view
-	startVisibleLine, range := panel_calculate_visible_lines(panel);
-	if newLine < startVisibleLine {
-		panel_scroll_to_line(panel, newLine);
-	}
+	panel_scroll_to_cursor(panel);
 }
 
 goto_document_start :: (using panel: *Panel, args: []string) {
@@ -185,6 +179,7 @@ goto_line_end :: (using panel: *Panel, args: []string) {
 	if !extendSelections {
 		cursor.anchor = cursor.head;
 	}
+	panel_scroll_to_cursor(panel);
 }
 
 goto_line_start :: (using panel: *Panel, args: []string) { 
@@ -198,6 +193,7 @@ goto_line_start :: (using panel: *Panel, args: []string) {
 	if !extendSelections {
 		cursor.anchor = cursor.head;
 	}
+	panel_scroll_to_cursor(panel);
 }
 
 CharCategory :: enum {
@@ -261,6 +257,7 @@ move_word_forward :: (using panel: *Panel, checkPosition: (u8, u8, CharCategory,
 			}
 		}
 	}
+	panel_scroll_to_cursor(panel);
 }
 
 move_word_reverse :: (using panel: *Panel, checkPosition: (u8, u8, CharCategory, CharCategory) -> bool) {
@@ -282,6 +279,7 @@ move_word_reverse :: (using panel: *Panel, checkPosition: (u8, u8, CharCategory,
 		}
 		prev = it;
 	}
+	panel_scroll_to_cursor(panel);
 }
 
 move_word_start :: (using panel: *Panel, args: []string) { 
@@ -291,6 +289,7 @@ move_word_start :: (using panel: *Panel, args: []string) {
 		nextIsWhitespace := nextCharCategory == .WHITESPACE;
 		return isWordBoundary && (nextIsLineEnding || !nextIsWhitespace);
 	});
+	panel_scroll_to_cursor(panel);
 }
 
 move_long_word_start :: (using panel: *Panel, args: []string) { 
@@ -305,6 +304,7 @@ move_long_word_start :: (using panel: *Panel, args: []string) {
 		nextIsWhitespace := nextCharCategory == .WHITESPACE;
 		return isLongWordBoundary && (nextIsLineEnding || !nextIsWhitespace);
 	});
+	panel_scroll_to_cursor(panel);
 }
 
 move_sub_word_start :: (using panel: *Panel, args: []string) { 
@@ -323,6 +323,7 @@ move_sub_word_start :: (using panel: *Panel, args: []string) {
 		nextIsWhitespace := nextCharCategory == .WHITESPACE;
 		return isSubWordBoundary && (nextIsLineEnding || !(nextIsWhitespace || next == #char "_"));
 	});
+	panel_scroll_to_cursor(panel);
 }
 
 move_prev_word_start :: (using panel: *Panel, args: []string) { 
@@ -335,6 +336,7 @@ move_prev_word_start :: (using panel: *Panel, args: []string) {
 		prevIsWhitespace := prevCharCategory == .WHITESPACE;
 		return isWordBoundary && (!prevIsWhitespace || nextIsLineEnding);
 	});
+	panel_scroll_to_cursor(panel);
 }
 
 move_word_end :: (using panel: *Panel, args: []string) { 
@@ -344,6 +346,7 @@ move_word_end :: (using panel: *Panel, args: []string) {
 		prevIsWhitespace := prevCharCategory == .WHITESPACE;
 		return isWordBoundary && (!prevIsWhitespace || nextIsLineEnding);
 	});
+	panel_scroll_to_cursor(panel);
 }
 
 move_long_word_end :: (using panel: *Panel, args: []string) { 
@@ -357,6 +360,7 @@ move_long_word_end :: (using panel: *Panel, args: []string) {
 		prevIsWhitespace := prevCharCategory == .WHITESPACE;
 		return isLongWordBoundary && (!prevIsWhitespace || nextIsLineEnding);
 	});
+	panel_scroll_to_cursor(panel);
 }
 
 move_sub_word_end :: (using panel: *Panel, args: []string) { 
@@ -375,6 +379,7 @@ move_sub_word_end :: (using panel: *Panel, args: []string) {
 		prevIsWhitespace := prevCharCategory == .WHITESPACE;
 		return isSubWordBoundary && (!(prevIsWhitespace || prev == #char "_") || nextIsLineEnding);
 	});
+	panel_scroll_to_cursor(panel);
 }
 
 jump_to_char :: (using panel: *Panel, args: []string) { 
@@ -385,6 +390,7 @@ jump_to_char :: (using panel: *Panel, args: []string) {
 			break;
 		}
 	}
+	panel_scroll_to_cursor(panel);
 }
 
 jump_to_last_char :: (using panel: *Panel, args: []string) { 
@@ -394,6 +400,7 @@ jump_to_last_char :: (using panel: *Panel, args: []string) {
 			break;
 		}
 	}
+	panel_scroll_to_cursor(panel);
 }
 
 jump_to_before_char :: (using panel: *Panel, args: []string) { 
@@ -405,6 +412,7 @@ jump_to_before_char :: (using panel: *Panel, args: []string) {
 			break;
 		}
 	}
+	panel_scroll_to_cursor(panel);
 }
 
 jump_to_before_last_char :: (using panel: *Panel, args: []string) { 
@@ -415,6 +423,7 @@ jump_to_before_last_char :: (using panel: *Panel, args: []string) {
 			break;
 		}
 	}
+	panel_scroll_to_cursor(panel);
 }
 
 
@@ -433,6 +442,7 @@ enter_insert_mode_start :: (using panel: *Panel, args: []string) {
 	}
 	panel_reset_dialogs(panel);
 	editorMode = .INSERT;
+	panel_scroll_to_cursor(panel);
 }
 
 enter_insert_mode_end :: (using panel: *Panel, args: []string) {
@@ -442,6 +452,7 @@ enter_insert_mode_end :: (using panel: *Panel, args: []string) {
 	document_cursor_step_one_forward(*focusedPanel.cursor.head, true);
 	panel_reset_dialogs(panel);
 	editorMode = .INSERT;
+	panel_scroll_to_cursor(panel);
 }
 
 enter_insert_mode_line_start :: (using panel: *Panel, args: []string) {
@@ -458,6 +469,7 @@ enter_insert_mode_line_start :: (using panel: *Panel, args: []string) {
 
 	panel_reset_dialogs(panel);
 	editorMode = .INSERT;
+	panel_scroll_to_cursor(panel);
 }
 
 enter_insert_mode_line_end :: (using panel: *Panel, args: []string) {
@@ -466,6 +478,7 @@ enter_insert_mode_line_end :: (using panel: *Panel, args: []string) {
 
 	panel_reset_dialogs(panel);
 	editorMode = .INSERT;
+	panel_scroll_to_cursor(panel);
 }
 
 toggle_extend_selections :: (using panel: *Panel, args: []string) { 
@@ -488,6 +501,7 @@ delete_selection :: (using panel: *Panel, args: []string) {
 		cursor.head = document_delete_text(document, cursor.anchor, end);
 	}
 	cursor.anchor = cursor.head;
+	panel_scroll_to_cursor(panel);
 }
 
 change_selection :: (using panel: *Panel, args: []string) {
@@ -518,6 +532,7 @@ yank_selection :: (using panel: *Panel, args: []string) {
 	push_notification(sprint("Yanked into register %", string.{1,*registers.selectedRegister}));
 
 	write_register(registers.selectedRegister, textStr);
+	panel_scroll_to_cursor(panel);
 }
 
 paste_after_selection :: (using panel: *Panel, args: []string) {
@@ -536,6 +551,7 @@ paste_after_selection :: (using panel: *Panel, args: []string) {
 			if it_index >= textToPaste.count-2 then break;
 		}
 	}
+	panel_scroll_to_cursor(panel);
 }
 
 paste_before_selection :: (using panel: *Panel, args: []string) {
@@ -552,6 +568,7 @@ paste_before_selection :: (using panel: *Panel, args: []string) {
 			if it_index >= textToPaste.count-2 then break;
 		}
 	}
+	panel_scroll_to_cursor(panel);
 }
 
 replace_selection :: (using panel: *Panel, args: []string) {
@@ -576,6 +593,7 @@ replace_selection :: (using panel: *Panel, args: []string) {
 			if it_index >= rangeLength-1 then break;
 		}
 	}
+	panel_scroll_to_cursor(panel);
 }
 
 new_line_below :: (using panel: *Panel, args: []string) {
@@ -597,11 +615,13 @@ new_line_above :: (using panel: *Panel, args: []string) {
 undo :: (using panel: *Panel, args: []string) {
 	cursor.head = document_undo(document, cursor.head);
 	cursor.anchor = cursor.head;
+	panel_scroll_to_cursor(panel);
 }
 
 redo :: (using panel: *Panel, args: []string) {
 	cursor.head = document_redo(document, cursor.head);
 	cursor.anchor = cursor.head;
+	panel_scroll_to_cursor(panel);
 }
 
 
@@ -776,6 +796,7 @@ insert_mode_insert_string :: (input: string) {
 	}
 	move_one_char_right(*focusedPanel, string.[]);
 	extendSelections = false;
+	panel_scroll_to_cursor(*focusedPanel);
 }
 
 insert_mode_handle_text_input :: (char: Utf8_Char) {
@@ -820,6 +841,7 @@ insert_mode_backward_delete_char :: (using panel: *Panel, args: []string) {
 	if focusedPanel.cursor.head.documentOffset > focusedPanel.cursor.anchor.documentOffset {
 		document_cursor_step_one_forward(*focusedPanel.cursor.anchor, true);
 	}
+	panel_scroll_to_cursor(panel);
 }
 
 insert_mode_forward_delete_char :: (using panel: *Panel, args: []string) {
@@ -836,6 +858,7 @@ insert_mode_forward_delete_char :: (using panel: *Panel, args: []string) {
 	else if distanceToAnchor == 0 {
 		focusedPanel.cursor.anchor = focusedPanel.cursor.head;
 	}
+	panel_scroll_to_cursor(panel);
 }
 
 

@@ -64,6 +64,18 @@ panel_get_current_scrolled_line :: (panel: *Panel) -> s64 {
 	return 0;
 }
 
+panel_scroll_to_cursor :: (panel: *Panel) {
+	currentLine := document_cursor_get_line(*panel.cursor.head);
+
+	startVisibleLine, range := panel_calculate_visible_lines(panel);
+	if currentLine < startVisibleLine {
+		panel_scroll_to_line(panel, currentLine);
+	}
+	else if currentLine-range >= startVisibleLine {
+		panel_scroll_to_line(panel, currentLine-range);
+	}
+}
+
 // targetLine will be the top edge of the panel, such that target line = 0 will leave you scrolled
 // up as high as you can go. Will allow you to scroll off the end as far as a couple lines are still visible
 panel_scroll_to_line :: (panel: *Panel, targetLine: s64) {

@@ -558,7 +558,6 @@ build_ui_panel :: (panel: *Panel) {
 		signal := signal_from_box(codeBox);
 
 		// mouse cursor control
-		//
 
 		set_cursor_to_mouse_location :: (cursor: *DocumentCursor, numDocumentLines: s64, box: *UIBox) {
 			gutterWidth := generate_text_run(tprint(" % ", numDocumentLines), xx box.fontSize, box.font,,temp).width;
@@ -590,7 +589,7 @@ build_ui_panel :: (panel: *Panel) {
 			}
 
 			line := builder_to_string(*builder,,temp);
-			if line[line.count-2] == #char "\r" then line.count -= 1;
+			if line.count >= 2 && line[line.count-2] == #char "\r" then line.count -= 1;
 			run := generate_text_run(line, xx box.fontSize, box.font, stopAtWidth=mouseX,,temp);
 			document_cursor_jump_to_offset(cursor, lineStart+run.byteOffsets[run.byteOffsets.count-1]);
 		}
@@ -602,8 +601,17 @@ build_ui_panel :: (panel: *Panel) {
 
 		if signal.holding {
 			set_cursor_to_mouse_location (*panel.cursor.head, numDocumentLines, codeBox);
+		    x, y, success := get_mouse_pointer_position(window, false);
+			if y > cast(int, codeBox.rect.y + codeBox.rect.h) {
+				_, range := panel_calculate_visible_lines(panel);
+				currentLine := document_cursor_get_line(*panel.cursor.head);
+				panel_scroll_to_line(panel, currentLine - range);
+			}
+			else if y < cast(int, codeBox.rect.y) {
+				currentLine := document_cursor_get_line(*panel.cursor.head);
+				panel_scroll_to_line(panel, currentLine);
+			}
 		}
-
 
 		// @todo: find a way to not rely on this codebox rect
 		dragDelta := scroll_bar(ui_key("codeScroll"), codeBox.viewOffset.y, codeBox.viewBounds.y, codeBox.rect.h);
@@ -617,20 +625,6 @@ build_ui_panel :: (panel: *Panel) {
 		codeBox.viewOffsetTarget -= dragDelta * scaleRatio;
 		codeBox.viewOffsetTarget.y = clamp(codeBox.viewOffsetTarget.y, codeBox.viewBounds.y, 0);
 		codeBox.viewOffsetTarget.x = clamp(codeBox.viewOffsetTarget.x, codeBox.viewBounds.x, 0);
-
-		// move to line visual to keep within visible range
-		// This doesn't feel amazing, I'm more inclined to go with a more VSCode style
-		// where it snaps you to the cursor, but you can click to move the cursor, but we can't do that yet
-		currentLine := document_cursor_get_line(*panel.cursor.head);
-		startVisibleLine, range := panel_calculate_visible_lines(panel, true);
-		if currentLine < startVisibleLine {
-			move_to_line_visual(panel, currentLine, startVisibleLine);
-			panel.cursor.anchor = panel.cursor.head;
-		}
-		else if currentLine > startVisibleLine+range {
-			move_to_line_visual(panel, currentLine, startVisibleLine+range);
-			panel.cursor.anchor = panel.cursor.head;
-		}
 	}
 
 	// Draw the search dialog
@@ -1161,7 +1155,7 @@ custom_draw_code :: (box: *UIBox, udata: *void) {
 		}
 
 		// Draw cursor selection
-		if panel.activeDialog != .SEARCH && cursorLine >= startVisibleLine && cursorLine <= endVisibleLine {
+		if panel.activeDialog != .SEARCH {
 			if panel.cursor.head.documentOffset != panel.cursor.anchor.documentOffset {
 				draw_cursor_range(box.font,
 									xx box.fontSize,
@@ -1374,9 +1368,15 @@ draw_cursor_range :: (font: *Font, fontSize: int, textAreaX: float, textAreaY: f
 	lineWidths: [..] s32;
 	lineWidths.allocator = temp;
 	endVisibleLine := startVisibleLine + linesOnScreen.count;
-	if rangeStart.line < startVisibleLine || rangeEnd.line > endVisibleLine {
+	 
+	if !(rangeEnd.line > startVisibleLine || rangeStart.line < endVisibleLine) {
 		return;
 	}
+
+	// clamp us to only render inside the visible range
+	rangeStart.line = max(startVisibleLine, rangeStart.line);
+	rangeEnd.line = min(endVisibleLine, rangeEnd.line);
+	
 	for rangeStart.line..rangeEnd.line {
 		lineIndex := it - startVisibleLine; 
 		if 0 > lineIndex || lineIndex >= linesOnScreen.count then continue;
