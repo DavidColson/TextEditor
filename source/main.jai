@@ -1343,7 +1343,7 @@ evaluate_query_predicates :: (lang: *Language, tsMatch: TSQueryMatch, document: 
 				captureText := get_capture_content(tsMatch, document, predicate.captureIndex1);
 				matched := false;
 				for predicate.strings {
-					if captureText == it then matched = true ^ predicate.not;
+					if captureText == it then matched = true;
 				}
 				if !matched return false ^ predicate.not;
 			case .EQ_TEXT;
