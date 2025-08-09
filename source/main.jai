@@ -160,6 +160,18 @@ main :: () {
 
 	if filesToOpen.count > 0 {
 		doc := document_open(filesToOpen[0]);
+
+		// test document copies
+		copy := document_make_read_only_copy(doc);
+		cursor := document_create_cursor(copy);
+		log("print content from a copy file:");
+		for cursor {
+			print("%", string.{1, *it});
+			if it_index == 200 then break;
+		}
+		document_destroy_read_only_copy(copy);
+
+
 		if doc {
 			panel_set_active_document(*focusedPanel, doc);
 		}

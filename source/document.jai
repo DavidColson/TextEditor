@@ -31,6 +31,7 @@ Document :: struct {
 	unsaved: bool;
 	diskLastModtime: Apollo_Time;
 	lastDeletionOffset: s64;
+	isReadOnlyCopy: bool;
 
 	// parser stuff
 	language: string;
@@ -169,6 +170,8 @@ document_open :: (path: string) -> *Document {
 }
 
 document_load_from_disk :: (doc: *Document) {
+	assert(!doc.isReadOnlyCopy);
+
 	// if this fails, we have not reset any memory yet, so the existing document will persist in memory
 	f, success := file_open(doc.path);
 	if !success {
@@ -300,6 +303,7 @@ document_load_from_disk :: (doc: *Document) {
 }
 
 document_close :: (doc: *Document) {
+	assert(!doc.isReadOnlyCopy);
 	array_unordered_remove_by_value(*watchedFiles, doc.path);
 
 	table_remove(*open_document_table, doc.path);
@@ -314,6 +318,9 @@ document_close :: (doc: *Document) {
 }
 
 document_save :: (doc: *Document, path: string, backup := false) {
+	// @todo: we want saving to be read only so threads can do it??
+	assert(!doc.isReadOnlyCopy);
+
 	if doc.lineEndings == .MIXED_MAJORITY_LF {
 		document_normalize_line_endings(doc, .LF);
 	}
@@ -365,6 +372,50 @@ document_save :: (doc: *Document, path: string, backup := false) {
 	}
 }
 
+document_make_read_only_copy :: (original: *Document) -> *Document {
+	doc := New(Document);
+
+	// initial shallow copy
+	doc.* = original.*;
+	
+	doc.isReadOnlyCopy = true;
+	doc.pieceChainMemory = Flat_Pool.{};
+	doc.pieceChainAlloc = Allocator.{ proc = flat_pool_allocator_proc, data = *doc.pieceChainMemory };
+
+	// copy the piece chain itself
+	originalNode := original.pieceChainHead;
+	doc.pieceChainHead = New(PieceChainNode,, doc.pieceChainAlloc);
+	newNode := doc.pieceChainHead;
+	
+	while originalNode != null {
+		// copy the original node, saving our prev
+		// pointer, set in the previous iteration
+		prev := newNode.prev;
+		newNode.* = originalNode.*;
+		newNode.prev = prev;
+
+		// allocate the next node, telling it what the prev is
+		if originalNode.next == null {
+			doc.pieceChainTail = newNode;
+		}
+		else {
+			newNode.next = New(PieceChainNode,,doc.pieceChainAlloc);
+			newNode.next.prev = newNode;
+		}
+
+		// step to next node
+		originalNode = originalNode.next;
+		newNode = newNode.next;
+	}
+	return doc;
+}
+
+document_destroy_read_only_copy :: (doc: *Document) {
+	assert(doc.isReadOnlyCopy);
+	fini(*doc.pieceChainMemory);
+	free(doc);
+}
+
 document_get_by_path :: (path: string) -> bool, *Document {
 	success, locator := table_find_new(*open_document_table, path);
 	if success {
@@ -377,6 +428,7 @@ document_get_by_path :: (path: string) -> bool, *Document {
 }
 
 document_insert_text :: (doc: *Document, at: DocumentCursor, t: string) -> DocumentCursor {
+	assert(!doc.isReadOnlyCopy);
 	if t.count == 0 return at;
 
 	doc.unsaved = true;
@@ -510,6 +562,7 @@ document_insert_text :: (doc: *Document, at: DocumentCursor, t: string) -> Docum
 }
 
 document_delete_text :: (doc: *Document, startAt: DocumentCursor, endAt: DocumentCursor) -> DocumentCursor {
+	assert(!doc.isReadOnlyCopy);
 	doc.unsaved = true;
 	startBuffer: = ifx startAt.node.added then *doc.addedData else *doc.originalData;
 	endBuffer: = ifx endAt.node.added then *doc.addedData else *doc.originalData;
@@ -627,6 +680,7 @@ document_delete_text :: (doc: *Document, startAt: DocumentCursor, endAt: Documen
 }
 
 document_undo :: (doc: *Document, cursor: DocumentCursor) -> DocumentCursor {
+	assert(!doc.isReadOnlyCopy);
 	if doc.undoStack.count == 0 {
 		push_notification("Undo history empty");
 		return cursor;
@@ -642,6 +696,7 @@ document_undo :: (doc: *Document, cursor: DocumentCursor) -> DocumentCursor {
 }
 
 document_redo :: (doc: *Document, cursor: DocumentCursor) -> DocumentCursor  {
+	assert(!doc.isReadOnlyCopy);
 	if doc.redoStack.count == 0 {
 		push_notification("Redo history empty");
 		return cursor;
@@ -949,6 +1004,7 @@ flip_cursors :: (cursorA: *DocumentCursor, cursorB: *DocumentCursor) {
 }
 
 document_normalize_line_endings :: (doc: *Document, desiredEndings: LineEndingMode) {
+	assert(!doc.isReadOnlyCopy);
 	// not valid ending options
 	if desiredEndings == .MIXED_MAJORITY_LF || desiredEndings == .MIXED_MAJORITY_CRLF {
 		return;
