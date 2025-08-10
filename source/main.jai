@@ -90,6 +90,7 @@ backupSaveTimer:float64 = 300;
 requestRedraw := true;
 deltaTime:float64 = 0.016;
 lastTime:float64 = 0.0;
+asyncWorker: Async;
 
 notifications : [10]Notification;
 numActiveNotifications := 0;
@@ -145,6 +146,18 @@ main :: () {
 	load_fonts();
 	init_ui();
 	rebuild_key_map();
+	init_async(*asyncWorker);
+
+	// long_work :: (data: *void) {
+	// 	log("Starting long work");
+	// 	sleep_milliseconds(10*1000);
+	// }
+
+	// long_work_done :: (data: *void) {
+	// 	log("long work done");
+	// }
+
+	// push_task(*asyncWorker, null, long_work, long_work_done);
 
 	registers.registerAllocator = Allocator.{ proc = flat_pool_allocator_proc, data = *registers.registerPool };
 
@@ -162,14 +175,14 @@ main :: () {
 		doc := document_open(filesToOpen[0]);
 
 		// test document copies
-		copy := document_make_read_only_copy(doc);
-		cursor := document_create_cursor(copy);
-		log("print content from a copy file:");
-		for cursor {
-			print("%", string.{1, *it});
-			if it_index == 200 then break;
-		}
-		document_destroy_read_only_copy(copy);
+		// copy := document_make_read_only_copy(doc);
+		// cursor := document_create_cursor(copy);
+		// log("print content from a copy file:");
+		// for cursor {
+		// 	print("%", string.{1, *it});
+		// 	if it_index == 200 then break;
+		// }
+		// document_destroy_read_only_copy(copy);
 
 
 		if doc {
@@ -196,6 +209,8 @@ update :: (deltaTime: float64) {
 	if !requestRedraw platform_wait_message();
 	requestRedraw = false;
 
+	// collect results from async thread, and if we're still waiting, don't go to sleep
+	if process_completed_tasks(*asyncWorker) > 0 then requestRedraw = true;
 
     Input.update_window_events();
 
@@ -2154,6 +2169,7 @@ Input :: #import "Input";
 #load "renderer.jai";
 #load "font.jai";
 #load "uniform/module.jai";
+#load "async.jai";
 
 #if OS == .WINDOWS {
 	#load "platform_windows.jai";
