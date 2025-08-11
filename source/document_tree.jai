@@ -1,35 +1,74 @@
 
 // document tree 
 
-NodeData :: struct {
-	// standin for a "piece" of the document
-	length : s64;
-	lfCount :s64;
+// It is intended that this is a member of an overall "Document" type eventually
+// Such that it's easy to make copies of it and functions that operate on the document
+// Can work on said copy
+PieceTree :: struct {
 
-	leftSubtreeLength : s64;
-	leftSubtreeLfCount : s64;
-}
+	Piece :: struct {
+		start: BufferCursor;
+		end: BufferCursor;
+		length: s64;
+		lineFeedCount: s64;
+		bufferIndex: u8;
+	}
 
-Node :: struct {
-	allocator: *Allocator;
-	color: Color;
-	data: NodeData;
-	left: *Node;
-	right: *Node;
-}
+	Buffer :: struct {
+		text: []u8;
+		lineStarts: [..]s64;
+	}
 
-Color :: enum {
-	RED;
-	BLACK;
-	DOUBLE_BLACK;
+	BufferCursor :: struct {
+		line: s64;
+		column: s64;
+	}
+
+	NodeData :: struct {
+		piece: Piece;
+		leftSubtreeLength : s64;
+		leftSubtreeLfCount : s64;
+	}
+
+	Node :: struct {
+		allocator: *Allocator;
+		color: Color;
+		data: NodeData;
+		left: *Node;
+		right: *Node;
+	}
+
+	Color :: enum {
+		RED;
+		BLACK;
+	}
+
+	LineEndingMode :: enum {
+		CRLF;
+		LF;
+		MIXED_MAJORITY_LF;
+		MIXED_MAJORITY_CRLF;
+	}
+
+	tree: *Node;
+	buffers: [2]Buffer;
+	lastInsert: BufferCursor;
+	lineEndings: LineEndingMode;
+
+	treeMemory: Flat_Pool;
+	bufferMemory: Flat_Pool;
+	otherMemory: Flat_Pool;
 }
 
 tree_test :: () {
 
+	// @todo: need a "make piece" function to help here
+	// also, insert_node should really take a piece rather than a nodedata
+
 	// new tree
 	memory: Flat_Pool;
 	allocator := Allocator.{proc=flat_pool_allocator_proc, data=*memory};
-	tree := make_rb_tree(*allocator, .{5, 2, 0, 0});
+	tree := make_rb_tree(*allocator, .{length});
 	log("inserting stuff");
 
 	// insert something
@@ -37,9 +76,9 @@ tree_test :: () {
 	tree = insert_node(tree, .{2, 1, 0, 0}, 10);
 	tree = insert_node(tree, .{3, 1, 0, 0}, 12);
 	tree = insert_node(tree, .{4, 2, 0, 0}, 15);
-	tree = insert_node(tree, .{3, 2, 0, 0}, 19);
-	tree = insert_node(tree, .{4, 4, 0, 0}, 22);
-	tree = insert_node(tree, .{2, 1, 0, 0}, 26);
+	// tree = insert_node(tree, .{3, 2, 0, 0}, 19);
+	// tree = insert_node(tree, .{4, 4, 0, 0}, 22);
+	// tree = insert_node(tree, .{2, 1, 0, 0}, 26);
 	satisfies_rb_invariants(tree);
 	pretty_print_tree(tree);
 
@@ -53,43 +92,127 @@ tree_test :: () {
 	pretty_print_tree(tree);
 }
 
-make_rb_tree :: (allocator: *Allocator, data: NodeData) -> *Node {
-	return new_node(allocator, .BLACK, data, null, null);
+// Piece Tree API
+
+
+build_piece_tree :: (pieceTree: *PieceTree) -> *PieceTree {
+	// This assumes you've already put your initial data in the first buffer slot!!
+
+	pieceTree.buffers[1].text.data = pieceTree.buffers[0].text.data + pieceTree.buffers[0].text.count;
+	pieceTree.buffers[1].text.count = 0;
+
+	// count line starts
+	lineStarts := *pieceTree.buffers[0].lineStarts;
+	lineStarts.allocator = other_allocator(pieceTree);
+
+	array_add(lineStarts, 0);
+	lfCount := 0;
+	crCount := 0;
+	crlfCount := 0;
+	i := 0;
+	while i < pieceTree.buffers[0].text.count {
+		byte := pieceTree.buffers[0].text[i];
+		if byte == #char "\r" {
+			if i < file.count-1 && pieceTree.buffers[0].text[i+1] == #char "\n" {
+				crlfCount += 1;
+				array_add(lineStarts, xx (i+2));
+				i += 1; // skip \n
+			}
+			else {
+				crCount += 1;
+			}
+		}
+		else if byte == #char "\n" {
+			lfCount += 1;
+			array_add(lineStarts, xx (i+1));
+		}
+		i += 1;
+	}
+	if lfCount > 0 && crlfCount == 0 && crCount == 0 {
+		pieceTree.lineEndings = .LF;
+	}
+	else if lfCount == 0 && crlfCount > 0 && crCount == 0 {
+		pieceTree.lineEndings = .CRLF;
+	}
+	else if lfCount > 0 && crlfCount > 0 && crCount == 0 {
+		if lfCount > crlfCount {
+			pieceTree.lineEndings = .MIXED_MAJORITY_LF;
+		}
+		else {
+			pieceTree.lineEndings = .MIXED_MAJORITY_CRLF;
+		}
+	}
+	else if crCount > 0 {
+		push_notification("File has CR line endings, undefined behaviour will occur");
+	}
+
+	// make root rb node
+	// @todo
 }
 
-insert_node :: (root: *Node, nodeData: NodeData, at: s64) -> *Node {
+insert :: (pieceTree: *PieceTree, atOffset: s64, text: string) {
+	// insert text at offset in document
+}
+
+delete :: (pieceTree: *PieceTree, atOffset: s64, length: s64) {
+	// delete length bytes in the document at offset
+}
+
+#scope_file
+
+// Allocator helpers
+
+tree_allocator :: (pieceTree: *PieceTree) -> Allocator {
+	return Allocator.{ proc = flat_pool_allocator, data = *pieceTree.treeMemory };
+}
+
+buffer_allocator :: (pieceTree: *PieceTree) -> Allocator {
+	return Allocator.{ proc = flat_pool_allocator, data = *pieceTree.bufferMemory };
+}
+
+other_allocator :: (pieceTree: *PieceTree) -> Allocator {
+	return Allocator.{ proc = flat_pool_allocator, data = *pieceTree.otherMemory };
+}
+
+// Basic Red Black tree API
+
+make_rb_tree :: (allocator: *Allocator, piece: PieceTree.Piece) -> *PieceTree.Node {
+	return new_node(allocator, .BLACK, .{ piece, 0, 0 }, null, null);
+}
+
+insert_node :: (root: *PieceTree.Node, nodeData: PieceTree.NodeData, at: s64) -> *PieceTree.Node {
 	t :=  internal_insert(root.allocator, root, nodeData, at, 0);
 	return new_node(root.allocator, .BLACK, t.data, t.left, t.right);
 }
 
-remove_node :: (root: *Node, at: s64) -> *Node {
+remove_node :: (root: *PieceTree.Node, at: s64) -> *PieceTree.Node {
 	t := internal_remove(root, at, 0);
 	if t == null then return null;
 	return new_node(root.allocator, .BLACK, t.data, t.left, t.right);
 }
 
-length :: (root: *Node) -> s64 {
+length :: (root: *PieceTree.Node) -> s64 {
 	if root == null {
 		return 0;
 	}
-	return root.data.leftSubtreeLength + root.data.length + length(root.right);
+	return root.data.leftSubtreeLength + root.data.piece.length + length(root.right);
  }
 
-lf_count :: (root: *Node) -> s64 {
+lf_count :: (root: *PieceTree.Node) -> s64 {
 	if root == null {
 		return 0;
 	}
-	return root.data.leftSubtreeLfCount + root.data.lfCount + lf_count(root.right);
+	return root.data.leftSubtreeLfCount + root.data.piece.lineFeedCount + lf_count(root.right);
 }
 
-pretty_print_tree :: (node: *Node) {
+pretty_print_tree :: (node: *PieceTree.Node) {
 	pretty_print_tree(node, "", false);
 }
 
-#scope_file
+// insertion helpers
 
-new_node :: (allocator: *Allocator, color: Color, data: NodeData, left: *Node, right: *Node) -> *Node {
-	newNode := New(Node,,allocator);
+new_node :: (allocator: *Allocator, color: PieceTree.Color, data: PieceTree.NodeData, left: *PieceTree.Node, right: *PieceTree.Node) -> *PieceTree.Node {
+	newNode := New(PieceTree.Node,,allocator);
 	newNode.allocator = allocator;
 	newNode.color = color;
 	newNode.data = data;
@@ -100,28 +223,26 @@ new_node :: (allocator: *Allocator, color: Color, data: NodeData, left: *Node, r
 	return newNode;
 }
 
-// insertion helpers
-
-internal_insert :: (allocator: *Allocator, root: *Node, nodeData: NodeData, at: s64, totalOffset: s64) -> *Node {
+internal_insert :: (allocator: *Allocator, root: *PieceTree.Node, nodeData: PieceTree.NodeData, at: s64, totalOffset: s64) -> *PieceTree.Node {
 	// ending case of the recursion, just make a new leaf node
 	if root == null {
 		return new_node(allocator, .RED, nodeData, null, null);
 	}
 
 	// in this case we insert on the left side of the tree (modifying the left node)
-	if at < (totalOffset + root.data.leftSubtreeLength + root.data.length) {
+	if at < (totalOffset + root.data.leftSubtreeLength + root.data.piece.length) {
 		newLeft := internal_insert(allocator, root.left, nodeData, at, totalOffset);
 		return balance(allocator, root.color, root.data, newLeft, root.right);
 	}
 
 	// in this case we insert on the right side of the tree (modifying the right node)
 	else {
-		newRight := internal_insert(allocator, root.right, nodeData, at, totalOffset + root.data.leftSubtreeLength + root.data.length);
+		newRight := internal_insert(allocator, root.right, nodeData, at, totalOffset + root.data.leftSubtreeLength + root.data.piece.length);
 		return balance(allocator, root.color, root.data, root.left, newRight);
 	}
 }
 
-balance :: (allocator: *Allocator, c: Color, data: NodeData, left: *Node, right: *Node) -> *Node {
+balance :: (allocator: *Allocator, c: PieceTree.Color, data: PieceTree.NodeData, left: *PieceTree.Node, right: *PieceTree.Node) -> *PieceTree.Node {
 	// We cannot have a parent and child both be red
 	// so what we are doing here is checking for that case on either the left or right side
 	// and if it is doubled, we rotate to fix it up
@@ -150,22 +271,22 @@ balance :: (allocator: *Allocator, c: Color, data: NodeData, left: *Node, right:
 	return new_node(allocator, c, data, left, right);
 }
 
-doubled_left :: (node: *Node) -> bool {
+doubled_left :: (node: *PieceTree.Node) -> bool {
 	return node != null && node.color == .RED && node.left != null && node.left.color == .RED;
 }
 
-doubled_right :: (node: *Node) -> bool {
+doubled_right :: (node: *PieceTree.Node) -> bool {
 	return node != null && node.color == .RED && node.right != null && node.right.color == .RED;
 }
 
-paint :: (node: *Node, color: Color) -> *Node {
+paint :: (node: *PieceTree.Node, color: PieceTree.Color) -> *PieceTree.Node {
 	assert(node != null);
 	return new_node(node.allocator, color, node.data, node.left, node.right);
 }
 
 // Removal helpers
 
-internal_remove :: (root: *Node, at: s64, totalOffset: s64) -> *Node {
+internal_remove :: (root: *PieceTree.Node, at: s64, totalOffset: s64) -> *PieceTree.Node {
 	if root == null then return null;
 
 	if at < totalOffset + root.data.leftSubtreeLength {
@@ -177,7 +298,7 @@ internal_remove :: (root: *Node, at: s64, totalOffset: s64) -> *Node {
 	return remove_right(root, at, totalOffset);
 }
 
-remove_left :: (root: *Node, at: s64, totalOffset: s64) -> *Node {
+remove_left :: (root: *PieceTree.Node, at: s64, totalOffset: s64) -> *PieceTree.Node {
 	newLeft := internal_remove(root.left, at, totalOffset);
 	newNode := new_node(root.allocator, .RED, root.data, newLeft, root.right);
 
@@ -187,8 +308,8 @@ remove_left :: (root: *Node, at: s64, totalOffset: s64) -> *Node {
 	return newNode;
 }
 
-remove_right :: (root: *Node, at: s64, totalOffset: s64) -> *Node {
-	newRight := internal_remove(root.right, at, totalOffset + root.data.leftSubtreeLength + root.data.length);
+remove_right :: (root: *PieceTree.Node, at: s64, totalOffset: s64) -> *PieceTree.Node {
+	newRight := internal_remove(root.right, at, totalOffset + root.data.leftSubtreeLength + root.data.piece.length);
 	newNode := new_node(root.allocator, .RED, root.data, root.left, newRight);
 
 	if root.right && root.right.color == .BLACK {
@@ -197,7 +318,7 @@ remove_right :: (root: *Node, at: s64, totalOffset: s64) -> *Node {
 	return newNode;
 }
 
-balance_right :: (right: *Node) -> *Node {
+balance_right :: (right: *PieceTree.Node) -> *PieceTree.Node {
 	if right.right != null && right.right.color == .RED {
 		return new_node(right.allocator, .RED, right.data, right.left, paint(right.right, .BLACK));
 	}
@@ -217,7 +338,7 @@ balance_right :: (right: *Node) -> *Node {
 	return right;
 }
 
-balance_left :: (left: *Node) -> *Node {
+balance_left :: (left: *PieceTree.Node) -> *PieceTree.Node {
 	if left.left != null && left.left.color == .RED {
 		return new_node(left.allocator, .RED, left.data, paint(left.left, .BLACK), left.right);
 	}
@@ -237,7 +358,7 @@ balance_left :: (left: *Node) -> *Node {
 	return left;
 }
 
-balance :: (node: *Node) -> *Node {
+balance :: (node: *PieceTree.Node) -> *PieceTree.Node {
 	if node.left != null && node.left.color == .RED && node.right != null && node.right.color == .RED {
 		left := paint(node.left, .BLACK);
 		right := paint(node.right, .BLACK);
@@ -247,7 +368,7 @@ balance :: (node: *Node) -> *Node {
 	return balance(node.allocator, node.color, node.data, node.left, node.right);
 }
 
-fuse :: (left: *Node, right: *Node) -> *Node {
+fuse :: (left: *PieceTree.Node, right: *PieceTree.Node) -> *PieceTree.Node {
 	if left == null then return right;
 	if right == null then return left;
 
@@ -283,7 +404,8 @@ fuse :: (left: *Node, right: *Node) -> *Node {
 }
 
 // debug functions
-check_black_node_invariant :: (node: *Node) -> s32 {
+ 
+check_black_node_invariant :: (node: *PieceTree.Node) -> s32 {
 	if node == null then return 1;
 
 	if node.color == .RED && ((node.left && node.left.color == .RED) || (node.right && node.right.color == .RED)) {
@@ -301,13 +423,13 @@ check_black_node_invariant :: (node: *Node) -> s32 {
 	return 0;
 }
 
-satisfies_rb_invariants :: (node: *Node) {
+satisfies_rb_invariants :: (node: *PieceTree.Node) {
 	if node == null || (node.left == null && node.right == null)
 		return;
 	assert(check_black_node_invariant(node) != 0);
 }
 
-pretty_print_tree :: (node: *Node, prefix: string, isLeft: bool) {
+pretty_print_tree :: (node: *PieceTree.Node, prefix: string, isLeft: bool) {
 	if node {
 		print("%", prefix);
 
@@ -318,7 +440,7 @@ pretty_print_tree :: (node: *Node, prefix: string, isLeft: bool) {
 			print("L--");
 		}
 
-		print("(%,%)-(%,%)\n", node.data.length, node.data.lfCount, node.data.leftSubtreeLength, node.data.leftSubtreeLfCount);
+		print(" %(%,%)-(%,%)\n", ifx node.color == .RED then "R" else "B", node.data.piece.length, node.data.piece.lineFeedCount, node.data.leftSubtreeLength, node.data.leftSubtreeLfCount);
 
 		pretty_print_tree(node.right, tprint("%1%2", prefix, ifx isLeft then "|   " else "    "), true);
 		pretty_print_tree(node.left, tprint("%1%2", prefix, ifx isLeft then "|   " else "    "), false);
