@@ -137,6 +137,8 @@ main :: () {
 	if isSet.build_grammars then build_grammars();
 	if isSet.fetch_grammars || isSet.build_grammars then return;
 	
+	tree_test();
+
 	// create window
     window = create_window(windowWidth, windowHeight, "TextEditor");
 	Input.window_move_callback = update;
@@ -2170,6 +2172,7 @@ Input :: #import "Input";
 #load "font.jai";
 #load "uniform/module.jai";
 #load "async.jai";
+#load "document_tree.jai";
 
 #if OS == .WINDOWS {
 	#load "platform_windows.jai";
