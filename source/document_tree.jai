@@ -66,36 +66,57 @@ tree_test :: () {
 	// also, insert_node should really take a piece rather than a nodedata
 
 	// new tree
-	memory: Flat_Pool;
-	allocator := Allocator.{proc=flat_pool_allocator_proc, data=*memory};
-	tree := make_rb_tree(*allocator, .{length});
-	log("inserting stuff");
+	// memory: Flat_Pool;
+	// allocator := Allocator.{proc=flat_pool_allocator_proc, data=*memory};
+	// tree := make_rb_tree(*allocator, .{length});
+	// log("inserting stuff");
 
 	// insert something
-	tree = insert_node(tree, .{5, 3, 0, 0}, 5);
-	tree = insert_node(tree, .{2, 1, 0, 0}, 10);
-	tree = insert_node(tree, .{3, 1, 0, 0}, 12);
-	tree = insert_node(tree, .{4, 2, 0, 0}, 15);
-	// tree = insert_node(tree, .{3, 2, 0, 0}, 19);
-	// tree = insert_node(tree, .{4, 4, 0, 0}, 22);
-	// tree = insert_node(tree, .{2, 1, 0, 0}, 26);
-	satisfies_rb_invariants(tree);
-	pretty_print_tree(tree);
+	// tree = insert_node(tree, .{5, 3, 0, 0}, 5);
+	// tree = insert_node(tree, .{2, 1, 0, 0}, 10);
+	// tree = insert_node(tree, .{3, 1, 0, 0}, 12);
+	// tree = insert_node(tree, .{4, 2, 0, 0}, 15);
+	// // tree = insert_node(tree, .{3, 2, 0, 0}, 19);
+	// // tree = insert_node(tree, .{4, 4, 0, 0}, 22);
+	// // tree = insert_node(tree, .{2, 1, 0, 0}, 26);
+	// satisfies_rb_invariants(tree);
+	// pretty_print_tree(tree);
 
-	log("removing stuff");
+	// log("removing stuff");
 
-	// remove some bits
-	tree2 := remove_node(tree, 19);
-	satisfies_rb_invariants(tree2);
+	// // remove some bits
+	// tree2 := remove_node(tree, 19);
+	// satisfies_rb_invariants(tree2);
 
-	pretty_print_tree(tree2);
-	pretty_print_tree(tree);
+	// pretty_print_tree(tree2);
+	// pretty_print_tree(tree);
+
+
+	pieceTree: PieceTree;
+	
+	f, success := file_open("source/document.jai");
+	if !success {
+		push_notification("File open failed");
+	}
+	file: string;
+    file, success = read_entire_file(f,,buffer_allocator(*pieceTree));
+	if !success {
+		push_notification("File read failed");
+	}
+	file_close(*f);
+
+	pieceTree.buffers[0].text.data = file.data;
+	pieceTree.buffers[0].text.count = file.count;
+
+	build_piece_tree(*pieceTree);
+
+	pretty_print_tree(pieceTree.tree);
 }
 
 // Piece Tree API
 
 
-build_piece_tree :: (pieceTree: *PieceTree) -> *PieceTree {
+build_piece_tree :: (pieceTree: *PieceTree) {
 	// This assumes you've already put your initial data in the first buffer slot!!
 
 	pieceTree.buffers[1].text.data = pieceTree.buffers[0].text.data + pieceTree.buffers[0].text.count;
@@ -113,7 +134,7 @@ build_piece_tree :: (pieceTree: *PieceTree) -> *PieceTree {
 	while i < pieceTree.buffers[0].text.count {
 		byte := pieceTree.buffers[0].text[i];
 		if byte == #char "\r" {
-			if i < file.count-1 && pieceTree.buffers[0].text[i+1] == #char "\n" {
+			if i < pieceTree.buffers[0].text.count-1 && pieceTree.buffers[0].text[i+1] == #char "\n" {
 				crlfCount += 1;
 				array_add(lineStarts, xx (i+2));
 				i += 1; // skip \n
@@ -147,7 +168,44 @@ build_piece_tree :: (pieceTree: *PieceTree) -> *PieceTree {
 	}
 
 	// make root rb node
-	// @todo
+	firstPiece: PieceTree.Piece;
+	firstPiece.length = pieceTree.buffers[0].text.count;
+	firstPiece.lineFeedCount = pieceTree.buffers[0].lineStarts.count-1;
+	firstPiece.start = .{0,0};
+	firstPiece.end = .{firstPiece.lineFeedCount, pieceTree.buffers[0].text.count - pieceTree.buffers[0].lineStarts[firstPiece.lineFeedCount]};
+	firstPiece.bufferIndex = 0;
+
+	pieceTree.tree = make_rb_tree(*tree_allocator(pieceTree), firstPiece);
+}
+
+make_piece :: (pieceTree: *PieceTree, t: string) -> PieceTree.Piece {
+	// firstly copy the text into the add buffer
+
+	newPiece: PieceTree.Piece;
+	newPiece.length = t.count;
+	newPiece.bufferIndex = 1; // add buffer
+
+	text := copy_string(t,, buffer_allocator(pieceTree));
+	currentBufferEnd := pieceTree.buffers[1].text.count;
+	pieceTree.buffers[1].text.count = pieceTree.buffers[1].text.count + text.count;
+
+	// count line endings
+	// @todo: might be a good location to correct bad line endings
+	lineFeedCount := 0;
+	for byte, i: text {
+		if byte == #char "\n" {
+			array_add(*pieceTree.buffers[1].lineStarts, xx (currentBufferEnd + i + 1));
+			lineFeedCount += 1;
+		}
+	}
+	newPiece.lineFeedCount = lineFeedCount;
+
+	newPiece.start = pieceTree.lastInsert;
+	endLine := pieceTree.buffers[1].lineStarts.count-1;
+	newPiece.end = .{ endLine, pieceTree.buffers[1].text.count - pieceTree.buffers[1].lineStarts[endLine] };
+	pieceTree.lastInsert = newPiece.end;
+
+	return newPiece;
 }
 
 insert :: (pieceTree: *PieceTree, atOffset: s64, text: string) {
@@ -163,15 +221,15 @@ delete :: (pieceTree: *PieceTree, atOffset: s64, length: s64) {
 // Allocator helpers
 
 tree_allocator :: (pieceTree: *PieceTree) -> Allocator {
-	return Allocator.{ proc = flat_pool_allocator, data = *pieceTree.treeMemory };
+	return Allocator.{ proc = flat_pool_allocator_proc, data = *pieceTree.treeMemory };
 }
 
 buffer_allocator :: (pieceTree: *PieceTree) -> Allocator {
-	return Allocator.{ proc = flat_pool_allocator, data = *pieceTree.bufferMemory };
+	return Allocator.{ proc = flat_pool_allocator_proc, data = *pieceTree.bufferMemory };
 }
 
 other_allocator :: (pieceTree: *PieceTree) -> Allocator {
-	return Allocator.{ proc = flat_pool_allocator, data = *pieceTree.otherMemory };
+	return Allocator.{ proc = flat_pool_allocator_proc, data = *pieceTree.otherMemory };
 }
 
 // Basic Red Black tree API
