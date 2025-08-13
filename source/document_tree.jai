@@ -55,6 +55,8 @@ PieceTree :: struct {
 	lastInsert: BufferCursor;
 	lineEndings: LineEndingMode;
 
+	// Note it will not be threadsafe to share these pools
+	// Between copies of the tree and allow any allocation
 	treeMemory: Flat_Pool;
 	bufferMemory: Flat_Pool;
 	otherMemory: Flat_Pool;
@@ -191,6 +193,7 @@ make_piece :: (pieceTree: *PieceTree, t: string) -> PieceTree.Piece {
 
 	// count line endings
 	// @todo: might be a good location to correct bad line endings
+	// @todo: otherwise mark if the line endings have changed based on something new
 	lineFeedCount := 0;
 	for byte, i: text {
 		if byte == #char "\n" {
@@ -210,6 +213,11 @@ make_piece :: (pieceTree: *PieceTree, t: string) -> PieceTree.Piece {
 
 insert :: (pieceTree: *PieceTree, atOffset: s64, text: string) {
 	// insert text at offset in document
+
+	// We'll do our different cases,
+	// - We're at the end of the last node, so you can just append to the node and not change the tree
+	// - We're at the boundary of a node, so you must insert in the middle
+	// - We're in the middle of a node, so you must remove the node, construct a left and right and insert all three
 }
 
 delete :: (pieceTree: *PieceTree, atOffset: s64, length: s64) {
