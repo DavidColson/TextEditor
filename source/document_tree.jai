@@ -1,9 +1,5 @@
 
-// document tree 
-
-// It is intended that this is a member of an overall "Document" type eventually
-// Such that it's easy to make copies of it and functions that operate on the document
-// Can work on said copy
+// @todo: once this replaces the old document system it will be renamed to just "Document"
 PieceTree :: struct {
 
 	Piece :: struct {
@@ -50,6 +46,10 @@ PieceTree :: struct {
 		MIXED_MAJORITY_CRLF;
 	}
 
+	Iterator :: struct {
+		offset: s64;
+	}
+
 	tree: *Node;
 	buffers: [2]Buffer;
 	lastInsert: BufferCursor;
@@ -60,7 +60,18 @@ PieceTree :: struct {
 	treeMemory: Flat_Pool;
 	bufferMemory: Flat_Pool;
 	otherMemory: Flat_Pool;
+
+
+	// What we combine tree memory and other memory as before
+	// And could they be shared with a mutex? No cause we'd be sharing by copy?
+	// could we just have a wholly different struct to share?
+	// means we have duplicate functions or something, guess you could use some polymorphism or something
+	// Not a bad idea to be honest. Means we can dictate harshly what you can and can't do with a "DocumentView"
+	// The query functions will work fine, but editing will not
+	// You could also make a WritableView which has a pointer to the actual document, and as such
+	// can have a mutex on the memory pools, then you can make your edits
 }
+
 
 tree_test :: () {
 	pieceTree: PieceTree;
@@ -86,10 +97,16 @@ tree_test :: () {
 	insert(*pieceTree, 100, "hello world");
 
 	pretty_print_tree(pieceTree.tree);
+
+	// what is the experience of an iterator
+
+	// iterator := make_iterator(*pieceTree, 0);
+	// for iterator {
+	// 	print("%", string.{1, *it});
+	// }
 }
 
 // Piece Tree API
-
 
 build_piece_tree :: (pieceTree: *PieceTree) {
 	// This assumes you've already put your initial data in the first buffer slot!!
@@ -157,37 +174,6 @@ build_piece_tree :: (pieceTree: *PieceTree) {
 	pieceTree.tree = make_rb_tree(*tree_allocator(pieceTree), firstPiece);
 }
 
-make_piece :: (pieceTree: *PieceTree, t: string) -> PieceTree.Piece {
-	// firstly copy the text into the add buffer
-
-	newPiece: PieceTree.Piece;
-	newPiece.length = t.count;
-	newPiece.bufferIndex = 1; // add buffer
-
-	text := copy_string(t,, buffer_allocator(pieceTree));
-	currentBufferEnd := pieceTree.buffers[1].text.count;
-	pieceTree.buffers[1].text.count = pieceTree.buffers[1].text.count + text.count;
-
-	// count line endings
-	// @todo: might be a good location to correct bad line endings
-	// @todo: otherwise mark if the line endings have changed based on something new
-	lineFeedCount := 0;
-	for byte, i: text {
-		if byte == #char "\n" {
-			array_add(*pieceTree.buffers[1].lineStarts, xx (currentBufferEnd + i + 1));
-			lineFeedCount += 1;
-		}
-	}
-	newPiece.lineFeedCount = lineFeedCount;
-
-	newPiece.start = pieceTree.lastInsert;
-	endLine := pieceTree.buffers[1].lineStarts.count-1;
-	newPiece.end = .{ endLine, pieceTree.buffers[1].text.count - pieceTree.buffers[1].lineStarts[endLine] };
-	pieceTree.lastInsert = newPiece.end;
-
-	return newPiece;
-}
-
 insert :: (pieceTree: *PieceTree, atOffset: s64, text: string) {
 	// insert text at offset in document
 
@@ -230,9 +216,92 @@ delete :: (pieceTree: *PieceTree, atOffset: s64, length: s64) {
 	// delete length bytes in the document at offset
 }
 
+// Tree iterators
+
+make_iterator :: (document: *PieceTree, startOffset: s64) {
+	// starting at some non trivial offset will require doing a binary search in the tree for that offset
+	// and saving the node, as we have done with node_at
+	node_at_offset(document.tree, startOffset);
+}
+
+for_expansion :: (iterator: PieceTree.Iterator, body: Code, flags: For_Flags) #expand {
+	// You need the current node, it's start offset, and the current offset
+
+
+	// hang on. How does one "walk" a binary tree?
+	// we want In-order LNR
+	// that is
+	// Recurse left side
+	// visit current node
+	// recurse right side
+
+	// As a while loop it'll look like this:
+
+	// node
+	// stack
+	// while stack not empty and node not null
+	//    if node not null
+	//      push to stack
+	//      node = node.left
+	//    else
+	//      node = stack.pop
+	//      process node
+	//      node = node.right
+
+	// the problem with fredbufs code is that it supports iterating both ways
+	// this is confusing when you're still dumb
+
+	// I think reverse in order is the same as above, you just flip left with right
+
+	// So if we were to stop this process, what would we do?
+	// You will store the stack
+	// and the current node obviously
+	// Where we get to "process node" we store our buffer pointers and stop
+	// When we exhaust it, we have two options, either set node to node right and do this loop again
+	// or set it to node left and do this loop again
+
+	// fredbuf has a strange mix of recursive and non recursive movement
+	// I think lets stick to non-recursive here
+	// Once it's time to go to the next node
+	// Start by going node = node.left/right depending on direction
+	// then start the loop, as above. Call break when it's time to "process node"
+	// setup your pointers, and then call it a day, the stack will be updated and ready to go
+}
+
 #scope_file
 
 // Piece Tree helpers
+
+make_piece :: (pieceTree: *PieceTree, t: string) -> PieceTree.Piece {
+	// firstly copy the text into the add buffer
+
+	newPiece: PieceTree.Piece;
+	newPiece.length = t.count;
+	newPiece.bufferIndex = 1; // add buffer
+
+	text := copy_string(t,, buffer_allocator(pieceTree));
+	currentBufferEnd := pieceTree.buffers[1].text.count;
+	pieceTree.buffers[1].text.count = pieceTree.buffers[1].text.count + text.count;
+
+	// count line endings
+	// @todo: might be a good location to correct bad line endings
+	// @todo: otherwise mark if the line endings have changed based on something new
+	lineFeedCount := 0;
+	for byte, i: text {
+		if byte == #char "\n" {
+			array_add(*pieceTree.buffers[1].lineStarts, xx (currentBufferEnd + i + 1));
+			lineFeedCount += 1;
+		}
+	}
+	newPiece.lineFeedCount = lineFeedCount;
+
+	newPiece.start = pieceTree.lastInsert;
+	endLine := pieceTree.buffers[1].lineStarts.count-1;
+	newPiece.end = .{ endLine, pieceTree.buffers[1].text.count - pieceTree.buffers[1].lineStarts[endLine] };
+	pieceTree.lastInsert = newPiece.end;
+
+	return newPiece;
+}
 
 node_at_offset :: (node: *PieceTree.Node, offset: s64) -> node: *PieceTree.Node, remainder: s64, nodeStartOffset: s64 {
 	// This is basically a binary search
