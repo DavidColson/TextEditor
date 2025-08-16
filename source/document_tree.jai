@@ -47,7 +47,12 @@ PieceTree :: struct {
 	}
 
 	Iterator :: struct {
+		doc: *PieceTree;
 		offset: s64;
+		node: *Node;
+		stack: [..]*Node;
+		firstChar: *u8;
+		lastChar: *u8;
 	}
 
 	tree: *Node;
@@ -75,8 +80,9 @@ PieceTree :: struct {
 
 tree_test :: () {
 	pieceTree: PieceTree;
+	pieceTree.bufferMemory.alignment = 1; // important!! make this hard to miss
 	
-	f, success := file_open("source/document.jai");
+	f, success := file_open("build_shorter.jai");
 	if !success {
 		push_notification("File open failed");
 	}
@@ -95,15 +101,27 @@ tree_test :: () {
 	pretty_print_tree(pieceTree.tree);
 
 	insert(*pieceTree, 100, "hello world");
+	insert(*pieceTree, 105, " my");
+	pretty_print_tree(pieceTree.tree);
+	insert(*pieceTree, 110, "test ");
+	insert(*pieceTree, 200, "again more");
 
 	pretty_print_tree(pieceTree.tree);
 
 	// what is the experience of an iterator
 
-	// iterator := make_iterator(*pieceTree, 0);
-	// for iterator {
-	// 	print("%", string.{1, *it});
-	// }
+	iterator := make_iterator(*pieceTree, 0);
+	for iterator {
+		print("%", string.{1, *it});
+	}
+
+	count := 0;
+	iterator = make_iterator(*pieceTree, 0);
+	while iterator.node != null {
+		log("Index: %, nodeLen %", count, iterator.node.piece.length);
+		next_node(*iterator);
+		count += 1;
+	}
 }
 
 // Piece Tree API
@@ -218,54 +236,127 @@ delete :: (pieceTree: *PieceTree, atOffset: s64, length: s64) {
 
 // Tree iterators
 
-make_iterator :: (document: *PieceTree, startOffset: s64) {
+make_iterator :: (document: *PieceTree, startOffset: s64 = 0) -> PieceTree.Iterator {
 	// starting at some non trivial offset will require doing a binary search in the tree for that offset
 	// and saving the node, as we have done with node_at
-	node_at_offset(document.tree, startOffset);
+	iter: PieceTree.Iterator;
+	iter.doc = document;
+	iter.stack.allocator = context.allocator;
+
+	jump_to(*iter, startOffset);
+	return iter;
 }
 
-for_expansion :: (iterator: PieceTree.Iterator, body: Code, flags: For_Flags) #expand {
-	// You need the current node, it's start offset, and the current offset
+next_node :: (iterator: *PieceTree.Iterator) {
+	// if you want to do a prev_node version, just flip left and right nodes in here
 
+	node := iterator.node;
+	newNode := iterator.node.right;
+	if newNode != null {
+		// In this first case we are dealing with the situation that the node has a right child
+		// we must iterate down it's left side until we get to a leaf, which is the next node for us
+		while newNode != null {
+			node = newNode;
+			array_add(*iterator.stack, node);
+			newNode = node.left;
+		}
+	}
+	else {
+		// In this second case, we are dealing with the situation that the node has no right child
+		// Therefore we must go up to a previous parent such that the current node is NOT the right
+		// side of the parent. Otherwise there is nowhere else to proceed
+	
+		oldNode := node.right;
+		while oldNode == node.right || node == oldNode {
+			if iterator.stack.count == 0 {
+				node = null;
+				break;
+			}
+			oldNode = node;
+			// top of stack is oldNode in this case, because we push everything to the stack??
+			// so it breaks immediately, on that basis
+			node = iterator.stack[iterator.stack.count-1];
+			iterator.stack.count -= 1;
+		}
+	}
 
-	// hang on. How does one "walk" a binary tree?
-	// we want In-order LNR
-	// that is
-	// Recurse left side
-	// visit current node
-	// recurse right side
+	// node was found, setup the range pointers
+	if node != null {
+		bufferIndex := node.piece.bufferIndex;
+		startOffset := buffer_cursor_to_offset(*iterator.doc.buffers[bufferIndex], node.piece.start);
+		endOffset := buffer_cursor_to_offset(*iterator.doc.buffers[bufferIndex], node.piece.end);
 
-	// As a while loop it'll look like this:
+		iterator.firstChar = iterator.doc.buffers[bufferIndex].text.data + startOffset;
+		iterator.lastChar = iterator.doc.buffers[bufferIndex].text.data + endOffset;
+		iterator.node = node;
+		return;
+	}
 
-	// node
-	// stack
-	// while stack not empty and node not null
-	//    if node not null
-	//      push to stack
-	//      node = node.left
-	//    else
-	//      node = stack.pop
-	//      process node
-	//      node = node.right
+	// if no node found
+	iterator.node = null;
+	iterator.firstChar = null;
+	iterator.lastChar = null;
+	array_reset(*iterator.stack);
+}
 
-	// the problem with fredbufs code is that it supports iterating both ways
-	// this is confusing when you're still dumb
+jump_to :: (iterator: *PieceTree.Iterator, offset: s64) {
+	iterator.offset = offset;
+	node := iterator.doc.tree;
+	remainder := 0;
 
-	// I think reverse in order is the same as above, you just flip left with right
+	nodeStartOffset := 0;
+	while node != null {
+		array_add(*iterator.stack, node);
+		if offset < node.leftSubtreeLength {
+			// Target must be in the left side of the tree
+			node = node.left;
+		}
+		else if offset <= node.leftSubtreeLength + node.piece.length {
+			// Target must be within this node
+			nodeStartOffset += node.leftSubtreeLength;
+			remainder = offset - nodeStartOffset;
+			break;
+		}
+		else {
+			// Target must be in the right side of the tree
+			leftSideOffset := node.leftSubtreeLength + node.piece.length;
+			nodeStartOffset += leftSideOffset;
+			offset -= leftSideOffset; // Our offset now must be relative to the right side of the tree
+			node = node.right;
+		}
+	}
 
-	// So if we were to stop this process, what would we do?
-	// You will store the stack
-	// and the current node obviously
-	// Where we get to "process node" we store our buffer pointers and stop
-	// When we exhaust it, we have two options, either set node to node right and do this loop again
-	// or set it to node left and do this loop again
+	// node was found
+	if node != null {
+		bufferIndex := node.piece.bufferIndex;
+		startOffset := buffer_cursor_to_offset(*iterator.doc.buffers[bufferIndex], node.piece.start);
+		endOffset := buffer_cursor_to_offset(*iterator.doc.buffers[bufferIndex], node.piece.end);
 
-	// fredbuf has a strange mix of recursive and non recursive movement
-	// I think lets stick to non-recursive here
-	// Once it's time to go to the next node
-	// Start by going node = node.left/right depending on direction
-	// then start the loop, as above. Call break when it's time to "process node"
-	// setup your pointers, and then call it a day, the stack will be updated and ready to go
+		iterator.firstChar = iterator.doc.buffers[bufferIndex].text.data + startOffset + remainder;
+		iterator.lastChar = iterator.doc.buffers[bufferIndex].text.data + endOffset;
+		iterator.node = node;
+		return;
+	}
+
+	// if no node found
+	iterator.node = null;
+	iterator.firstChar = null;
+	iterator.lastChar = null;
+	array_reset(*iterator.stack);
+}
+
+for_expansion :: (iterator: *PieceTree.Iterator, body: Code, flags: For_Flags) #expand {
+	while iterator.node != null {
+		counter := 0;
+		while iterator.firstChar < iterator.lastChar {
+			`it_index := counter;
+			`it := iterator.firstChar.*;
+			#insert body;
+			counter += 1;
+			iterator.firstChar += 1;
+		}
+		next_node(iterator);
+	}
 }
 
 #scope_file
@@ -306,14 +397,15 @@ make_piece :: (pieceTree: *PieceTree, t: string) -> PieceTree.Piece {
 node_at_offset :: (node: *PieceTree.Node, offset: s64) -> node: *PieceTree.Node, remainder: s64, nodeStartOffset: s64 {
 	// This is basically a binary search
 
+	offsetInSubtree := offset;
 	nodeStartOffset: s64;
 	lineFeedCount: s64;
 	while node != null {
-		if offset < node.leftSubtreeLength {
+		if offsetInSubtree < node.leftSubtreeLength {
 			// Target must be in the left side of the tree
 			node = node.left;
 		}
-		else if offset < node.leftSubtreeLength + node.piece.length {
+		else if offsetInSubtree <= node.leftSubtreeLength + node.piece.length {
 			// Target must be within this node
 			nodeStartOffset += node.leftSubtreeLength;
 			lineFeedCount += node.leftSubtreeLfCount;
@@ -334,7 +426,7 @@ node_at_offset :: (node: *PieceTree.Node, offset: s64) -> node: *PieceTree.Node,
 			// Target must be in the right side of the tree
 			leftSideOffset := node.leftSubtreeLength + node.piece.length;
 			
-			offset -= leftSideOffset; // Our offset now must be relative to the right side of the tree
+			offsetInSubtree -= leftSideOffset; // Our offset now must be relative to the right side of the tree
 
 			nodeStartOffset += leftSideOffset;
 			lineFeedCount += node.leftSubtreeLfCount + node.piece.lineFeedCount;
