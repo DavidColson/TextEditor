@@ -122,6 +122,28 @@ tree_test :: () {
 		next_node(*iterator);
 		count += 1;
 	}
+
+	char1 := get_char_at(*pieceTree, 101);
+	char2 := get_char_at(*pieceTree, 113);
+	char3 := get_char_at(*pieceTree, 3);
+	log("char1 %", string.{1, *char1});
+	log("char2 %", string.{1, *char2});
+	log("char3 %", string.{1, *char3});
+
+	log("num lines %", get_number_of_lines(*pieceTree));
+
+	// line starts
+	log("line start 0, %", get_line_start(*pieceTree, 0));
+	log("line start 1, %", get_line_start(*pieceTree, 1));
+	log("line start 2, %", get_line_start(*pieceTree, 2));
+	log("line start 3, %", get_line_start(*pieceTree, 3));
+
+	// line ranges
+	start, end := get_line_range(*pieceTree, 2, false);
+	log("line range for line 2 %, %", start, end);
+
+	line,col := get_coordinate_from_offset(*pieceTree, 100);
+	log("from offset 100 we get (%,%)", line,col);
 }
 
 // Piece Tree API
@@ -234,6 +256,98 @@ delete :: (pieceTree: *PieceTree, atOffset: s64, length: s64) {
 	// delete length bytes in the document at offset
 }
 
+get_char_at :: (doc: *PieceTree, offset: s64) -> u8 {
+	// get the literal char at the given offset
+
+	node, remainder, _ := node_at_offset(doc.tree, offset);
+	bufferIndex := node.piece.bufferIndex;
+	startOffset := buffer_cursor_to_offset(*doc.buffers[bufferIndex], node.piece.start);
+	charPtr := doc.buffers[bufferIndex].text.data + startOffset + remainder;
+	return charPtr.*;
+}
+
+get_line_start :: (doc: *PieceTree, line: s64) -> s64 {
+	// get the document offset of a specific line (0 indexed) via binary search
+	node := doc.tree;
+	lineInSubtree := line;
+	nodeStartOffset: s64;
+	lineFeedCount: s64;
+	while node != null {
+		if lineInSubtree <= node.leftSubtreeLfCount {
+			// Target must be in the left side of the tree
+			node = node.left;
+		}
+		else if lineInSubtree <= node.leftSubtreeLfCount + node.piece.lineFeedCount {
+			// Target must be within this node
+			nodeStartOffset += node.leftSubtreeLength;
+			lineFeedCount += node.leftSubtreeLfCount;
+
+			lineInThisNode := line - lineFeedCount;
+			buffer := *doc.buffers[node.piece.bufferIndex];
+			return nodeStartOffset + (buffer_cursor_to_offset(buffer, .{lineInThisNode, 0}) - buffer_cursor_to_offset(buffer, node.piece.start));
+		}
+		else {
+			if node.right == null {
+				return length(doc.tree); // at end of document, just return the length
+			}
+			// Target must be in the right side of the tree
+			lineInSubtree -= node.leftSubtreeLfCount + node.piece.lineFeedCount;
+			nodeStartOffset += node.leftSubtreeLength + node.piece.length;
+			lineFeedCount += node.leftSubtreeLfCount + node.piece.lineFeedCount;
+			node = node.right;
+		}
+	}
+
+	return 0;
+}
+
+get_line_range :: (doc: *PieceTree, line: s64, includeLineEndings := false) -> s64, s64 {
+	// find the start and end offsets of the given line, with or without line endings
+	lineStart := get_line_start(doc, line);
+	lineEnd := get_line_start(doc, line+1);
+
+	if !includeLineEndings {
+		rem := 0;
+		if get_char_at(doc, lineEnd-1) == #char "\n" {
+			rem += 1;
+		}
+		if get_char_at(doc, lineEnd-2) == #char "\r" {
+			rem += 1;
+		}
+		return lineStart, lineEnd - rem;
+	}
+	return lineStart, lineEnd;
+}
+
+get_coordinate_from_offset :: (doc: *PieceTree, offset: s64) -> s64, s64 {
+	// get line, column from a given offset
+	node, remainder, nodeStart, line := node_at_offset(doc.tree, offset);
+	lineStart := get_line_start(doc, line);
+	return line, offset-lineStart;
+}
+
+get_offset_from_coordinate :: (doc: *PieceTree, line: s64, column: s64) -> s64 {
+	// Note, if you provide a column that is off the length of the line, it will clamp
+	// decide at some point if that's desirable
+	lineStart, lineEnd := get_line_range(doc, line);
+	column = min(lineEnd-lineStart, column);
+	return lineStart + column;
+}
+
+get_line_content :: (document: *PieceTree, line: s64) -> string {
+	// use iterator for this, give back copy of line data (allocate)
+	return "";
+}
+
+get_content_range :: (document: *PieceTree, offset: s64, range: s64) -> string {
+	// get range chars at offet (copy)
+	return "";
+}
+
+get_number_of_lines :: (doc: *PieceTree) -> s64 {
+	return lf_count(doc.tree);
+}
+
 // Tree iterators
 
 make_iterator :: (document: *PieceTree, startOffset: s64 = 0) -> PieceTree.Iterator {
@@ -273,8 +387,6 @@ next_node :: (iterator: *PieceTree.Iterator) {
 				break;
 			}
 			oldNode = node;
-			// top of stack is oldNode in this case, because we push everything to the stack??
-			// so it breaks immediately, on that basis
 			node = iterator.stack[iterator.stack.count-1];
 			iterator.stack.count -= 1;
 		}
@@ -394,7 +506,7 @@ make_piece :: (pieceTree: *PieceTree, t: string) -> PieceTree.Piece {
 	return newPiece;
 }
 
-node_at_offset :: (node: *PieceTree.Node, offset: s64) -> node: *PieceTree.Node, remainder: s64, nodeStartOffset: s64 {
+node_at_offset :: (node: *PieceTree.Node, offset: s64) -> node: *PieceTree.Node, remainder: s64, nodeStartOffset: s64, line: s64 {
 	// This is basically a binary search
 
 	offsetInSubtree := offset;
@@ -411,7 +523,7 @@ node_at_offset :: (node: *PieceTree.Node, offset: s64) -> node: *PieceTree.Node,
 			lineFeedCount += node.leftSubtreeLfCount;
 			
 			remainder := offset - nodeStartOffset;
-			return node, remainder, nodeStartOffset;
+			return node, remainder, nodeStartOffset, lineFeedCount;
 		}
 		else {
 			if node.right == null {
@@ -420,7 +532,7 @@ node_at_offset :: (node: *PieceTree.Node, offset: s64) -> node: *PieceTree.Node,
 				nodeStartOffset += leftSideOffset;
 				lineFeedCount += node.leftSubtreeLfCount + node.piece.lineFeedCount;
 				remainder := node.piece.length;
-				return node, remainder, nodeStartOffset;
+				return node, remainder, nodeStartOffset, lineFeedCount;
 			}
 
 			// Target must be in the right side of the tree
@@ -434,7 +546,7 @@ node_at_offset :: (node: *PieceTree.Node, offset: s64) -> node: *PieceTree.Node,
 		}
 	}
 
-	return null, 0, 0;
+	return null, 0, 0, 0;
 }
 
 node_trim_left :: (pieceTree: *PieceTree, piece: PieceTree.Piece, pos: PieceTree.BufferCursor) -> PieceTree.Piece {
