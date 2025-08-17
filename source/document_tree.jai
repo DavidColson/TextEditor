@@ -172,6 +172,16 @@ tree_test :: () {
 
 	log("second line: %", get_line_content(*pieceTree, 1));
 	log("at 100, 10 chars: %", get_content(*pieceTree, 100, 10));
+
+	// deletions
+	delete(*pieceTree, 130, 19);
+	
+	pretty_print_tree(pieceTree.tree);
+
+	iterator = make_iterator(*pieceTree, 0);
+	for iterator {
+		print("%", string.{1, *it});
+	}
 }
 
 // Piece Tree API
@@ -280,8 +290,88 @@ insert :: (pieceTree: *PieceTree, atOffset: s64, text: string) {
 	pieceTree.tree = tree;
 }
 
-delete :: (pieceTree: *PieceTree, atOffset: s64, length: s64) {
+delete :: (doc: *PieceTree, atOffset: s64, length: s64) {
 	// delete length bytes in the document at offset
+
+	firstNode, firstRemainder, firstNodeOffset := node_at_offset(doc.tree, atOffset);
+	lastNode, lastRemainder, lastNodeOffset := node_at_offset(doc.tree, atOffset + length);
+
+	startBufferCursor := buffer_offset_to_cursor(doc, firstNode.piece, firstRemainder);
+	endBufferCursor := buffer_offset_to_cursor(doc, lastNode.piece, lastRemainder);
+
+	// fully contained in one node
+	if firstNode == lastNode {
+
+		// deletion starts at the beginning of the node
+		if firstNodeOffset == atOffset {
+
+			// it's the entire node
+			if length == firstNode.piece.length {
+				doc.tree = remove_node(doc.tree, firstNodeOffset);
+				return;
+			}
+
+			// remove only the left side of the node
+			newPiece := node_trim_left(doc, firstNode.piece, endBufferCursor);
+			doc.tree = remove_node(doc.tree, firstNodeOffset);
+			doc.tree = insert_node(tree_allocator(doc), doc.tree, newPiece, firstNodeOffset);
+			return;
+		}
+
+		if firstNodeOffset + firstNode.piece.length == atOffset + length {
+			// in this case we are removing the right part of the node
+
+			newPiece := node_trim_right(doc, firstNode.piece, startBufferCursor);
+			doc.tree = remove_node(doc.tree, firstNodeOffset);
+			doc.tree = insert_node(tree_allocator(doc), doc.tree, newPiece, firstNodeOffset);
+			return;
+		}
+
+		// lastly we have the case where the removed section is in the middle of the node
+		// so we must trim both sides
+		
+		newPieceLeft := node_trim_right(doc, firstNode.piece, startBufferCursor);
+		newPieceRight := node_trim_left(doc, firstNode.piece, endBufferCursor);
+
+		doc.tree = remove_node(doc.tree, firstNodeOffset);
+		doc.tree = insert_node(tree_allocator(doc), doc.tree, newPieceLeft, firstNodeOffset);
+		doc.tree = insert_node(tree_allocator(doc), doc.tree, newPieceRight, firstNodeOffset + newPieceLeft.length);
+	}
+
+	// the latter half of this function deals with the case where the deletion covers multiples nodes
+
+	remove_node_range :: (tree: *PieceTree.Node, firstOffset: s64, lengthToDelete: s64) -> *PieceTree.Node {
+		node, remainder, nodeStartOffset := node_at_offset(tree, firstOffset);
+
+		// adjust length to forcefully include the whole first node (it may not)
+		firstNodeLength := node.piece.length;
+		lengthToDelete = lengthToDelete - (firstNodeLength - remainder) + firstNodeLength;
+
+		deleteAtOffset := nodeStartOffset;
+		while lengthToDelete > 0 {
+			lengthToDelete -= node.piece.length;
+			tree = remove_node(tree, deleteAtOffset);
+			node = node_at_offset(tree, deleteAtOffset);
+		}
+		return tree;
+	}
+	
+	newPieceLeft := node_trim_right(doc, firstNode.piece, startBufferCursor);
+	if lastNode == null {
+		doc.tree = remove_node_range(doc.tree, atOffset, length);
+	}
+	else {
+		newPieceRight := node_trim_left(doc, lastNode.piece, endBufferCursor);
+		doc.tree = remove_node_range(doc.tree, atOffset, length);
+
+		if lastRemainder != 0 && newPieceRight.length != 0 {
+			doc.tree = insert_node(tree_allocator(doc), doc.tree, newPieceRight, firstNodeOffset);
+		}
+	}
+
+	if newPieceLeft.length != 0 {
+		doc.tree = insert_node(tree_allocator(doc), doc.tree, newPieceLeft, firstNodeOffset);
+	}
 }
 
 get_char_at :: (doc: *PieceTree, offset: s64) -> u8 {
@@ -517,6 +607,9 @@ jump_to :: (iterator: *PieceTree.Iterator, offset: s64) {
 }
 
 for_expansion :: (iterator: *PieceTree.Iterator, body: Code, flags: For_Flags) #expand {
+	// @todo: this does not skip returns like our old iterators did!!!
+
+	
 	counter := 0;
 	while outer := iterator.node != null {
 		`it: u8;
@@ -604,7 +697,7 @@ node_at_offset :: (node: *PieceTree.Node, offset: s64) -> node: *PieceTree.Node,
 			// Target must be in the left side of the tree
 			node = node.left;
 		}
-		else if offsetInSubtree <= node.leftSubtreeLength + node.piece.length {
+		else if offsetInSubtree < node.leftSubtreeLength + node.piece.length {
 			// Target must be within this node
 			nodeStartOffset += node.leftSubtreeLength;
 			lineFeedCount += node.leftSubtreeLfCount;
