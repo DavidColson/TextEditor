@@ -32,6 +32,8 @@ PieceTree :: struct {
 		using data: NodeData;
 		left: *Node;
 		right: *Node;
+		#place left;
+		child :[2]*Node = ---;
 	}
 
 	Color :: enum {
@@ -53,6 +55,11 @@ PieceTree :: struct {
 		stack: [..]*Node;
 		firstChar: *u8;
 		lastChar: *u8;
+	}
+
+	IterateDirection :: enum {
+		REVERSE;
+		FORWARD;
 	}
 
 	tree: *Node;
@@ -108,12 +115,28 @@ tree_test :: () {
 
 	pretty_print_tree(pieceTree.tree);
 
-	// what is the experience of an iterator
-
+	// iterator
+	
 	iterator := make_iterator(*pieceTree, 0);
 	for iterator {
 		print("%", string.{1, *it});
 	}
+
+	// reverse iteration
+	iterator = make_iterator(*pieceTree, 109);
+	for < iterator {
+		if it_index == 10 break;
+		print("%", string.{1, *it});
+	}
+	print("\n");
+
+	// for comparison, the same region forward
+	iterator = make_iterator(*pieceTree, 100);
+	for iterator {
+		if it_index == 10 break;
+		print("%", string.{1, *it});
+	}
+	print("\n");
 
 	count := 0;
 	iterator = make_iterator(*pieceTree, 0);
@@ -397,18 +420,18 @@ make_iterator :: (document: *PieceTree, startOffset: s64 = 0) -> PieceTree.Itera
 	return iter;
 }
 
-next_node :: (iterator: *PieceTree.Iterator) {
+next_node :: (iterator: *PieceTree.Iterator, direction := PieceTree.IterateDirection.FORWARD) {
 	// if you want to do a prev_node version, just flip left and right nodes in here
 
 	node := iterator.node;
-	newNode := iterator.node.right;
+	newNode := iterator.node.child[direction];
 	if newNode != null {
 		// In this first case we are dealing with the situation that the node has a right child
 		// we must iterate down it's left side until we get to a leaf, which is the next node for us
 		while newNode != null {
 			node = newNode;
 			array_add(*iterator.stack, node);
-			newNode = node.left;
+			newNode = node.child[1 - direction];
 		}
 	}
 	else {
@@ -416,8 +439,8 @@ next_node :: (iterator: *PieceTree.Iterator) {
 		// Therefore we must go up to a previous parent such that the current node is NOT the right
 		// side of the parent. Otherwise there is nowhere else to proceed
 	
-		oldNode := node.right;
-		while oldNode == node.right || node == oldNode {
+		oldNode := node.child[direction];
+		while oldNode == node.child[direction] || node == oldNode {
 			if iterator.stack.count == 0 {
 				node = null;
 				break;
@@ -496,14 +519,42 @@ jump_to :: (iterator: *PieceTree.Iterator, offset: s64) {
 for_expansion :: (iterator: *PieceTree.Iterator, body: Code, flags: For_Flags) #expand {
 	counter := 0;
 	while outer := iterator.node != null {
-		while iterator.firstChar < iterator.lastChar {
-			`it_index := counter;
-			`it := iterator.firstChar.*;
-            #insert(break=break outer) body;  // If the user says break, break from the *outer* loop!
-			counter += 1;
-			iterator.firstChar += 1;
+		`it: u8;
+		`it_index := 0;
+		if flags & .REVERSE {
+			// need to adjust the start and end pointers if we're going backward
+			bufferIndex := iterator.node.piece.bufferIndex;
+			startOffset := buffer_cursor_to_offset(*iterator.doc.buffers[bufferIndex], iterator.node.piece.start);
+			endOffset := buffer_cursor_to_offset(*iterator.doc.buffers[bufferIndex], iterator.node.piece.end);
+			startPtr := iterator.doc.buffers[bufferIndex].text.data + startOffset;
+			endPtr := iterator.doc.buffers[bufferIndex].text.data + endOffset;
+			if startPtr == iterator.firstChar {
+				iterator.firstChar = endPtr-1;
+				iterator.lastChar = startPtr-1;
+			}
+			else {
+				iterator.lastChar = startPtr-1;
+			}
+
+			while iterator.firstChar > iterator.lastChar {
+				`it_index = counter;
+				`it = iterator.firstChar.*;
+	            #insert(break=break outer) body;  // If the user says break, break from the *outer* loop!
+				counter += 1;
+				iterator.firstChar -= 1;
+			}
+			next_node(iterator, .REVERSE);
 		}
-		next_node(iterator);
+		else {
+			while iterator.firstChar < iterator.lastChar {
+				`it_index = counter;
+				`it = iterator.firstChar.*;
+	            #insert(break=break outer) body;  // If the user says break, break from the *outer* loop!
+				counter += 1;
+				iterator.firstChar += 1;
+			}
+			next_node(iterator, .FORWARD);
+		}
 	}
 }
 
