@@ -144,6 +144,11 @@ tree_test :: () {
 
 	line,col := get_coordinate_from_offset(*pieceTree, 100);
 	log("from offset 100 we get (%,%)", line,col);
+
+	// get content
+
+	log("second line: %", get_line_content(*pieceTree, 1));
+	log("at 100, 10 chars: %", get_content(*pieceTree, 100, 10));
 }
 
 // Piece Tree API
@@ -334,14 +339,45 @@ get_offset_from_coordinate :: (doc: *PieceTree, line: s64, column: s64) -> s64 {
 	return lineStart + column;
 }
 
-get_line_content :: (document: *PieceTree, line: s64) -> string {
-	// use iterator for this, give back copy of line data (allocate)
-	return "";
+get_line_content :: (doc: *PieceTree, line: s64, includeLineEndings := false) -> string {
+	// allocates memory for returned string!!
+
+	offset := get_line_start(doc, line);
+	iterator := make_iterator(doc, offset);
+	builder: String_Builder;
+	builder.allocator = temp;
+	prev: u8;
+	test : [200]u8;
+	for iterator {
+		if !includeLineEndings && (it == #char "\n" || it == #char "\r") {
+			break;
+		}
+		else if includeLineEndings && (prev == #char "\n") {
+			break;
+		}
+		append(*builder, it);
+		test[it_index] = it;
+		prev = it;
+	}
+	return builder_to_string(*builder);
 }
 
-get_content_range :: (document: *PieceTree, offset: s64, range: s64) -> string {
-	// get range chars at offet (copy)
-	return "";
+get_content :: (doc: *PieceTree, offset: s64, count: s64) -> string {
+	// allocates memory for returned string!!
+
+	iterator := make_iterator(doc, offset);
+	builder: String_Builder;
+	builder.allocator = temp;
+
+	test : [200]u8;
+	for iterator {
+		if it_index == count {
+			break;
+		}
+		test[it_index] = it;
+		append(*builder, it);
+	}
+	return builder_to_string(*builder);
 }
 
 get_number_of_lines :: (doc: *PieceTree) -> s64 {
@@ -458,12 +494,12 @@ jump_to :: (iterator: *PieceTree.Iterator, offset: s64) {
 }
 
 for_expansion :: (iterator: *PieceTree.Iterator, body: Code, flags: For_Flags) #expand {
-	while iterator.node != null {
-		counter := 0;
+	counter := 0;
+	while outer := iterator.node != null {
 		while iterator.firstChar < iterator.lastChar {
 			`it_index := counter;
 			`it := iterator.firstChar.*;
-			#insert body;
+            #insert(break=break outer) body;  // If the user says break, break from the *outer* loop!
 			counter += 1;
 			iterator.firstChar += 1;
 		}
