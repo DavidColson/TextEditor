@@ -199,11 +199,13 @@ main :: () {
     while !pendingQuit {
 		frameStart := seconds_since_init();
 		update(deltaTime);
-		deltaTime = seconds_since_init() - frameStart;
+		updateTime := seconds_since_init() - frameStart;
 
 		// not ideal, should vsync to something else if above 16ms
-		timeToSleep := max(16 - deltaTime*1000, 0);
+		timeToSleep := max(16 - updateTime * 1000, 0);
 	    sleep_milliseconds(cast(s32) timeToSleep);
+
+		deltaTime = seconds_since_init() - frameStart;
 	}
 }
 
