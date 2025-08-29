@@ -374,10 +374,6 @@ is_match :: (prog: *Prog, i_in: Inst) -> bool {
 
 empty_flags :: (text: string, pos: int) -> EmptyOp {
 	flags: EmptyOp;
-	if pos >= text.count {
-		flags |= EmptyOp.kEmptyEndText | .kEmptyEndLine;
-		return flags;
-	}
 
 	// ^ and \A
 	if pos == 0 {
@@ -1052,48 +1048,6 @@ prefix_accel_front_and_back :: (using prog: *Prog, text: string, pos: int) -> in
 	for i: pos..size-1 {
 		if text[i] == prefix_front && text[i + prefix_size - 1] == prefix_back {
 			return i;
-		}
-	}
-
-	return -1;
-}
-
-// same as above, but searchs a document instead of a string
-prefix_accel :: (using prog: *Prog, doc: *Document, pos: int) -> int {
-	assert(prefix_size >= 1);
-	if prefix_size == 1 {
-		cursor := document_create_cursor(doc, pos);
-		result: int = -1;
-		found := false;
-		for :raw_bytes cursor {
-			if cast(u8)prefix_front == it {
-				result = cursor.documentOffset-1;
-				found = true;
-				break;
-			}
-		}
-		if !found	return -1;
-		return result;
-	} else {
-		return prefix_accel_front_and_back(prog, doc, pos);
-	}
-}
-
-prefix_accel_front_and_back :: (using prog: *Prog, doc: *Document, pos: int) -> int {
-	assert(prefix_size >= 2);
-	if doc.size - pos < prefix_size {
-		return -1;
-	}
-
-	cursorFront := document_create_cursor(doc, pos);
-	while cursorFront.documentOffset < (doc.size - prefix_size + 1) {
-		cursorBack := cursorFront;
-		document_cursor_jump_to_offset(*cursorBack, cursorFront.documentOffset + prefix_size - 1);
-		front := document_cursor_step_one_forward(*cursorFront, false);
-		back := document_cursor_get_char(*cursorBack);
-
-		if front == prefix_front && back == prefix_back {
-			return cursorFront.documentOffset-1;
 		}
 	}
 

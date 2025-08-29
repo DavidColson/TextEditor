@@ -98,8 +98,6 @@ PieceChainSpan :: struct {
 	newSize: s64;
 }
 
-open_documents: Bucket_Array(Document, 128); // might want more when we load full projects in?
-open_document_table: Table(string, Bucket_Locator);
 
 document_open :: (path: string) -> *Document {
 	// check if this file is already open

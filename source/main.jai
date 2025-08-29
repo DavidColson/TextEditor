@@ -487,8 +487,8 @@ build_ui_panel :: (panel: *Panel) {
 		spacer(.X, fixed(em(2.0)));
 
 		// location
-		cursorCoordinate := document_cursor_get_coordinate(*panel.cursor.head);
-		box(ui_key("Ln: % Col: % Byte: %", cursorCoordinate.line+1, cursorCoordinate.col, panel.cursor.head.documentOffset), .{
+		cursorCoordinate := get_coordinate_from_offset(panel.document, panel.cursor.head);
+		box(ui_key("Ln: % Col: % Byte: %", cursorCoordinate.line+1, cursorCoordinate.col, panel.cursor.head), .{
 			flags=.DRAW_TEXT,
 			layout=.{ width=text_content(), height=text_content() },
 		});
@@ -514,7 +514,8 @@ build_ui_panel :: (panel: *Panel) {
 		spacer(.X, fixed(em(2.0)));
 
 		// file type
-		box(ui_key(panel.document.language), .{
+		// @todo
+		box(ui_key("jai"), .{
 			flags=.DRAW_TEXT,
 			layout=.{ width=text_content(), height=text_content() },
 		});
@@ -581,14 +582,14 @@ build_ui_panel :: (panel: *Panel) {
 		codeBox.customDrawFunction = custom_draw_code;
 		codeBox.customDrawUdata = cast(*void) panel;
 
-		numDocumentLines := document_get_num_lines(panel.document);
+		numDocumentLines := get_number_of_lines(panel.document);
 		metrics := get_font_metrics(codeBox.font, xx codeBox.fontSize);
 		codeBox.viewBounds.y = cast(float, -(metrics.lineSpacing * numDocumentLines) + metrics.lineSpacing * 5);
 		signal := signal_from_box(codeBox);
 
 		// mouse cursor control
 
-		set_cursor_to_mouse_location :: (cursor: *DocumentCursor, numDocumentLines: s64, box: *UIBox) {
+		set_cursor_to_mouse_location :: (doc: *Document, cursor: *Cursor, numDocumentLines: s64, box: *UIBox) {
 			gutterWidth := generate_text_run(tprint(" % ", numDocumentLines), xx box.fontSize, box.font,,temp).width;
 		
 		    x, y, success := get_mouse_pointer_position(window, false);
@@ -597,47 +598,30 @@ build_ui_panel :: (panel: *Panel) {
 
 			metrics := get_font_metrics(box.font, xx box.fontSize);
 			clickedLine := clamp(cast(s64) (mouseY / metrics.lineSpacing), 0, numDocumentLines - 1);
-			document_cursor_jump_to_line(cursor, clickedLine);
 
 			// collect the line content of this line (so we can figure out how wide it is in pixels)
-			tempCursor := cursor;
-			builder: String_Builder;
-			builder.allocator = temp;
-			lineStart := tempCursor.documentOffset;
-			lineEnd := 0;
-			for :raw_bytes tempCursor {
-				append(*builder, it);
-				if it == #char "\n" {
-					// cursor is now sat on the next line
-					lineEnd = lineStart + it_index;
-					break;
-				}
-			}
-			if tempCursor.documentOffset == tempCursor.doc.size {
-				lineEnd = tempCursor.doc.size;
-			}
-
-			line := builder_to_string(*builder,,temp);
-			if line.count >= 2 && line[line.count-2] == #char "\r" then line.count -= 1;
-			run := generate_text_run(line, xx box.fontSize, box.font, stopAtWidth=mouseX,,temp);
-			document_cursor_jump_to_offset(cursor, lineStart+run.byteOffsets[run.byteOffsets.count-1]);
+			lineContent := get_line_content(doc, clickedLine,,temp);
+			run := generate_text_run(lineContent.text, xx box.fontSize, box.font, stopAtWidth=mouseX,,temp);
+			column := ifx run.byteOffsets.count > 0 then run.byteOffsets[run.byteOffsets.count-1] else 0;
+			cursor.head = lineContent.startByteOffset + column;
+			cursor.anchor = cursor.head;
 		}
 		
 		if signal.pressed {
-			set_cursor_to_mouse_location (*panel.cursor.anchor, numDocumentLines, codeBox);
+			set_cursor_to_mouse_location (panel.document, *panel.cursor, numDocumentLines, codeBox);
 			panel.cursor.head = panel.cursor.anchor;
 		}
 
 		if signal.holding {
-			set_cursor_to_mouse_location (*panel.cursor.head, numDocumentLines, codeBox);
+			set_cursor_to_mouse_location (panel.document, *panel.cursor, numDocumentLines, codeBox);
 		    x, y, success := get_mouse_pointer_position(window, false);
 			if y > cast(int, codeBox.rect.y + codeBox.rect.h) {
 				_, range := panel_calculate_visible_lines(panel);
-				currentLine := document_cursor_get_line(*panel.cursor.head);
+				currentLine := get_coordinate_from_offset(panel.document, panel.cursor.head).line;
 				panel_scroll_to_line(panel, currentLine - range);
 			}
 			else if y < cast(int, codeBox.rect.y) {
-				currentLine := document_cursor_get_line(*panel.cursor.head);
+				currentLine := get_coordinate_from_offset(panel.document, panel.cursor.head).line;
 				panel_scroll_to_line(panel, currentLine);
 			}
 		}
@@ -1121,8 +1105,12 @@ custom_draw_code :: (box: *UIBox, udata: *void) {
 
 	if panel.document {
 		metrics := get_font_metrics(box.font, xx box.fontSize);
-		documentLines := document_get_num_lines(panel.document);
-		cursorLine := document_cursor_get_line(*panel.cursor.head);
+		documentLines := get_number_of_lines(panel.document);
+
+		if panel.cursor.head > 100 {
+			log("hello");
+		}
+		cursorLine := get_coordinate_from_offset(panel.document, panel.cursor.head).line;
 
 		startVisibleLine : s64;
 		endVisibleLine : s64;
@@ -1151,47 +1139,25 @@ custom_draw_code :: (box: *UIBox, udata: *void) {
 		textAreaX := box.rect.x + gutterWidth;
 		textAreaY := box.rect.y + startOffset + box.viewOffset.y;
 
-		linesOnScreen: [..]LineContent;
+		linesOnScreen: [..]Document.LineContent;
 		linesOnScreen.allocator = temp;
 		{
-			startByteOffset := document_get_line_start(panel.document, startVisibleLine);
-			cursor := document_create_cursor(panel.document, startByteOffset);
-
-			linesToCollect := (endVisibleLine - startVisibleLine)+1;
-			lineStart := startByteOffset;
-			while linesToCollect > 0 {
-				builder: String_Builder;
-				builder.allocator = temp;
-
-				lineEnd := 0;
-				for :raw_bytes cursor {
-					append(*builder, it);
-					if it == #char "\n" {
-						// cursor is now sat on the next line
-						lineEnd = lineStart + it_index;
-						break;
-					}
-				}
-
-				if cursor.documentOffset == cursor.doc.size {
-					lineEnd = cursor.doc.size;
-				}
-
-				array_add(*linesOnScreen, .{builder_to_string(*builder,,temp), lineStart, lineEnd});
-				lineStart = lineEnd + 1;
-				linesToCollect -= 1;
+			for startVisibleLine..endVisibleLine {
+				line := get_line_content(panel.document, it,,temp);
+				array_add(*linesOnScreen, line);
 			}
 		}
 
 		// Draw cursor selection
 		if panel.activeDialog != .SEARCH {
-			if panel.cursor.head.documentOffset != panel.cursor.anchor.documentOffset {
-				draw_cursor_range(box.font,
+			if panel.cursor.head != panel.cursor.anchor {
+				start := min(panel.cursor.head, panel.cursor.anchor);
+				end := max(panel.cursor.head, panel.cursor.anchor);
+				draw_document_range(panel.document, start, end,
+				 					box.font,
 									xx box.fontSize,
 									textAreaX,
 									textAreaY,
-									panel.cursor.head,
-									panel.cursor.anchor,
 									linesOnScreen,
 									startVisibleLine,
 									true);
@@ -1201,12 +1167,13 @@ custom_draw_code :: (box: *UIBox, udata: *void) {
 		// draw search results
 		if panel.activeDialog == .SEARCH {
 			for panel.results {
-				draw_cursor_range(box.font,
+				draw_document_range(panel.document,
+									it.start,
+									it.end,
+									box.font,
 									xx box.fontSize,
 									textAreaX,
 									textAreaY,
-									it.start,
-									it.end,
 									linesOnScreen,
 									startVisibleLine,
 									false);
@@ -1214,78 +1181,81 @@ custom_draw_code :: (box: *UIBox, udata: *void) {
 		}
 
 		// Draw code
-		success, language := get_language(panel.document.language);
-		if success && language.highlightsQuery {
-			queryCursor := ts_query_cursor_new();
-			rangeStartByte := linesOnScreen[0].startByteOffset;
-			rangeEndByte := linesOnScreen[linesOnScreen.count-1].endByteOffset;
+		// success, language := get_language(panel.document.language);
+		// @todo
+		// success, language := get_language("jai");
+		// if success && language.highlightsQuery {
+		// 	queryCursor := ts_query_cursor_new();
+		// 	rangeStartByte := linesOnScreen[0].startByteOffset;
+		// 	rangeEndByte := linesOnScreen[linesOnScreen.count-1].endByteOffset;
 
-			ts_query_cursor_set_byte_range(queryCursor, xx rangeStartByte, xx rangeEndByte);
+		// 	ts_query_cursor_set_byte_range(queryCursor, xx rangeStartByte, xx rangeEndByte);
 
-			treeNode := ts_tree_root_node(panel.document.tree);
-			treeNode = ts_node_descendant_for_byte_range(treeNode, xx rangeStartByte, xx rangeEndByte);
+		// 	treeNode := ts_tree_root_node(panel.document.tree);
+		// 	treeNode = ts_node_descendant_for_byte_range(treeNode, xx rangeStartByte, xx rangeEndByte);
 
-			ts_query_cursor_exec(queryCursor, language.highlightsQuery, treeNode);
+		// 	ts_query_cursor_exec(queryCursor, language.highlightsQuery, treeNode);
 
-			highlights: [..]Highlight;
-			highlights.allocator = temp;
+		// 	highlights: [..]Highlight;
+		// 	highlights.allocator = temp;
 
-			// collect all the highlights for the region of code we must render
-			while true {
-				tsMatch: TSQueryMatch;
-				captureId: u32;
-				result := ts_query_cursor_next_capture(queryCursor, *tsMatch, *captureId);
-				if result == false then break;
-				capture := tsMatch.captures[captureId];
+		// 	// collect all the highlights for the region of code we must render
+		// 	while true {
+		// 		tsMatch: TSQueryMatch;
+		// 		captureId: u32;
+		// 		result := ts_query_cursor_next_capture(queryCursor, *tsMatch, *captureId);
+		// 		if result == false then break;
+		// 		capture := tsMatch.captures[captureId];
 
-				startByte := ts_node_start_byte(capture.node);
-				endByte := ts_node_end_byte(capture.node);
-				type := to_string(ts_node_grammar_type(capture.node));
+		// 		startByte := ts_node_start_byte(capture.node);
+		// 		endByte := ts_node_end_byte(capture.node);
+		// 		type := to_string(ts_node_grammar_type(capture.node));
 
-				success, highlightType := table_find_new(*language.captureToHighlight, capture.index);
-				if evaluate_query_predicates(language, tsMatch, panel.document) {
-					if highlights.count > 0 {
-						if highlights[highlights.count-1].start == startByte {
-							// override the previous range if there's a newer (better) one
-							highlights[highlights.count-1] = .{startByte, endByte, highlightType};
-							continue;
-						}
-					}
-					array_add(*highlights, .{startByte, endByte, highlightType});
-				}
-			}
+		// 		success, highlightType := table_find_new(*language.captureToHighlight, capture.index);
+		// 		if evaluate_query_predicates(language, tsMatch, panel.document) {
+		// 			if highlights.count > 0 {
+		// 				if highlights[highlights.count-1].start == startByte {
+		// 					// override the previous range if there's a newer (better) one
+		// 					highlights[highlights.count-1] = .{startByte, endByte, highlightType};
+		// 					continue;
+		// 				}
+		// 			}
+		// 			array_add(*highlights, .{startByte, endByte, highlightType});
+		// 		}
+		// 	}
 
-			x :float = textAreaX;
-			y :float = textAreaY;
-			currentHighlightIndex := 0;
-			for line: linesOnScreen {
-				run := generate_text_run(line.text, xx box.fontSize, box.font,,temp);
-				for run.instances {
-					byteOffset := line.startByteOffset + run.byteOffsets[it_index];
+		// 	x :float = textAreaX;
+		// 	y :float = textAreaY;
+		// 	currentHighlightIndex := 0;
+		// 	for line: linesOnScreen {
+		// 		run := generate_text_run(line.text, xx box.fontSize, box.font,,temp);
+		// 		for run.instances {
+		// 			byteOffset := line.startByteOffset + run.byteOffsets[it_index];
 
-					if currentHighlightIndex < highlights.count && byteOffset >= highlights[currentHighlightIndex].end {
-						currentHighlightIndex += 1;
-					}
+		// 			if currentHighlightIndex < highlights.count && byteOffset >= highlights[currentHighlightIndex].end {
+		// 				currentHighlightIndex += 1;
+		// 			}
 
-					color := style.codeDefault;
-					if currentHighlightIndex < highlights.count && byteOffset >= highlights[currentHighlightIndex].start && byteOffset < highlights[currentHighlightIndex].end {
-						color = style.codeColors[highlights[currentHighlightIndex].type];
-					}
+		// 			color := style.codeDefault;
+		// 			if currentHighlightIndex < highlights.count && byteOffset >= highlights[currentHighlightIndex].start && byteOffset < highlights[currentHighlightIndex].end {
+		// 				color = style.codeColors[highlights[currentHighlightIndex].type];
+		// 			}
 
-					instance := it;
-					instance.dstRect.x = round(x + instance.dstRect.x);
-					instance.dstRect.y = round(y + instance.dstRect.y);
-					instance.color = color;
-					submit_instance(instance);
+		// 			instance := it;
+		// 			instance.dstRect.x = round(x + instance.dstRect.x);
+		// 			instance.dstRect.y = round(y + instance.dstRect.y);
+		// 			instance.color = color;
+		// 			submit_instance(instance);
 
-				}
-				y += metrics.lineSpacing;
-			}
+		// 		}
+		// 		y += metrics.lineSpacing;
+		// 	}
 
-			// potentially cheaper to reuse the same cursor?
-			ts_query_cursor_delete(queryCursor);
-		}
-		else {
+		// 	// potentially cheaper to reuse the same cursor?
+		// 	ts_query_cursor_delete(queryCursor);
+		// }
+		// else {
+		{
 			// draw text with no highlighting
 			x :float = textAreaX;
 			y :float = textAreaY;
@@ -1299,7 +1269,7 @@ custom_draw_code :: (box: *UIBox, udata: *void) {
 		// Draw cursor
 		if panel.activeDialog != .SEARCH && cursorLine >= startVisibleLine && cursorLine <= endVisibleLine {
 			lineCopy := linesOnScreen[cursorLine - startVisibleLine];
-			lineCopy.text.count = panel.cursor.head.documentOffset - document_get_line_start(panel.document, cursorLine);
+			lineCopy.text.count = panel.cursor.head - get_line_start(panel.document, cursorLine);
 
 			// figuring out the width of the cursor requires knowing which vertical column of text
 			// we're in, including previous tabs
@@ -1312,7 +1282,7 @@ custom_draw_code :: (box: *UIBox, udata: *void) {
 					col += charsToTabstop;
 				}
 			}
-			cursorChar := document_cursor_get_char(*panel.cursor.head);
+			cursorChar := get_char_at(panel.document, panel.cursor.head);
 			cursorRun := generate_text_run(cast(string) u8.[cursorChar], xx box.fontSize, box.font, col,,temp);
 
 			cursorX := textAreaX + generate_text_run(lineCopy.text, xx box.fontSize, box.font,,temp).width;
@@ -1341,25 +1311,28 @@ evaluate_query_predicates :: (lang: *Language, tsMatch: TSQueryMatch, document: 
 	if predicateList == null then return true;
 
 	get_capture_content :: (tsMatch: TSQueryMatch, document: *Document, captureIndex: u32) -> string {
-		capture: TSQueryCapture;
-		for 0..tsMatch.capture_count-1 {
-			if tsMatch.captures[it].index == captureIndex {
-				capture = tsMatch.captures[it];
-				break;
-			}
-		}
+		// @todo
 		
-		startByte := ts_node_start_byte(capture.node);
-		endByte := ts_node_end_byte(capture.node);
+		// capture: TSQueryCapture;
+		// for 0..tsMatch.capture_count-1 {
+		// 	if tsMatch.captures[it].index == captureIndex {
+		// 		capture = tsMatch.captures[it];
+		// 		break;
+		// 	}
+		// }
+		
+		// startByte := ts_node_start_byte(capture.node);
+		// endByte := ts_node_end_byte(capture.node);
 
-		// need to find the text corresponding to this node
-		captureText := alloc_string(endByte-startByte,,temp);
-		docCursor := document_create_cursor(document, startByte);
-		for :raw_bytes docCursor {
-			if it_index >= captureText.count break;
-			captureText[it_index] = it;
-		}
-		return captureText;
+		// // need to find the text corresponding to this node
+		// captureText := alloc_string(endByte-startByte,,temp);
+		// docCursor := document_create_cursor(document, startByte);
+		// for :raw_bytes docCursor {
+		// 	if it_index >= captureText.count break;
+		// 	captureText[it_index] = it;
+		// }
+		// return captureText;
+		return "";
 	}
 
 	for predicate: predicateList.* {
@@ -1391,9 +1364,10 @@ evaluate_query_predicates :: (lang: *Language, tsMatch: TSQueryMatch, document: 
 	return true;
 }
 
-draw_cursor_range :: (font: *Font, fontSize: int, textAreaX: float, textAreaY: float, cursor1: DocumentCursor, cursor2: DocumentCursor, linesOnScreen: []LineContent, startVisibleLine: s64, includeCursor := false) {
+draw_document_range :: (doc: *Document, start: s64, end: s64, font: *Font, fontSize: int, textAreaX: float, textAreaY: float, linesOnScreen: []Document.LineContent, startVisibleLine: s64, includeCursor := false) {
 	metrics := get_font_metrics(font, fontSize);
-	rangeStart, rangeEnd := convert_cursors_to_coordinate_range(cursor1, cursor2, includeCursor);
+	rangeStart := get_coordinate_from_offset(doc, start);
+	rangeEnd := get_coordinate_from_offset(doc, end);
 	lineWidths: [..] s32;
 	lineWidths.allocator = temp;
 	endVisibleLine := startVisibleLine + linesOnScreen.count;
@@ -1450,7 +1424,8 @@ do_backup_callback :: () {
 			append(*builder, "\\backups\\");
 			append(*builder, path_filename(it.path));
 
-			document_save(it, builder_to_string(*builder,,temp), true);
+			// @todo: 
+			// document_save(it, builder_to_string(*builder,,temp), true);
 		}
 	}
 }
@@ -1465,7 +1440,6 @@ file_change_callback :: (watcher: *File_Watcher(void), change: *File_Change, use
 				// reload file
 				if doc.unsaved == false {
 					document_load_from_disk(doc);
-					panel_refresh_cursors(*focusedPanel);
 				}
 				else {
 					// @todo: when we have nicer UI this should give a popup or something more explicit
@@ -1549,47 +1523,6 @@ hex_to_color_vec4 :: (src_hex: string) -> Vector4 {
     c := Vector4.{ to_float(r), to_float(g), to_float(b), to_float(a) };
 
     return c;
-}
-
-// utilities 
-convert_cursors_to_coordinate_range :: (cursor1: DocumentCursor, cursor2: DocumentCursor, includeCursor: bool = true) -> start: Coordinate, end: Coordinate {
-	rangeStart: Coordinate;
-	rangeEnd: Coordinate;
-	cursorBonus := ifx includeCursor then 1 else 0;
-
-	coordinate1 := document_cursor_get_coordinate(*cursor1);
-	coordinate2 := document_cursor_get_coordinate(*cursor2);
-
-	if coordinate1.line < coordinate2.line {
-		// coordinate1 is clearly earlier than coordinate2
-		rangeStart.line = coordinate1.line;
-		rangeStart.col = coordinate1.col;
-		rangeEnd.line = coordinate2.line;
-		rangeEnd.col = coordinate2.col+cursorBonus;
-	}
-	else if coordinate1.line > coordinate2.line { 
-		// coordinate2 is clearly earlier than the coordinate1
-		rangeStart.line = coordinate2.line;
-		rangeStart.col = coordinate2.col;
-		rangeEnd.line = coordinate1.line;
-		rangeEnd.col = coordinate1.col+cursorBonus; // cursor itself is considered part of the selection
-	}
-	else {
-		// they are on the same line, pick based on column
-		if coordinate1.col <= coordinate2.col {
-			rangeStart.line = coordinate1.line;
-			rangeStart.col = coordinate1.col;
-			rangeEnd.line = coordinate2.line;
-			rangeEnd.col = coordinate2.col+cursorBonus;
-		}
-		else {
-			rangeStart.line = coordinate2.line;
-			rangeStart.col = coordinate2.col;
-			rangeEnd.line = coordinate1.line;
-			rangeEnd.col = coordinate1.col+cursorBonus;
-		}
-	}
-	return rangeStart, rangeEnd;
 }
 
 round :: (f: float) -> float {
@@ -2158,19 +2091,19 @@ Input :: #import "Input";
 #import "File_Watcher";
 #import "Bucket_Array";
 #import "treesitter";
+#import "uniform";
 
 #load "rect.jai";
 #load "command_picker.jai";
 #load "filesystem_navigator.jai";
 #load "file_finder.jai";
 #load "keymap.jai";
-#load "document.jai";
+// #load "document.jai";
 #load "commands.jai";
 #load "panel.jai";
 #load "ui.jai";
 #load "renderer.jai";
 #load "font.jai";
-#load "uniform/module.jai";
 #load "async.jai";
 #load "document_tree.jai";
 

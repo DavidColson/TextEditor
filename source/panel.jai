@@ -1,7 +1,7 @@
 
 Cursor :: struct {
-	head: DocumentCursor;
-	anchor: DocumentCursor;
+	head: s64;
+	anchor: s64;
 
 	// when users move up and down lines, this stores the 
 	// column that we should try stick to as we move up and down
@@ -28,21 +28,14 @@ Panel :: struct {
 	currentRegex: Regexp;
 	hasMatches := false;
 	previousScrollLine := 0;
-	results: []DocumentRange;
+	results: []Document.Range;
 }
 
 panel_set_active_document :: (panel: *Panel, doc: *Document) {
 	panel.document = doc;
 	panel.cursor = .{};
-	panel.cursor.head = document_create_cursor(panel.document);
-	panel.cursor.anchor = document_create_cursor(panel.document);
-}
-
-panel_refresh_cursors :: (panel: *Panel) {
-	headOffset := panel.cursor.head.documentOffset;
-	anchorOffset := panel.cursor.anchor.documentOffset;
-	panel.cursor.head = document_create_cursor(panel.document, headOffset);
-	panel.cursor.anchor = document_create_cursor(panel.document, anchorOffset);
+	panel.cursor.head = 0;
+	panel.cursor.anchor = 0;
 }
 
 panel_reset_dialogs :: (panel: *Panel) {
@@ -65,7 +58,7 @@ panel_get_current_scrolled_line :: (panel: *Panel) -> s64 {
 }
 
 panel_scroll_to_cursor :: (panel: *Panel) {
-	currentLine := document_cursor_get_line(*panel.cursor.head);
+	currentLine := get_coordinate_from_offset(panel.document, panel.cursor.head).line;
 
 	startVisibleLine, range := panel_calculate_visible_lines(panel);
 	if currentLine < startVisibleLine {
@@ -94,7 +87,7 @@ panel_calculate_visible_lines :: (panel: *Panel, useAnimTarget:bool=false) -> s6
 	success, box := find_box(ui_key("code"));
 	if success {
 		if box.rect.h == 0.0 return 0,0;
-		documentLines := document_get_num_lines(panel.document);
+		documentLines := get_number_of_lines(panel.document);
 		metrics := get_font_metrics(box.font, xx box.fontSize);
 
 		viewOffset := ifx useAnimTarget then box.viewOffsetTarget.y else box.viewOffset.y;
