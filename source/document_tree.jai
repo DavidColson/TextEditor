@@ -66,6 +66,9 @@ PieceTree :: struct {
 	buffers: [2]Buffer;
 	lastInsert: BufferCursor;
 	lineEndings: LineEndingMode;
+	path: string;
+	diskLastModtime: Apollo_Time;
+	locator: Bucket_Locator;
 
 	// Note it will not be threadsafe to share these pools
 	// Between copies of the tree and allow any allocation
@@ -84,46 +87,31 @@ PieceTree :: struct {
 	// can have a mutex on the memory pools, then you can make your edits
 }
 
+open_documents_new: Bucket_Array(PieceTree, 128); // might want more when we load full projects in?
+open_document_table_new: Table(string, Bucket_Locator);
 
 tree_test :: () {
-	pieceTree: PieceTree;
-	pieceTree.bufferMemory.alignment = 1; // important!! make this hard to miss
-	
-	f, success := file_open("build_shorter.jai");
-	if !success {
-		push_notification("File open failed");
-	}
-	file: string;
-    file, success = read_entire_file(f,,buffer_allocator(*pieceTree));
-	if !success {
-		push_notification("File read failed");
-	}
-	file_close(*f);
+	doc := document_open_new("build_shorter.jai");
 
-	pieceTree.buffers[0].text.data = file.data;
-	pieceTree.buffers[0].text.count = file.count;
+	pretty_print_tree(doc.tree);
 
-	build_piece_tree(*pieceTree);
+	insert(doc, 100, "hello world");
+	insert(doc, 105, " my");
+	pretty_print_tree(doc.tree);
+	insert(doc, 110, "test ");
+	insert(doc, 200, "again more");
 
-	pretty_print_tree(pieceTree.tree);
-
-	insert(*pieceTree, 100, "hello world");
-	insert(*pieceTree, 105, " my");
-	pretty_print_tree(pieceTree.tree);
-	insert(*pieceTree, 110, "test ");
-	insert(*pieceTree, 200, "again more");
-
-	pretty_print_tree(pieceTree.tree);
+	pretty_print_tree(doc.tree);
 
 	// iterator
 	
-	iterator := make_iterator(*pieceTree, 0);
+	iterator := make_iterator(doc, 0);
 	for iterator {
 		print("%", string.{1, *it});
 	}
 
 	// reverse iteration
-	iterator = make_iterator(*pieceTree, 109);
+	iterator = make_iterator(doc, 109);
 	for < iterator {
 		if it_index == 10 break;
 		print("%", string.{1, *it});
@@ -131,7 +119,7 @@ tree_test :: () {
 	print("\n");
 
 	// for comparison, the same region forward
-	iterator = make_iterator(*pieceTree, 100);
+	iterator = make_iterator(doc, 100);
 	for iterator {
 		if it_index == 10 break;
 		print("%", string.{1, *it});
@@ -139,72 +127,145 @@ tree_test :: () {
 	print("\n");
 
 	count := 0;
-	iterator = make_iterator(*pieceTree, 0);
+	iterator = make_iterator(doc, 0);
 	while iterator.node != null {
 		log("Index: %, nodeLen %", count, iterator.node.piece.length);
 		next_node(*iterator);
 		count += 1;
 	}
 
-	char1 := get_char_at(*pieceTree, 101);
-	char2 := get_char_at(*pieceTree, 113);
-	char3 := get_char_at(*pieceTree, 3);
+	char1 := get_char_at(doc, 101);
+	char2 := get_char_at(doc, 113);
+	char3 := get_char_at(doc, 3);
 	log("char1 %", string.{1, *char1});
 	log("char2 %", string.{1, *char2});
 	log("char3 %", string.{1, *char3});
 
-	log("num lines %", get_number_of_lines(*pieceTree));
+	log("num lines %", get_number_of_lines(doc));
 
 	// line starts
-	log("line start 0, %", get_line_start(*pieceTree, 0));
-	log("line start 1, %", get_line_start(*pieceTree, 1));
-	log("line start 2, %", get_line_start(*pieceTree, 2));
-	log("line start 3, %", get_line_start(*pieceTree, 3));
+	log("line start 0, %", get_line_start(doc, 0));
+	log("line start 1, %", get_line_start(doc, 1));
+	log("line start 2, %", get_line_start(doc, 2));
+	log("line start 3, %", get_line_start(doc, 3));
 
 	// line ranges
-	start, end := get_line_range(*pieceTree, 2, false);
+	start, end := get_line_range(doc, 2, false);
 	log("line range for line 2 %, %", start, end);
 
-	line,col := get_coordinate_from_offset(*pieceTree, 100);
+	line,col := get_coordinate_from_offset(doc, 100);
 	log("from offset 100 we get (%,%)", line,col);
 
 	// get content
 
-	log("second line: %", get_line_content(*pieceTree, 1));
-	log("at 100, 10 chars: %", get_content(*pieceTree, 100, 10));
+	log("second line: %", get_line_content(doc, 1));
+	log("at 100, 10 chars: %", get_content(doc, 100, 10));
 
 	// deletions
-	delete(*pieceTree, 130, 19);
+	delete(doc, 130, 19);
 	
-	pretty_print_tree(pieceTree.tree);
+	pretty_print_tree(doc.tree);
 
-	iterator = make_iterator(*pieceTree, 0);
+	iterator = make_iterator(doc, 0);
 	for iterator {
 		print("%", string.{1, *it});
 	}
 }
 
-// Piece Tree API
+// Document API
 
-build_piece_tree :: (pieceTree: *PieceTree) {
-	// This assumes you've already put your initial data in the first buffer slot!!
+document_open_new :: (path: string) -> *PieceTree {
+	// check if this file is already open
+	success, existinglocator := table_find_new(*open_document_table_new, path);
+	if success {
+		bucket := open_documents_new.all_buckets[existinglocator.bucket_index];
+		assert(bucket.occupied[existinglocator.slot_index] == true);
+		return *bucket.data[existinglocator.slot_index];
+	}
 
-	pieceTree.buffers[1].text.data = pieceTree.buffers[0].text.data + pieceTree.buffers[0].text.count;
-	pieceTree.buffers[1].text.count = 0;
+	// check if the file even exists
+	if !file_exists(path) {
+		push_notification("File Does Not Exist");
+		return null;
+	}
+
+	doc, locator := find_and_occupy_empty_slot(*open_documents_new);
+	doc.bufferMemory.alignment = 1; // important!! make this hard to miss
+
+	if is_absolute_path(path) {
+		doc.path = copy_string(path);
+	}
+	else {
+		doc.path = copy_string(get_absolute_path(path));
+	}
+	path_overwrite_separators(doc.path, #char "/");
+
+	// @todo: setup document language/parsing stuff
+
+	doc.locator = locator;
+	table_add(*open_document_table_new, doc.path, doc.locator); 
+
+	document_load_from_disk(doc);
+
+	// @todo: add to file watcher
+
+	push_notification("Document Opened");
+	return doc;
+}
+
+document_load_from_disk :: (doc: *PieceTree) {
+	// if this fails, we have not reset any memory yet, so the existing document will persist in memory
+	f, success := file_open(doc.path);
+	if !success {
+		push_notification("File open failed");
+		return;
+	}
+
+	treeMemory: Flat_Pool;
+	bufferMemory: Flat_Pool;
+	otherMemory: Flat_Pool;
+	array_reset_keeping_memory(*doc.buffers[0].lineStarts);
+	array_reset_keeping_memory(*doc.buffers[1].lineStarts);
+	reset(*doc.treeMemory, overwrite_memory=true);
+	reset(*doc.bufferMemory, overwrite_memory=true);
+	reset(*doc.otherMemory, overwrite_memory=true);
+	doc.tree = null;
+	doc.lastInsert = .{0,0};
+
+	fileSize := file_length(f);
+	if (fileSize > (256*1024*1024)) {
+		// this is a large file, so reserve space for the file plus 30% for additions
+		init(*doc.bufferMemory, cast(int)(fileSize * 1.3));
+		// @todo: better heuristic for guessing how much space you need for line endings and other data
+		init(*doc.otherMemory, 512 * 1024 * 1024);
+	}
+
+	// now actually read in the file data
+	file: string;
+    file, success = read_entire_file(f,,buffer_allocator(doc));
+	if !success {
+		push_notification("File read failed");
+	}
+	file_close(*f);
+
+	doc.buffers[0].text.data = file.data;
+	doc.buffers[0].text.count = file.count;
+	doc.buffers[1].text.data = doc.buffers[0].text.data + doc.buffers[0].text.count;
+	doc.buffers[1].text.count = 0;
 
 	// count line starts
-	lineStarts := *pieceTree.buffers[0].lineStarts;
-	lineStarts.allocator = other_allocator(pieceTree);
+	lineStarts := *doc.buffers[0].lineStarts;
+	lineStarts.allocator = other_allocator(doc);
 
 	array_add(lineStarts, 0);
 	lfCount := 0;
 	crCount := 0;
 	crlfCount := 0;
 	i := 0;
-	while i < pieceTree.buffers[0].text.count {
-		byte := pieceTree.buffers[0].text[i];
+	while i < doc.buffers[0].text.count {
+		byte := doc.buffers[0].text[i];
 		if byte == #char "\r" {
-			if i < pieceTree.buffers[0].text.count-1 && pieceTree.buffers[0].text[i+1] == #char "\n" {
+			if i < doc.buffers[0].text.count-1 && doc.buffers[0].text[i+1] == #char "\n" {
 				crlfCount += 1;
 				array_add(lineStarts, xx (i+2));
 				i += 1; // skip \n
@@ -220,74 +281,74 @@ build_piece_tree :: (pieceTree: *PieceTree) {
 		i += 1;
 	}
 	if lfCount > 0 && crlfCount == 0 && crCount == 0 {
-		pieceTree.lineEndings = .LF;
+		doc.lineEndings = .LF;
 	}
 	else if lfCount == 0 && crlfCount > 0 && crCount == 0 {
-		pieceTree.lineEndings = .CRLF;
+		doc.lineEndings = .CRLF;
 	}
 	else if lfCount > 0 && crlfCount > 0 && crCount == 0 {
 		if lfCount > crlfCount {
-			pieceTree.lineEndings = .MIXED_MAJORITY_LF;
+			doc.lineEndings = .MIXED_MAJORITY_LF;
 		}
 		else {
-			pieceTree.lineEndings = .MIXED_MAJORITY_CRLF;
+			doc.lineEndings = .MIXED_MAJORITY_CRLF;
 		}
 	}
 	else if crCount > 0 {
 		push_notification("File has CR line endings, undefined behaviour will occur");
 	}
 
-	lineStarts2 := *pieceTree.buffers[1].lineStarts;
-	lineStarts2.allocator = other_allocator(pieceTree);
+	lineStarts2 := *doc.buffers[1].lineStarts;
+	lineStarts2.allocator = other_allocator(doc);
 	array_add(lineStarts2, 0);
 
 	// make root rb node
 	firstPiece: PieceTree.Piece;
-	firstPiece.length = pieceTree.buffers[0].text.count;
-	firstPiece.lineFeedCount = pieceTree.buffers[0].lineStarts.count-1;
+	firstPiece.length = doc.buffers[0].text.count;
+	firstPiece.lineFeedCount = doc.buffers[0].lineStarts.count-1;
 	firstPiece.start = .{0,0};
-	firstPiece.end = .{firstPiece.lineFeedCount, pieceTree.buffers[0].text.count - pieceTree.buffers[0].lineStarts[firstPiece.lineFeedCount]};
+	firstPiece.end = .{firstPiece.lineFeedCount, doc.buffers[0].text.count - doc.buffers[0].lineStarts[firstPiece.lineFeedCount]};
 	firstPiece.bufferIndex = 0;
 
-	pieceTree.tree = make_rb_tree(*tree_allocator(pieceTree), firstPiece);
+	doc.tree = make_rb_tree(*tree_allocator(doc), firstPiece);
 }
 
-insert :: (pieceTree: *PieceTree, atOffset: s64, text: string) {
+insert :: (doc: *PieceTree, atOffset: s64, text: string) {
 	// insert text at offset in document
 
-	node, remainder, nodeStartOffset := node_at_offset(pieceTree.tree, atOffset);
-	insertCursor := buffer_offset_to_cursor(pieceTree, node.piece, remainder);
+	node, remainder, nodeStartOffset := node_at_offset(doc.tree, atOffset);
+	insertCursor := buffer_offset_to_cursor(doc, node.piece, remainder);
 
 	// need the line/column in the buffer?, lets see for later
 	
 	// first case, inserting at the start of a node
 	if atOffset == nodeStartOffset {
 		// @todo: special case where the last insertion occured at the end of the previous node
-		newPiece := make_piece(pieceTree, text);
-		pieceTree.tree = insert_node(tree_allocator(pieceTree), pieceTree.tree, newPiece, atOffset);
+		newPiece := make_piece(doc, text);
+		doc.tree = insert_node(tree_allocator(doc), doc.tree, newPiece, atOffset);
 		return;
 	}
 
 	// second case, inserting at end of a node
 	if atOffset == nodeStartOffset+node.piece.length {
 		// @todo: special case where the last insertion occured here
-		newPiece := make_piece(pieceTree, text);
-		pieceTree.tree = insert_node(tree_allocator(pieceTree), pieceTree.tree, newPiece, atOffset);
+		newPiece := make_piece(doc, text);
+		doc.tree = insert_node(tree_allocator(doc), doc.tree, newPiece, atOffset);
 		return;
 	}
 
 	// final case, inserting in the middle of a node
-	newPieceLeft := node_trim_right(pieceTree, node.piece, insertCursor);
-	newPieceMiddle := make_piece(pieceTree, text);
-	newPieceRight := node_trim_left(pieceTree, node.piece, insertCursor);
+	newPieceLeft := node_trim_right(doc, node.piece, insertCursor);
+	newPieceMiddle := make_piece(doc, text);
+	newPieceRight := node_trim_left(doc, node.piece, insertCursor);
 
-	tree := remove_node(pieceTree.tree, nodeStartOffset);
+	tree := remove_node(doc.tree, nodeStartOffset);
 
-	tree = insert_node(tree_allocator(pieceTree), tree, newPieceLeft, nodeStartOffset);
-	tree = insert_node(tree_allocator(pieceTree), tree, newPieceMiddle, nodeStartOffset + newPieceLeft.length);
-	tree = insert_node(tree_allocator(pieceTree), tree, newPieceRight, nodeStartOffset + newPieceLeft.length + newPieceMiddle.length);
+	tree = insert_node(tree_allocator(doc), tree, newPieceLeft, nodeStartOffset);
+	tree = insert_node(tree_allocator(doc), tree, newPieceMiddle, nodeStartOffset + newPieceLeft.length);
+	tree = insert_node(tree_allocator(doc), tree, newPieceRight, nodeStartOffset + newPieceLeft.length + newPieceMiddle.length);
 
-	pieceTree.tree = tree;
+	doc.tree = tree;
 }
 
 delete :: (doc: *PieceTree, atOffset: s64, length: s64) {
