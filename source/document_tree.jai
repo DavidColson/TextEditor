@@ -505,7 +505,7 @@ get_line_start :: (doc: *Document, line: s64) -> s64 {
 		}
 	}
 
-	return get_size(doc);
+	return 0;
 }
 
 get_line_range :: (doc: *Document, line: s64, includeLineEndings := false) -> s64, s64 {
