@@ -215,6 +215,7 @@ move_word_forward :: (using panel: *Panel, checkPosition: (u8, u8, CharCategory,
 	for iter {
 		cursor.head = iter.offset+1;
 		next := (iter.firstChar+1).*;
+		next = ifx next == #char "\r" then (iter.firstChar+2).* else next;
 		prevCharCategory := categorize_char(it);
 		nextCharCategory := categorize_char(next);
 		if checkPosition(it, next, prevCharCategory, nextCharCategory) {
@@ -224,19 +225,20 @@ move_word_forward :: (using panel: *Panel, checkPosition: (u8, u8, CharCategory,
 			else {
 				if nextCharCategory != .LINE_ENDING {
 					cursor.head -= 1;
-					if get_char_at(document, cursor.head-1) == #char "\r" then cursor.head -= 1;
 				}
 				if prevCharCategory == .LINE_ENDING then cursor.anchor = cursor.head;
 				break;
 			}
 		}
 	}
+	cursor.head = shift_offset_line_endings(document, cursor.head, .REVERSE);
+	cursor.anchor = shift_offset_line_endings(document, cursor.anchor, .REVERSE);
 	panel_scroll_to_cursor(panel);
 }
 
 move_word_reverse :: (using panel: *Panel, checkPosition: (u8, u8, CharCategory, CharCategory) -> bool) {
 	if !extendSelections {
-		cursor.anchor = cursor.head+1;
+		cursor.anchor = cursor.head;
 	}
 	iter := make_iterator(document, cursor.head-1);
 	prev := get_char_at(document, cursor.head);
@@ -246,16 +248,17 @@ move_word_reverse :: (using panel: *Panel, checkPosition: (u8, u8, CharCategory,
 		prevCharCategory := categorize_char(prev);
 		if checkPosition(prev, it, prevCharCategory, nextCharCategory) {
 			if it_index == 0  && !extendSelections {
-				if !extendSelections then cursor.anchor = cursor.head+2;
+				if !extendSelections then cursor.anchor = cursor.head+1;
 			}
 			else {
 				cursor.head += 2;
-				if get_char_at(document, cursor.head-1) == #char "\r" then cursor.head += 1;
 				break;
 			}
 		}
 		prev = it;
 	}
+	cursor.head = shift_offset_line_endings(document, cursor.head, .FORWARD);
+	cursor.anchor = shift_offset_line_endings(document, cursor.anchor, .FORWARD);
 	panel_scroll_to_cursor(panel);
 }
 
@@ -457,22 +460,25 @@ enter_normal_mode :: (panel: *Panel, args: []string) {
 }
 
 enter_insert_mode_start :: (using panel: *Panel, args: []string) {
-	// if cursor.head.documentOffset > cursor.anchor.documentOffset {
-	// 	flip_cursors(*cursor.head, *cursor.anchor);
-	// }
-	// panel_reset_dialogs(panel);
-	// editorMode = .INSERT;
-	// panel_scroll_to_cursor(panel);
+	if cursor.head > cursor.anchor {
+		temp := cursor.head;
+		cursor.head = cursor.anchor;
+		cursor.anchor = temp;
+	}
+	panel_reset_dialogs(panel);
+	editorMode = .INSERT;
+	panel_scroll_to_cursor(panel);
 }
 
 enter_insert_mode_end :: (using panel: *Panel, args: []string) {
-	// if cursor.head.documentOffset < cursor.anchor.documentOffset {
-	// 	flip_cursors(*cursor.head, *cursor.anchor);
-	// }
-	// document_cursor_step_one_forward(*focusedPanel.cursor.head);
-	// panel_reset_dialogs(panel);
-	// editorMode = .INSERT;
-	// panel_scroll_to_cursor(panel);
+	if cursor.head < cursor.anchor {
+		temp := cursor.head;
+		cursor.head = cursor.anchor;
+		cursor.anchor = temp;
+	}
+	panel_reset_dialogs(panel);
+	editorMode = .INSERT;
+	panel_scroll_to_cursor(panel);
 }
 
 enter_insert_mode_line_start :: (using panel: *Panel, args: []string) {

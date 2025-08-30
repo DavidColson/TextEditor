@@ -593,6 +593,22 @@ get_size :: (doc: *Document) -> s64 {
 	return length(doc.tree);
 }
 
+shift_offset_line_endings :: (doc: *Document, offset: s64, direction: Document.IterateDirection) -> s64 {
+	// if offset is sat in between \r and \n, that is \r is the char behind it, then shift
+	// in the desired direction
+	if direction == .FORWARD {
+		if get_char_at(doc, offset-1) == #char "\r" {
+			return offset + 1;
+		}
+	}
+	else {
+		if get_char_at(doc, offset-1) == #char "\r" {
+			return offset - 1;
+		}
+	}
+	return offset;
+}
+
 // Tree iterators
 
 make_iterator :: (document: *Document, startOffset: s64 = 0) -> Document.Iterator {
@@ -709,9 +725,6 @@ jump_to :: (iterator: *Document.Iterator, offset: s64) {
 }
 
 for_expansion :: (iterator: *Document.Iterator, body: Code, flags: For_Flags) #expand {
-	// @todo: this does not skip returns like our old iterators did!!!
-
-	
 	counter := 0;
 	while outer := iterator.node != null {
 		`it: u8;

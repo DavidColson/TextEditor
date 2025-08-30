@@ -1164,14 +1164,14 @@ custom_draw_code :: (box: *UIBox, udata: *void) {
 			if panel.cursor.head != panel.cursor.anchor {
 				start := min(panel.cursor.head, panel.cursor.anchor);
 				end := max(panel.cursor.head, panel.cursor.anchor);
+				end = shift_offset_line_endings(panel.document, end + 1, .FORWARD);
 				draw_document_range(panel.document, start, end,
 				 					box.font,
 									xx box.fontSize,
 									textAreaX,
 									textAreaY,
 									linesOnScreen,
-									startVisibleLine,
-									true);
+									startVisibleLine);
 			}
 		}
 
@@ -1186,8 +1186,7 @@ custom_draw_code :: (box: *UIBox, udata: *void) {
 									textAreaX,
 									textAreaY,
 									linesOnScreen,
-									startVisibleLine,
-									false);
+									startVisibleLine);
 			}
 		}
 
@@ -1375,7 +1374,7 @@ evaluate_query_predicates :: (lang: *Language, tsMatch: TSQueryMatch, document: 
 	return true;
 }
 
-draw_document_range :: (doc: *Document, start: s64, end: s64, font: *Font, fontSize: int, textAreaX: float, textAreaY: float, linesOnScreen: []Document.LineContent, startVisibleLine: s64, includeCursor := false) {
+draw_document_range :: (doc: *Document, start: s64, end: s64, font: *Font, fontSize: int, textAreaX: float, textAreaY: float, linesOnScreen: []Document.LineContent, startVisibleLine: s64) {
 	metrics := get_font_metrics(font, fontSize);
 	rangeStart := get_coordinate_from_offset(doc, start);
 	rangeEnd := get_coordinate_from_offset(doc, end);
