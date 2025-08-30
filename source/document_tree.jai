@@ -646,6 +646,12 @@ next_node :: (iterator: *Document.Iterator, direction := Document.IterateDirecti
 		iterator.firstChar = iterator.doc.buffers[bufferIndex].text.data + startOffset;
 		iterator.lastChar = iterator.doc.buffers[bufferIndex].text.data + endOffset;
 		iterator.node = node;
+		if direction == .FORWARD {
+			iterator.offset = node.leftSubtreeLength;
+		}
+		else {
+			iterator.offset = node.leftSubtreeLength + node.piece.length;
+		}
 		return;
 	}
 
@@ -728,9 +734,12 @@ for_expansion :: (iterator: *Document.Iterator, body: Code, flags: For_Flags) #e
 			while iterator.firstChar > iterator.lastChar {
 				`it_index = counter;
 				`it = iterator.firstChar.*;
-	            #insert(break=break outer) body;  // If the user says break, break from the *outer* loop!
-				counter += 1;
+				if `it != #char "\r" {
+					#insert(break=break outer) body;  // If the user says break, break from the *outer* loop!
+					counter += 1;
+				}
 				iterator.firstChar -= 1;
+				iterator.offset -= 1;
 			}
 			next_node(iterator, .REVERSE);
 		}
@@ -738,9 +747,12 @@ for_expansion :: (iterator: *Document.Iterator, body: Code, flags: For_Flags) #e
 			while iterator.firstChar < iterator.lastChar {
 				`it_index = counter;
 				`it = iterator.firstChar.*;
-	            #insert(break=break outer) body;  // If the user says break, break from the *outer* loop!
-				counter += 1;
+				if `it != #char "\r" {
+					#insert(break=break outer) body;  // If the user says break, break from the *outer* loop!
+					counter += 1;
+				}
 				iterator.firstChar += 1;
+				iterator.offset += 1;
 			}
 			next_node(iterator, .FORWARD);
 		}

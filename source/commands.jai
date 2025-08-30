@@ -208,194 +208,210 @@ is_upper :: inline (char: u8) -> bool {
 }
 
 move_word_forward :: (using panel: *Panel, checkPosition: (u8, u8, CharCategory, CharCategory) -> bool) {
-	// if !extendSelections {
-	// 	cursor.anchor = cursor.head;
-	// }
-	// for cursor.head {
-	// 	next := document_cursor_get_char(*cursor.head);
-	// 	prevCharCategory := categorize_char(it);
-	// 	nextCharCategory := categorize_char(next);
-	// 	if checkPosition(it, next, prevCharCategory, nextCharCategory) {
-	// 		if it_index == 0 {
-	// 			if !extendSelections then cursor.anchor = cursor.head;
-	// 		}
-	// 		else {
-	// 			if nextCharCategory != .LINE_ENDING then document_cursor_step_one_backward(*cursor.head);
-	// 			if prevCharCategory == .LINE_ENDING then cursor.anchor = cursor.head;
-	// 			break;
-	// 		}
-	// 	}
-	// }
-	// panel_scroll_to_cursor(panel);
+	if !extendSelections {
+		cursor.anchor = cursor.head;
+	}
+	iter := make_iterator(document, cursor.head);
+	for iter {
+		cursor.head = iter.offset+1;
+		next := (iter.firstChar+1).*;
+		prevCharCategory := categorize_char(it);
+		nextCharCategory := categorize_char(next);
+		if checkPosition(it, next, prevCharCategory, nextCharCategory) {
+			if it_index == 0 {
+				if !extendSelections then cursor.anchor = cursor.head;
+			}
+			else {
+				if nextCharCategory != .LINE_ENDING {
+					cursor.head -= 1;
+					if get_char_at(document, cursor.head-1) == #char "\r" then cursor.head -= 1;
+				}
+				if prevCharCategory == .LINE_ENDING then cursor.anchor = cursor.head;
+				break;
+			}
+		}
+	}
+	panel_scroll_to_cursor(panel);
 }
 
 move_word_reverse :: (using panel: *Panel, checkPosition: (u8, u8, CharCategory, CharCategory) -> bool) {
-	// if !extendSelections {
-	// 	cursor.anchor = cursor.head;
-	// }
-	// prev := document_cursor_get_char(*cursor.head);
-	// for < cursor.head {
-	// 	nextCharCategory := categorize_char(it);
-	// 	prevCharCategory := categorize_char(prev);
-	// 	if checkPosition(prev, it, prevCharCategory, nextCharCategory) {
-	// 		if it_index == 0  && !extendSelections {
-	// 			if !extendSelections then cursor.anchor = cursor.head;
-	// 		}
-	// 		else {
-	// 			document_cursor_step_one_forward(*cursor.head);
-	// 			break;
-	// 		}
-	// 	}
-	// 	prev = it;
-	// }
-	// panel_scroll_to_cursor(panel);
+	if !extendSelections {
+		cursor.anchor = cursor.head+1;
+	}
+	iter := make_iterator(document, cursor.head-1);
+	prev := get_char_at(document, cursor.head);
+	for < iter {
+		cursor.head = iter.offset-1;
+		nextCharCategory := categorize_char(it);
+		prevCharCategory := categorize_char(prev);
+		if checkPosition(prev, it, prevCharCategory, nextCharCategory) {
+			if it_index == 0  && !extendSelections {
+				if !extendSelections then cursor.anchor = cursor.head+2;
+			}
+			else {
+				cursor.head += 2;
+				if get_char_at(document, cursor.head-1) == #char "\r" then cursor.head += 1;
+				break;
+			}
+		}
+		prev = it;
+	}
+	panel_scroll_to_cursor(panel);
 }
 
 move_word_start :: (using panel: *Panel, args: []string) { 
-	// move_word_forward(panel, (prev: u8, next: u8, prevCharCategory: CharCategory, nextCharCategory: CharCategory) -> bool {
-	// 	isWordBoundary := nextCharCategory != prevCharCategory;
-	// 	nextIsLineEnding := nextCharCategory == .LINE_ENDING;
-	// 	nextIsWhitespace := nextCharCategory == .WHITESPACE;
-	// 	return isWordBoundary && (nextIsLineEnding || !nextIsWhitespace);
-	// });
-	// panel_scroll_to_cursor(panel);
+	move_word_forward(panel, (prev: u8, next: u8, prevCharCategory: CharCategory, nextCharCategory: CharCategory) -> bool {
+		isWordBoundary := nextCharCategory != prevCharCategory;
+		nextIsLineEnding := nextCharCategory == .LINE_ENDING;
+		nextIsWhitespace := nextCharCategory == .WHITESPACE;
+		return isWordBoundary && (nextIsLineEnding || !nextIsWhitespace);
+	});
+	panel_scroll_to_cursor(panel);
 }
 
 move_long_word_start :: (using panel: *Panel, args: []string) { 
-	// move_word_forward(panel, (prev: u8, next: u8, prevCharCategory: CharCategory, nextCharCategory: CharCategory) -> bool {
-	// 	isLongWordBoundary := prevCharCategory != nextCharCategory;
-	// 	if (nextCharCategory == .WORD && prevCharCategory == .PUNCTUATION) 
-	// 	|| (nextCharCategory == .PUNCTUATION && prevCharCategory == .WORD) {
-	// 		isLongWordBoundary = false;
-	// 	}
+	move_word_forward(panel, (prev: u8, next: u8, prevCharCategory: CharCategory, nextCharCategory: CharCategory) -> bool {
+		isLongWordBoundary := prevCharCategory != nextCharCategory;
+		if (nextCharCategory == .WORD && prevCharCategory == .PUNCTUATION) 
+		|| (nextCharCategory == .PUNCTUATION && prevCharCategory == .WORD) {
+			isLongWordBoundary = false;
+		}
 
-	// 	nextIsLineEnding := nextCharCategory == .LINE_ENDING;
-	// 	nextIsWhitespace := nextCharCategory == .WHITESPACE;
-	// 	return isLongWordBoundary && (nextIsLineEnding || !nextIsWhitespace);
-	// });
-	// panel_scroll_to_cursor(panel);
+		nextIsLineEnding := nextCharCategory == .LINE_ENDING;
+		nextIsWhitespace := nextCharCategory == .WHITESPACE;
+		return isLongWordBoundary && (nextIsLineEnding || !nextIsWhitespace);
+	});
+	panel_scroll_to_cursor(panel);
 }
 
 move_sub_word_start :: (using panel: *Panel, args: []string) { 
-	// move_word_forward(panel, (prev: u8, next: u8, prevCharCategory: CharCategory, nextCharCategory: CharCategory) -> bool {
-	// 	isSubWordBoundary := prev != next;
-	// 	if nextCharCategory == .WORD && prevCharCategory == .WORD {
-	// 		if (prev == #char "_") != (next == #char "_") {
-	// 			isSubWordBoundary = true;
-	// 		}
-	// 		else {
-	// 			isSubWordBoundary = is_lower(prev) && is_upper(next);
-	// 		}
-	// 	}
+	move_word_forward(panel, (prev: u8, next: u8, prevCharCategory: CharCategory, nextCharCategory: CharCategory) -> bool {
+		isSubWordBoundary := prev != next;
+		if nextCharCategory == .WORD && prevCharCategory == .WORD {
+			if (prev == #char "_") != (next == #char "_") {
+				isSubWordBoundary = true;
+			}
+			else {
+				isSubWordBoundary = is_lower(prev) && is_upper(next);
+			}
+		}
 
-	// 	nextIsLineEnding := nextCharCategory == .LINE_ENDING;
-	// 	nextIsWhitespace := nextCharCategory == .WHITESPACE;
-	// 	return isSubWordBoundary && (nextIsLineEnding || !(nextIsWhitespace || next == #char "_"));
-	// });
-	// panel_scroll_to_cursor(panel);
+		nextIsLineEnding := nextCharCategory == .LINE_ENDING;
+		nextIsWhitespace := nextCharCategory == .WHITESPACE;
+		return isSubWordBoundary && (nextIsLineEnding || !(nextIsWhitespace || next == #char "_"));
+	});
+	panel_scroll_to_cursor(panel);
 }
 
 move_prev_word_start :: (using panel: *Panel, args: []string) { 
-	// move_word_reverse(panel, (prev: u8, next: u8, prevCharCategory: CharCategory, nextCharCategory: CharCategory) -> bool {
-	// 	isWordBoundary := nextCharCategory != prevCharCategory;
-	// 	if nextCharCategory == .LINE_ENDING && prevCharCategory == .LINE_ENDING {
-	// 		isWordBoundary = true;
-	// 	}
-	// 	nextIsLineEnding := nextCharCategory == .LINE_ENDING;
-	// 	prevIsWhitespace := prevCharCategory == .WHITESPACE;
-	// 	return isWordBoundary && (!prevIsWhitespace || nextIsLineEnding);
-	// });
-	// panel_scroll_to_cursor(panel);
+	move_word_reverse(panel, (prev: u8, next: u8, prevCharCategory: CharCategory, nextCharCategory: CharCategory) -> bool {
+		isWordBoundary := nextCharCategory != prevCharCategory;
+		if nextCharCategory == .LINE_ENDING && prevCharCategory == .LINE_ENDING {
+			isWordBoundary = true;
+		}
+		nextIsLineEnding := nextCharCategory == .LINE_ENDING;
+		prevIsWhitespace := prevCharCategory == .WHITESPACE;
+		return isWordBoundary && (!prevIsWhitespace || nextIsLineEnding);
+	});
+	panel_scroll_to_cursor(panel);
 }
 
 move_word_end :: (using panel: *Panel, args: []string) { 
-	// move_word_forward(panel, (prev: u8, next: u8, prevCharCategory: CharCategory, nextCharCategory: CharCategory) -> bool {
-	// 	isWordBoundary := nextCharCategory != prevCharCategory;
-	// 	nextIsLineEnding := nextCharCategory == .LINE_ENDING;
-	// 	prevIsWhitespace := prevCharCategory == .WHITESPACE;
-	// 	return isWordBoundary && (!prevIsWhitespace || nextIsLineEnding);
-	// });
-	// panel_scroll_to_cursor(panel);
+	move_word_forward(panel, (prev: u8, next: u8, prevCharCategory: CharCategory, nextCharCategory: CharCategory) -> bool {
+		isWordBoundary := nextCharCategory != prevCharCategory;
+		nextIsLineEnding := nextCharCategory == .LINE_ENDING;
+		prevIsWhitespace := prevCharCategory == .WHITESPACE;
+		return isWordBoundary && (!prevIsWhitespace || nextIsLineEnding);
+	});
+	panel_scroll_to_cursor(panel);
 }
 
 move_long_word_end :: (using panel: *Panel, args: []string) { 
-	// move_word_forward(panel, (prev: u8, next: u8, prevCharCategory: CharCategory, nextCharCategory: CharCategory) -> bool {
-	// 	isLongWordBoundary := prevCharCategory != nextCharCategory;
-	// 	if (nextCharCategory == .WORD && prevCharCategory == .PUNCTUATION) 
-	// 	|| (nextCharCategory == .PUNCTUATION && prevCharCategory == .WORD) {
-	// 		isLongWordBoundary = false;
-	// 	}
-	// 	nextIsLineEnding := nextCharCategory == .LINE_ENDING;
-	// 	prevIsWhitespace := prevCharCategory == .WHITESPACE;
-	// 	return isLongWordBoundary && (!prevIsWhitespace || nextIsLineEnding);
-	// });
-	// panel_scroll_to_cursor(panel);
+	move_word_forward(panel, (prev: u8, next: u8, prevCharCategory: CharCategory, nextCharCategory: CharCategory) -> bool {
+		isLongWordBoundary := prevCharCategory != nextCharCategory;
+		if (nextCharCategory == .WORD && prevCharCategory == .PUNCTUATION) 
+		|| (nextCharCategory == .PUNCTUATION && prevCharCategory == .WORD) {
+			isLongWordBoundary = false;
+		}
+		nextIsLineEnding := nextCharCategory == .LINE_ENDING;
+		prevIsWhitespace := prevCharCategory == .WHITESPACE;
+		return isLongWordBoundary && (!prevIsWhitespace || nextIsLineEnding);
+	});
+	panel_scroll_to_cursor(panel);
 }
 
 move_sub_word_end :: (using panel: *Panel, args: []string) { 
-	// move_word_forward(panel, (prev: u8, next: u8, prevCharCategory: CharCategory, nextCharCategory: CharCategory) -> bool {
-	// 	isSubWordBoundary := ifx prev != next then true else false;
-	// 	if nextCharCategory == .WORD && prevCharCategory == .WORD {
-	// 		if (prev == #char "_") != (next == #char "_") {
-	// 			isSubWordBoundary = true;
-	// 		}
-	// 		else {
-	// 			isSubWordBoundary = is_lower(prev) && is_upper(next);
-	// 		}
-	// 	}
+	move_word_forward(panel, (prev: u8, next: u8, prevCharCategory: CharCategory, nextCharCategory: CharCategory) -> bool {
+		isSubWordBoundary := ifx prev != next then true else false;
+		if nextCharCategory == .WORD && prevCharCategory == .WORD {
+			if (prev == #char "_") != (next == #char "_") {
+				isSubWordBoundary = true;
+			}
+			else {
+				isSubWordBoundary = is_lower(prev) && is_upper(next);
+			}
+		}
 
-	// 	nextIsLineEnding := nextCharCategory == .LINE_ENDING;
-	// 	prevIsWhitespace := prevCharCategory == .WHITESPACE;
-	// 	return isSubWordBoundary && (!(prevIsWhitespace || prev == #char "_") || nextIsLineEnding);
-	// });
-	// panel_scroll_to_cursor(panel);
+		nextIsLineEnding := nextCharCategory == .LINE_ENDING;
+		prevIsWhitespace := prevCharCategory == .WHITESPACE;
+		return isSubWordBoundary && (!(prevIsWhitespace || prev == #char "_") || nextIsLineEnding);
+	});
+	panel_scroll_to_cursor(panel);
 }
 
 jump_to_char :: (using panel: *Panel, args: []string) { 
-	// for cursor.head {
-	// 	next := document_cursor_get_char(*cursor.head);
-	// 	// @todo: assumes the args are single char, this may not always be true
-	// 	if args[0][0] == next {
-	// 		break;
-	// 	}
-	// }
-	// panel_scroll_to_cursor(panel);
+	iter := make_iterator(document, cursor.head);
+	for iter {
+		cursor.head = iter.offset;
+		// @todo: assumes the args are single char, this may not always be true
+		if args[0][0] == it {
+			break;
+		}
+	}
+	panel_scroll_to_cursor(panel);
 }
 
 jump_to_last_char :: (using panel: *Panel, args: []string) { 
-	// for < cursor.head {
-	// 	// @todo: assumes the args are single char, this may not always be true
-	// 	if args[0][0] == it {
-	// 		break;
-	// 	}
-	// }
-	// panel_scroll_to_cursor(panel);
+	iter := make_iterator(document, cursor.head);
+	for < iter {
+		cursor.head = iter.offset;
+		// @todo: assumes the args are single char, this may not always be true
+		if args[0][0] == it {
+			break;
+		}
+	}
+	panel_scroll_to_cursor(panel);
 }
 
 jump_to_before_char :: (using panel: *Panel, args: []string) { 
-	// for cursor.head {
-	// 	next := document_cursor_get_char(*cursor.head);
-	// 	// @todo: assumes the args are single char, this may not always be true
-	// 	if args[0][0] == next {
-	// 		document_cursor_step_one_backward(*cursor.head);
-	// 		break;
-	// 	}
-	// }
-	// panel_scroll_to_cursor(panel);
+	iter := make_iterator(document, cursor.head);
+	for iter {
+		cursor.head = iter.offset;
+		next := (iter.firstChar+1).*;
+		// @todo: assumes the args are single char, this may not always be true
+		if args[0][0] == next {
+			break;
+		}
+	}
+	panel_scroll_to_cursor(panel);
 }
 
 jump_to_before_last_char :: (using panel: *Panel, args: []string) { 
-	// for < cursor.head {
-	// 	// @todo: assumes the args are single char, this may not always be true
-	// 	if args[0][0] == it {
-	// 		document_cursor_step_one_forward(*cursor.head);
-	// 		break;
-	// 	}
-	// }
-	// panel_scroll_to_cursor(panel);
+	iter := make_iterator(document, cursor.head);
+	for < iter {
+		cursor.head = iter.offset;
+		// @todo: assumes the args are single char, this may not always be true
+		if args[0][0] == it {
+			cursor.head += 1;
+			break;
+		}
+	}
+	panel_scroll_to_cursor(panel);
 }
 
 expand_selection_to_lines :: (using panel: *Panel, args: []string) { 
+	// I would go so far as to just implement this the kakoune way now
+
 	// startLine := document_cursor_get_line(*cursor.head);
 	// nextLineStart := document_get_line_start(panel.document, startLine+1);
 	// lineEndingSize := ifx panel.document.lineEndings == .CRLF then 2 else 1;
