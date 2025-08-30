@@ -491,7 +491,7 @@ get_line_start :: (doc: *Document, line: s64) -> s64 {
 
 			lineInThisNode := line - lineFeedCount;
 			buffer := *doc.buffers[node.piece.bufferIndex];
-			return nodeStartOffset + (buffer_cursor_to_offset(buffer, .{lineInThisNode, 0}) - buffer_cursor_to_offset(buffer, node.piece.start));
+			return nodeStartOffset + (buffer_cursor_to_offset(buffer, .{node.piece.start.line + lineInThisNode, 0}) - buffer_cursor_to_offset(buffer, node.piece.start));
 		}
 		else {
 			if node.right == null {
@@ -693,7 +693,7 @@ jump_to :: (iterator: *Document.Iterator, offset: s64) {
 		else if offset <= node.leftSubtreeLength + node.piece.length {
 			// Target must be within this node
 			nodeStartOffset += node.leftSubtreeLength;
-			remainder = offset - nodeStartOffset;
+			remainder = iterator.offset - nodeStartOffset;
 			break;
 		}
 		else {
