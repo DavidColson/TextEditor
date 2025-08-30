@@ -53,66 +53,6 @@ chars_to_tabstop :: (column: s64) -> s64 {
 	return tabSize - column % tabSize;
 }
 
-move_to_line_visual :: (using panel: *Panel, currentLine: s64, targetLine: s64) {
-	// With the advent of fast queries
-	// you can probably just query the line content, and then clamp to that,
-	// count your tabstops and done
-
-
-	// // please note this function assumes that cursor.head is on currentLine already
-
-	// lineStartNewLine := document_get_line_start(document, targetLine);
-
-	// // the target column actually needs to be the target visual column
-	// // so we must find the start of the current line, and then count forward
-	// // so that we can account for tabstops
-	// targetVisualColumn := 0;
-	// targetActualColumn := 0;
-	// currentLineCursor := cursor.head;
-	// for < currentLineCursor {
-	// 	if it == #char "\n" || it == 0 then break;
-	// 	targetActualColumn += 1;
-	// }
-	// document_cursor_step_one_forward(*currentLineCursor);
-	// for currentLineCursor {
-	// 	if targetActualColumn == it_index then break;
-	// 	if it == #char "\t" {
-	// 		targetVisualColumn += chars_to_tabstop(targetVisualColumn);
-	// 	}
-	// 	else {
-	// 		targetVisualColumn += 1;
-	// 	}
-	// }
-
-	// newCursor := document_create_cursor(panel.document, lineStartNewLine);
-	// newColumn := 0;
-	// if cursor.virtualColumn > newColumn {
-	// 	for newCursor {
-	// 		// stop if we get to the end of the new line
-	// 		if it == #char "\n" {
-	// 			document_cursor_step_one_backward(*newCursor);
-	// 			break;
-	// 		}
-
-	// 		// count the visual columns
-	// 		if it == #char "\t" {
-	// 			newColumn += chars_to_tabstop(newColumn);
-	// 		}
-	// 		else {
-	// 			newColumn += 1;
-	// 		}
-			
-	// 		// stop when we're matching the target visual column
-	// 		if newColumn == cursor.virtualColumn then break;
-	// 		if newColumn > cursor.virtualColumn {
-	// 			document_cursor_step_one_backward(*newCursor);
-	// 			break;
-	// 		}
-	// 	}
-	// }
-	// cursor.head = newCursor;
-}
-
 move_one_line_down :: (using panel: *Panel, args: []string) {
 	cursorCoordinate := get_coordinate_from_offset(document, cursor.head);
 	numLines := get_number_of_lines(document);
@@ -169,55 +109,60 @@ move_one_line_up :: (using panel: *Panel, args: []string) {
 }
 
 goto_document_start :: (using panel: *Panel, args: []string) {
-	// document_cursor_jump_to_offset(*cursor.head, 0);
+	cursor.head = 0;
 
-	// if !extendSelections {
-	// 	cursor.anchor = cursor.head;
-	// }
+	if !extendSelections {
+		cursor.anchor = cursor.head;
+	}
 
-	// // scroll the window if the cursor will now become out of view
-	// panel_scroll_to_line(panel, 0);
+	// scroll the window if the cursor will now become out of view
+	panel_scroll_to_line(panel, 0);
 }
 
 goto_document_end :: (using panel: *Panel, args: []string) {
-	// document_cursor_jump_to_offset(*cursor.head, document.size);
+	cursor.head = get_size(document)-1;
 
-	// if !extendSelections {
-	// 	cursor.anchor = cursor.head;
-	// }
+	if get_char_at(document, cursor.head-1) == #char "\n" {
+		cursor.head -= 1;
+	}
+	if get_char_at(document, cursor.head-1) == #char "\r" {
+		cursor.head -= 1;
+	}
 
-	// // scroll the window if the cursor will now become out of view
-	// pageSize := panel_get_page_size(panel);
-	// cursorLine := document_cursor_get_line(*cursor.head);
-	// panel_scroll_to_line(panel, cursorLine - pageSize + 1);
+	if !extendSelections {
+		cursor.anchor = cursor.head;
+	}
+
+	// scroll the window if the cursor will now become out of view
+	pageSize := panel_get_page_size(panel);
+	cursorLine := get_coordinate_from_offset(document, cursor.head).line;
+	panel_scroll_to_line(panel, cursorLine - pageSize + 1);
 }
 
 goto_line_end :: (using panel: *Panel, args: []string) { 
-	// for cursor.head {
-	// 	if it == #char "\n" {
-	// 		document_cursor_step_one_backward(*cursor.head);
-	// 		break;
-	// 	}
-	// }
+	coordinate := get_coordinate_from_offset(document, cursor.head);
+	cursor.head = get_line_start(document, coordinate.line + 1);
 
-	// if !extendSelections {
-	// 	cursor.anchor = cursor.head;
-	// }
-	// panel_scroll_to_cursor(panel);
+	if get_char_at(document, cursor.head-1) == #char "\n" {
+		cursor.head -= 1;
+	}
+	if get_char_at(document, cursor.head-1) == #char "\r" {
+		cursor.head -= 1;
+	}
+
+	if !extendSelections {
+		cursor.anchor = cursor.head;
+	}
+	panel_scroll_to_cursor(panel);
 }
 
 goto_line_start :: (using panel: *Panel, args: []string) { 
-	// for < cursor.head {
-	// 	if it == #char "\n" {
-	// 		document_cursor_step_one_forward(*cursor.head);
-	// 		break;
-	// 	}
-	// }
-
-	// if !extendSelections {
-	// 	cursor.anchor = cursor.head;
-	// }
-	// panel_scroll_to_cursor(panel);
+	coordinate := get_coordinate_from_offset(document, cursor.head);
+	cursor.head = get_line_start(document, coordinate.line);
+	if !extendSelections {
+		cursor.anchor = cursor.head;
+	}
+	panel_scroll_to_cursor(panel);
 }
 
 CharCategory :: enum {
