@@ -3,59 +3,50 @@
 // ------------------------------------
 
 move_one_char_left :: (using panel: *Panel, args: []string) {
-	// character := document_cursor_step_one_backward(*cursor.head);
+	cursorCoordinate := get_coordinate_from_offset(document, cursor.head);
 
-	// if character == #char "\t" {
-	// 	cursor.virtualColumn -= chars_to_tabstop(cursor.virtualColumn);
-	// }
-	// else if character == #char "\n" {
-	// 	// wrapping back to the previous line
-	// 	// means we must calculate the visual column length of the previous line
-	// 	line := document_cursor_get_line(*cursor.head);
-	// 	lineStart := document_get_line_start(cursor.head.doc, line);
+	lineStart, lineEnd := get_line_range(panel.document, cursorCoordinate.line);
 
-	// 	cursor.virtualColumn = 0;
-	// 	tempCursor : DocumentCursor;
-	// 	tempCursor.doc = panel.document;
-	// 	tempCursor.node = panel.document.pieceChainHead;
-	// 	document_cursor_jump_to_offset(*tempCursor, lineStart);
-	// 	for tempCursor {
-	// 		if it == #char "\n" then break;
-	// 		if it == #char "\t" {
-	// 			cursor.virtualColumn += chars_to_tabstop(cursor.virtualColumn);
-	// 		}
-	// 		else {
-	// 			cursor.virtualColumn += 1;
-	// 		}
-	// 	}
-	// }
-	// else {
-	// 	cursor.virtualColumn -= 1;
-	// }
+	panel.cursor.head -= 1;
+	panel.cursor.head = clamp(panel.cursor.head, lineStart, lineEnd);
+	
+	character := get_char_at(document, cursor.head);
+	
+	if character == #char "\t" {
+		cursor.virtualColumn -= chars_to_tabstop(cursor.virtualColumn);
+	}
+	else {
+		cursor.virtualColumn -= 1;
+	}
+	cursor.virtualColumn = clamp(cursor.virtualColumn, 0, lineEnd - lineStart);
 
-	// if !extendSelections {
-	// 	cursor.anchor = cursor.head;
-	// }
-	// panel_scroll_to_cursor(panel);
+	if !extendSelections {
+		cursor.anchor = cursor.head;
+	}
+	panel_scroll_to_cursor(panel);
 }
 
 move_one_char_right :: (using panel: *Panel, args: []string) {
-	// character := document_cursor_step_one_forward(*cursor.head);
+	cursorCoordinate := get_coordinate_from_offset(document, cursor.head);
 
-	// if character == #char "\t" {
-	// 	cursor.virtualColumn += chars_to_tabstop(cursor.virtualColumn);
-	// }
-	// else if character == #char "\n" {
-	// 	cursor.virtualColumn = 0;
-	// }
-	// else {
-	// 	cursor.virtualColumn += 1;
-	// }
+	lineStart, lineEnd := get_line_range(panel.document, cursorCoordinate.line);
 
-	// if !extendSelections {
-	// 	cursor.anchor = cursor.head;
-	// }
-	// panel_scroll_to_cursor(panel);
+	character := get_char_at(document, cursor.head);
+	panel.cursor.head += 1;
+	panel.cursor.head = clamp(panel.cursor.head, lineStart, lineEnd);
+
+	if character == #char "\t" {
+		cursor.virtualColumn += chars_to_tabstop(cursor.virtualColumn);
+	}
+	else {
+		cursor.virtualColumn += 1;
+	}
+	cursor.virtualColumn = clamp(cursor.virtualColumn, 0, lineEnd - lineStart);
+
+	if !extendSelections {
+		cursor.anchor = cursor.head;
+	}
+	panel_scroll_to_cursor(panel);
 }
 
 chars_to_tabstop :: (column: s64) -> s64 {
@@ -63,6 +54,11 @@ chars_to_tabstop :: (column: s64) -> s64 {
 }
 
 move_to_line_visual :: (using panel: *Panel, currentLine: s64, targetLine: s64) {
+	// With the advent of fast queries
+	// you can probably just query the line content, and then clamp to that,
+	// count your tabstops and done
+
+
 	// // please note this function assumes that cursor.head is on currentLine already
 
 	// lineStartNewLine := document_get_line_start(document, targetLine);
@@ -118,30 +114,58 @@ move_to_line_visual :: (using panel: *Panel, currentLine: s64, targetLine: s64) 
 }
 
 move_one_line_down :: (using panel: *Panel, args: []string) {
-	// currentLine := document_cursor_get_line(*cursor.head);
-	// numLines := document_get_num_lines(document);
-	// newLine := min(currentLine+1, numLines - 1);
+	cursorCoordinate := get_coordinate_from_offset(document, cursor.head);
+	numLines := get_number_of_lines(document);
+	newLine := min(cursorCoordinate.line + 1, numLines - 1);
+	newLineContent := get_line_content(panel.document, newLine);
 
-	// move_to_line_visual(panel, currentLine, newLine);
+	columnCounter := 0;
+	targetVisualColumn := 0;
+	for newLineContent.text {
+		if columnCounter == cursor.virtualColumn then break;
+		if it == #char "\t" {
+			columnCounter += chars_to_tabstop(columnCounter);
+		}
+		else {
+			columnCounter += 1;
+		}
+		targetVisualColumn += 1;
+	}
 
-	// if !extendSelections {
-	// 	cursor.anchor = cursor.head;
-	// }
+	cursor.head = newLineContent.startByteOffset + targetVisualColumn;
 
-	// panel_scroll_to_cursor(panel);
+	if !extendSelections {
+		cursor.anchor = cursor.head;
+	}
+
+	panel_scroll_to_cursor(panel);
 }
 
 move_one_line_up :: (using panel: *Panel, args: []string) {
-	// currentLine := document_cursor_get_line(*cursor.head);
-	// newLine :=max(currentLine-1, 0);
+	cursorCoordinate := get_coordinate_from_offset(document, cursor.head);
+	newLine := max(cursorCoordinate.line - 1, 0);
+	newLineContent := get_line_content(panel.document, newLine);
 
-	// move_to_line_visual(panel, currentLine, newLine);
+	columnCounter := 0;
+	targetVisualColumn := 0;
+	for newLineContent.text {
+		if columnCounter == cursor.virtualColumn then break;
+		if it == #char "\t" {
+			columnCounter += chars_to_tabstop(columnCounter);
+		}
+		else {
+			columnCounter += 1;
+		}
+		targetVisualColumn += 1;
+	}
 
-	// if !extendSelections {
-	// 	cursor.anchor = cursor.head;
-	// }
+	cursor.head = newLineContent.startByteOffset + targetVisualColumn;
 
-	// panel_scroll_to_cursor(panel);
+	if !extendSelections {
+		cursor.anchor = cursor.head;
+	}
+
+	panel_scroll_to_cursor(panel);
 }
 
 goto_document_start :: (using panel: *Panel, args: []string) {

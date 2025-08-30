@@ -36,6 +36,7 @@ panel_set_active_document :: (panel: *Panel, doc: *Document) {
 	panel.cursor = .{};
 	panel.cursor.head = 0;
 	panel.cursor.anchor = 0;
+	panel.cursor.virtualColumn = 0;
 }
 
 panel_reset_dialogs :: (panel: *Panel) {

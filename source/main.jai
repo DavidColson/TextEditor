@@ -490,7 +490,7 @@ build_ui_panel :: (panel: *Panel) {
 
 		// location
 		cursorCoordinate := get_coordinate_from_offset(panel.document, panel.cursor.head);
-		box(ui_key("Ln: % Col: % Byte: %", cursorCoordinate.line+1, cursorCoordinate.col, panel.cursor.head), .{
+		box(ui_key("Ln: % Col: % vCol: % Byte: %", cursorCoordinate.line+1, cursorCoordinate.col, panel.cursor.virtualColumn, panel.cursor.head), .{
 			flags=.DRAW_TEXT,
 			layout=.{ width=text_content(), height=text_content() },
 		});
@@ -607,6 +607,18 @@ build_ui_panel :: (panel: *Panel) {
 			column := ifx run.byteOffsets.count > 0 then run.byteOffsets[run.byteOffsets.count-1] else 0;
 			cursor.head = lineContent.startByteOffset + column;
 			cursor.anchor = cursor.head;
+
+			// update the virtual column
+			cursor.virtualColumn = 0;
+			for lineContent.text {
+				if it_index == column then break;
+				if it == #char "\t" {
+					cursor.virtualColumn += chars_to_tabstop(cursor.virtualColumn);
+				}
+				else {
+					cursor.virtualColumn += 1;
+				}
+			}
 		}
 		
 		if signal.pressed {
@@ -1109,9 +1121,6 @@ custom_draw_code :: (box: *UIBox, udata: *void) {
 		metrics := get_font_metrics(box.font, xx box.fontSize);
 		documentLines := get_number_of_lines(panel.document);
 
-		if panel.cursor.head > 100 {
-			log("hello");
-		}
 		cursorLine := get_coordinate_from_offset(panel.document, panel.cursor.head).line;
 
 		startVisibleLine : s64;
