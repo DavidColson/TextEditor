@@ -342,6 +342,14 @@ document_get_by_path :: (path: string) -> bool, *Document {
 }
 
 insert :: (doc: *Document, atOffset: s64, text: string) {
+	#if BUILD_TYPE == BuildType.DEBUG {
+		// Check to make sure we won't split a crlf
+		if atOffset > 0 {
+			character := get_char_at(doc, atOffset-1);
+			assert(character != #char "\r");
+		}
+	}
+
 	// insert text at offset in document
 
 	node, remainder, nodeStartOffset := node_at_offset(doc, doc.tree, atOffset);

@@ -630,13 +630,18 @@ new_line_below :: (using panel: *Panel, args: []string) {
 }
 
 new_line_above :: (using panel: *Panel, args: []string) {
-	// goto_line_start(panel, args);
-	// insert_mode_line_break(panel, args);
+	goto_line_start(panel, args);
+	insert_mode_line_break(panel, args);
 
-	// document_cursor_step_one_backward(*panel.cursor.head,);
-	// panel.cursor.anchor = panel.cursor.head;
+	if panel.document.lineEndings == .LF || panel.document.lineEndings == .MIXED_MAJORITY_LF {
+		panel.cursor.head -= 1;
+	}
+	else {
+		panel.cursor.head -= 2;
+	}
 
-	// enter_insert_mode_start(panel, args);
+	panel.cursor.anchor = panel.cursor.head;
+	enter_insert_mode_start(panel, args);
 }
 
 indent_line :: (using panel: *Panel, args: []string) {
@@ -894,29 +899,19 @@ insert_mode_insert_string :: (input: string) {
 	distanceToAnchor := focusedPanel.cursor.anchor - focusedPanel.cursor.head;
 	insert(focusedPanel.document, focusedPanel.cursor.head, input);
 
-	// @todo: may not need to do anything so fancy in the new system?
+	// move the cursor along
+	focusedPanel.cursor.head += input.count;
+	focusedPanel.cursor.virtualColumn = 0;
 
 	// update the anchor
-	// focusedPanel.cursor.anchor = focusedPanel.cursor.head;
-	// if distanceToAnchor > 0 {
-	// 	for :raw_bytes focusedPanel.cursor.anchor {
-	// 		if it_index >= distanceToAnchor-1 then break;
-	// 	}
-	// }
-	// else if distanceToAnchor < 0 {
-	// 	for < :raw_bytes focusedPanel.cursor.anchor {
-	// 		if it_index >= abs(distanceToAnchor)-1 then break;
-	// 	}
-	// }
-	
-	// move the cursors as appropriate,
-	// head will move right, anchor will also move if it's ahead of the head
-	// extendSelections = true;
-	// if focusedPanel.cursor.head.documentOffset <= focusedPanel.cursor.anchor.documentOffset {
-	// 	document_cursor_step_one_forward(*focusedPanel.cursor.anchor);
-	// }
+	if distanceToAnchor > 0 {
+		// anchor is ahead, we want to move it same as the head
+		focusedPanel.cursor.anchor += input.count;
+	}
+	else if distanceToAnchor == 0 {
+		focusedPanel.cursor.anchor = focusedPanel.cursor.head;
+	}
 
-	move_one_char_right(*focusedPanel, string.[]);
 	extendSelections = false;
 	panel_scroll_to_cursor(*focusedPanel);
 }
