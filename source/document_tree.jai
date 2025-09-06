@@ -433,6 +433,7 @@ delete :: (doc: *Document, atOffset: s64, length: s64) {
 		doc.tree = remove_node(doc.tree, firstNodeOffset);
 		doc.tree = insert_node(tree_allocator(doc), doc.tree, newPieceLeft, firstNodeOffset);
 		doc.tree = insert_node(tree_allocator(doc), doc.tree, newPieceRight, firstNodeOffset + newPieceLeft.length);
+		return;
 	}
 
 	// the latter half of this function deals with the case where the deletion covers multiples nodes
@@ -780,6 +781,10 @@ for_expansion :: (iterator: *Document.Iterator, body: Code, flags: For_Flags) #e
 	}
 }
 
+pretty_print_tree :: (node: *Document.Node) {
+	pretty_print_tree(node, "", false);
+}
+
 #scope_file
 
 // Piece Tree helpers
@@ -983,9 +988,6 @@ lf_count :: (root: *Document.Node) -> s64 {
 	return root.leftSubtreeLfCount + root.piece.lineFeedCount + lf_count(root.right);
 }
 
-pretty_print_tree :: (node: *Document.Node) {
-	pretty_print_tree(node, "", false);
-}
 
 // insertion helpers
 
