@@ -517,18 +517,17 @@ select_register :: (using panel: *Panel, args: []string) {
 }
 
 delete_selection :: (using panel: *Panel, args: []string) {
-	// if cursor.head.documentOffset < cursor.anchor.documentOffset {
-	// 	end := cursor.anchor;
-	// 	document_cursor_step_one_forward(*end);
-	// 	cursor.head = document_delete_text(document, cursor.head, end);
-	// }
-	// else {
-	// 	end := cursor.head;
-	// 	document_cursor_step_one_forward(*end);
-	// 	cursor.head = document_delete_text(document, cursor.anchor, end);
-	// }
-	// cursor.anchor = cursor.head;
-	// panel_scroll_to_cursor(panel);
+	if cursor.head < cursor.anchor {
+		delete(document, cursor.head, cursor.anchor-cursor.head + 1);
+		cursor.anchor = cursor.head;
+	}
+	else {
+		delete(document, cursor.anchor, cursor.head-cursor.anchor + 1);
+		cursor.head = cursor.anchor;
+	}
+
+	// @todo: put the deletion into a register
+	panel_scroll_to_cursor(panel);
 }
 
 change_selection :: (using panel: *Panel, args: []string) {
@@ -901,6 +900,8 @@ insert_mode_insert_string :: (input: string) {
 
 	// move the cursor along
 	focusedPanel.cursor.head += input.count;
+
+	// @todo: update virtual column correctly
 	focusedPanel.cursor.virtualColumn = 0;
 
 	// update the anchor
@@ -935,47 +936,39 @@ insert_tab_character :: (using panel: *Panel, args: []string) {
 }
 
 insert_mode_backward_delete_char :: (using panel: *Panel, args: []string) {
-	// distanceToAnchor := focusedPanel.cursor.anchor.documentOffset - focusedPanel.cursor.head.documentOffset;
+	distanceToAnchor := cursor.anchor - cursor.head;
 
-	// stepCursor := cursor.head;
-	// document_cursor_step_one_backward(*stepCursor);
-	// cursor.head = document_delete_text(document, stepCursor, cursor.head);
+	delete(document, cursor.head-1, 1);
+	cursor.head -= 1;
+	// @todo: update virtual column correctly
 
-	// // update the anchor
-	// focusedPanel.cursor.anchor = focusedPanel.cursor.head;
-	// if distanceToAnchor > 0 {
-	// 	for :raw_bytes focusedPanel.cursor.anchor {
-	// 		if it_index >= distanceToAnchor-1 then break;
-	// 	}
-	// }
-	// else if distanceToAnchor < 0 {
-	// 	for < :raw_bytes focusedPanel.cursor.anchor {
-	// 		if it_index >= abs(distanceToAnchor)-1 then break;
-	// 	}
-	// }
+	// update the anchor
+	if distanceToAnchor > 0 {
+		// anchor is ahead, we want to move it same as the head
+		cursor.anchor -= 1;
+	}
+	else if distanceToAnchor == 0 {
+		cursor.anchor = cursor.head;
+	}
 
-	// // move anchor as appropriate
-	// if focusedPanel.cursor.head.documentOffset > focusedPanel.cursor.anchor.documentOffset {
-	// 	document_cursor_step_one_forward(*focusedPanel.cursor.anchor);
-	// }
 	panel_scroll_to_cursor(panel);
 }
 
 insert_mode_forward_delete_char :: (using panel: *Panel, args: []string) {
-	// distanceToAnchor := focusedPanel.cursor.anchor.documentOffset - focusedPanel.cursor.head.documentOffset;
+	distanceToAnchor := cursor.anchor - cursor.head;
 
-	// stepCursor := cursor.head;
-	// document_cursor_step_one_forward(*stepCursor);
-	// cursor.head = document_delete_text(document, cursor.head, stepCursor);
+	delete(document, cursor.head, 1);
+	// @todo: update virtual column correctly
 
-	// // if the anchor is ahead of us, it should move back one
-	// if distanceToAnchor > 0 {
-	//  	document_cursor_step_one_backward(*focusedPanel.cursor.anchor);
-	// }
-	// else if distanceToAnchor == 0 {
-	// 	focusedPanel.cursor.anchor = focusedPanel.cursor.head;
-	// }
-	// panel_scroll_to_cursor(panel);
+	// update the anchor
+	if distanceToAnchor > 0 {
+		// anchor is ahead, we want to move it same as the head
+		cursor.anchor -= 1;
+	}
+	else if distanceToAnchor == 0 {
+		cursor.anchor = cursor.head;
+	}
+	panel_scroll_to_cursor(panel);
 }
 
 
