@@ -482,30 +482,32 @@ enter_insert_mode_end :: (using panel: *Panel, args: []string) {
 }
 
 enter_insert_mode_line_start :: (using panel: *Panel, args: []string) {
-	// extendSelections = false;
-	// goto_line_start(panel, args);
-	// // not really sure what this does, try without
-	// cursorChar := document_cursor_get_char(*cursor.head);
-	// if is_space(cursorChar) {
-	// 	for cursor.head {
-	// 		next := document_cursor_get_char(*cursor.head);
-	// 		if !is_space(next) break;
-	// 	}
-	// }
-	// cursor.anchor = cursor.head;
+	extendSelections = false;
+	goto_line_start(panel, args);
 
-	// panel_reset_dialogs(panel);
-	// editorMode = .INSERT;
-	// panel_scroll_to_cursor(panel);
+	// put the cursor on the first non whitespace character
+	cursorChar := get_char_at(document, cursor.head);
+	if is_space(cursorChar) {
+		iterator := make_iterator(document, cursor.head);
+		for iterator {
+			cursor.head = iterator.offset;
+			if !is_space(it) break;
+		}
+	}
+	cursor.anchor = cursor.head;
+
+	panel_reset_dialogs(panel);
+	editorMode = .INSERT;
+	panel_scroll_to_cursor(panel);
 }
 
 enter_insert_mode_line_end :: (using panel: *Panel, args: []string) {
-	// extendSelections = false;
-	// goto_line_end(panel, args);
+	extendSelections = false;
+	goto_line_end(panel, args);
 
-	// panel_reset_dialogs(panel);
-	// editorMode = .INSERT;
-	// panel_scroll_to_cursor(panel);
+	panel_reset_dialogs(panel);
+	editorMode = .INSERT;
+	panel_scroll_to_cursor(panel);
 }
 
 toggle_extend_selections :: (using panel: *Panel, args: []string) { 
@@ -536,90 +538,68 @@ change_selection :: (using panel: *Panel, args: []string) {
 }
 
 yank_selection :: (using panel: *Panel, args: []string) {
-	// // read the selection from the document
-	// // @todo: it may be useful to pull out this snippet as a generic "read range from document"
-	// readCursor: DocumentCursor;
-	// stopCursor: DocumentCursor;
-	// if cursor.head.documentOffset < cursor.anchor.documentOffset {
-	// 	readCursor = cursor.head;
-	// 	stopCursor = cursor.anchor;
-	// }
-	// else {
-	// 	readCursor = cursor.anchor;
-	// 	stopCursor = cursor.head;
-	// }
+	// read the selection from the document
+	// @todo: it may be useful to pull out this snippet as a generic "read range from document"
+	rangeStart := min(cursor.head, cursor.anchor);
+	rangeEnd := max(cursor.head, cursor.anchor);
 
-	// text: [..]u8;
-	// for :raw_bytes readCursor {
-	// 	array_add(*text, it,,temp);
-	// 	if readCursor.documentOffset >= stopCursor.documentOffset+1 then break;
-	// }
-	// textStr := string.{text.count, text.data};
-	// push_notification(sprint("Yanked into register %", string.{1,*registers.selectedRegister}));
+	text: [..]u8;
+	iterator := make_iterator(document, rangeStart);
+	for :raw_bytes iterator {
+		array_add(*text, it,,temp);
+		if iterator.offset >= rangeEnd then break;
+	}
+	textStr := string.{text.count, text.data};
+	push_notification(sprint("Yanked into register %", string.{1,*registers.selectedRegister}));
 
-	// write_register(registers.selectedRegister, textStr);
-	// panel_scroll_to_cursor(panel);
+	write_register(registers.selectedRegister, textStr);
+	panel_scroll_to_cursor(panel);
 }
 
 paste_after_selection :: (using panel: *Panel, args: []string) {
-	// // read from register (either default or selected)
-	// textToPaste := read_register(registers.selectedRegister);
+	// read from register (either default or selected)
+	textToPaste := read_register(registers.selectedRegister);
 
-	// // insert into document
-	// at := cursor.head;
-	// document_cursor_step_one_forward(*at);
-	// cursor.anchor = document_insert_text(document, at, textToPaste);
+	// insert into document
+	insert(document, cursor.head+1, textToPaste);
+	cursor.anchor = cursor.head+1;
+	cursor.head = cursor.anchor + textToPaste.count;
 
-	// // move cursor head to the right side of the pasted region
-	// cursor.head = cursor.anchor;
-	// if textToPaste.count > 0 {
-	// 	for :raw_bytes cursor.head {
-	// 		if it_index >= textToPaste.count-2 then break;
-	// 	}
-	// }
-	// panel_scroll_to_cursor(panel);
+	panel_scroll_to_cursor(panel);
 }
 
 paste_before_selection :: (using panel: *Panel, args: []string) {
-	// // read from register (either default or selected)
-	// textToPaste := read_register(registers.selectedRegister);
+	// read from register (either default or selected)
+	textToPaste := read_register(registers.selectedRegister);
 
-	// // insert into document
-	// cursor.anchor = document_insert_text(document, cursor.head, textToPaste);
+	// insert into document
+	insert(document, cursor.head, textToPaste);
+	cursor.anchor = cursor.head;
+	cursor.head = cursor.anchor + textToPaste.count;
 
-	// // move cursor head to the right side of the pasted region
-	// cursor.head = cursor.anchor;
-	// if textToPaste.count > 0 {
-	// 	for :raw_bytes cursor.head {
-	// 		if it_index >= textToPaste.count-2 then break;
-	// 	}
-	// }
-	// panel_scroll_to_cursor(panel);
+	panel_scroll_to_cursor(panel);
 }
 
 replace_selection :: (using panel: *Panel, args: []string) {
-	// rangeLength := abs(cursor.head.documentOffset - cursor.anchor.documentOffset);
+	head := cursor.head;
+	anchor := cursor.anchor;
+	rangeLength := abs(cursor.head - cursor.anchor);
 
-	// delete_selection(panel, args);
+	delete_selection(panel, args);
 
-	// builder : String_Builder;
-	// builder.allocator = temp;
-	// init_string_builder(*builder);
+	builder : String_Builder;
+	builder.allocator = temp;
+	init_string_builder(*builder);
 
-	// for 0..rangeLength {
-	// 	append(*builder, args[0]);
-	// }
+	for 0..rangeLength {
+		append(*builder, args[0]);
+	}
 
-	// focusedPanel.cursor.head = document_insert_text(focusedPanel.document, focusedPanel.cursor.head, builder_to_string(*builder,,temp));
+	insert(document, min(cursor.head, cursor.anchor), builder_to_string(*builder,,temp));
+	cursor.head = head;
+	cursor.anchor = anchor;
 
-	// // update cursor positions
-	// focusedPanel.cursor.anchor = focusedPanel.cursor.head;
-	// if rangeLength > 0 {
-	// 	for :raw_bytes focusedPanel.cursor.head {
-	// 		if it_index >= rangeLength-1 then break;
-	// 	}
-	// }
-	// panel_scroll_to_cursor(panel);
+	panel_scroll_to_cursor(panel);
 }
 
 new_line_below :: (using panel: *Panel, args: []string) {

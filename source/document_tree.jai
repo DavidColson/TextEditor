@@ -632,6 +632,14 @@ make_iterator :: (document: *Document, startOffset: s64 = 0) -> Document.Iterato
 }
 
 next_node :: (iterator: *Document.Iterator, direction := Document.IterateDirection.FORWARD) {
+	// NOTE: This does not update iterator.offset
+	// in a for expansion it will be done at each iteration step
+	// in other situations you may require calculating it manually, or contextually
+	// With no context it'll be another binary search of the tree to find the offset
+	// you could store nodeStartOffset in the iterator, such that you can set the offset based on that
+	// by adding the current node length or subtracting the previous depending on direction
+	// no need at the moment though so I'll leave this as is
+
 	// if you want to do a prev_node version, just flip left and right nodes in here
 
 	node := iterator.node;
@@ -671,12 +679,6 @@ next_node :: (iterator: *Document.Iterator, direction := Document.IterateDirecti
 		iterator.firstChar = iterator.doc.buffers[bufferIndex].text.data + startOffset;
 		iterator.lastChar = iterator.doc.buffers[bufferIndex].text.data + endOffset;
 		iterator.node = node;
-		if direction == .FORWARD {
-			iterator.offset = node.leftSubtreeLength;
-		}
-		else {
-			iterator.offset = node.leftSubtreeLength + node.piece.length;
-		}
 		return;
 	}
 
@@ -745,22 +747,24 @@ for_expansion :: (iterator: *Document.Iterator, body: Code, flags: For_Flags) #e
 			endOffset := buffer_cursor_to_offset(*iterator.doc.buffers[bufferIndex], iterator.node.piece.end);
 			startPtr := iterator.doc.buffers[bufferIndex].text.data + startOffset;
 			endPtr := iterator.doc.buffers[bufferIndex].text.data + endOffset;
-			if startPtr == iterator.firstChar {
-				iterator.firstChar = endPtr-1;
-				iterator.lastChar = startPtr-1;
+			if iterator.firstChar > startPtr || iterator.offset == iterator.node.leftSubtreeLength {
+				iterator.lastChar = iterator.firstChar;
+				iterator.firstChar = startPtr-1;
 			}
 			else {
-				iterator.lastChar = startPtr-1;
+				iterator.lastChar -= 1;
+				iterator.firstChar -= 1;
 			}
 
-			while iterator.firstChar > iterator.lastChar {
+
+			while iterator.firstChar < iterator.lastChar {
 				`it_index = counter;
-				`it = iterator.firstChar.*;
+				`it = iterator.lastChar.*;
 				if `it != #char "\r" {
 					#insert(break=break outer) body;  // If the user says break, break from the *outer* loop!
 					counter += 1;
 				}
-				iterator.firstChar -= 1;
+				iterator.lastChar -= 1;
 				iterator.offset -= 1;
 			}
 			next_node(iterator, .REVERSE);
@@ -773,6 +777,50 @@ for_expansion :: (iterator: *Document.Iterator, body: Code, flags: For_Flags) #e
 					#insert(break=break outer) body;  // If the user says break, break from the *outer* loop!
 					counter += 1;
 				}
+				iterator.firstChar += 1;
+				iterator.offset += 1;
+			}
+			next_node(iterator, .FORWARD);
+		}
+	}
+}
+
+raw_bytes :: (iterator: *Document.Iterator, body: Code, flags: For_Flags) #expand {
+	counter := 0;
+	while outer := iterator.node != null {
+		`it: u8;
+		`it_index := 0;
+		if flags & .REVERSE {
+			// need to adjust the start and end pointers if we're going backward
+			bufferIndex := iterator.node.piece.bufferIndex;
+			startOffset := buffer_cursor_to_offset(*iterator.doc.buffers[bufferIndex], iterator.node.piece.start);
+			endOffset := buffer_cursor_to_offset(*iterator.doc.buffers[bufferIndex], iterator.node.piece.end);
+			startPtr := iterator.doc.buffers[bufferIndex].text.data + startOffset;
+			endPtr := iterator.doc.buffers[bufferIndex].text.data + endOffset;
+			if startPtr == iterator.firstChar {
+				iterator.firstChar = endPtr-1;
+				iterator.lastChar = startPtr-1;
+			}
+			else {
+				iterator.lastChar = startPtr-1;
+			}
+
+			while iterator.firstChar > iterator.lastChar {
+				`it_index = counter;
+				`it = iterator.firstChar.*;
+				#insert(break=break outer) body;  // If the user says break, break from the *outer* loop!
+				counter += 1;
+				iterator.firstChar -= 1;
+				iterator.offset -= 1;
+			}
+			next_node(iterator, .REVERSE);
+		}
+		else {
+			while iterator.firstChar < iterator.lastChar {
+				`it_index = counter;
+				`it = iterator.firstChar.*;
+				#insert(break=break outer) body;  // If the user says break, break from the *outer* loop!
+				counter += 1;
 				iterator.firstChar += 1;
 				iterator.offset += 1;
 			}
