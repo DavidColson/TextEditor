@@ -561,9 +561,9 @@ paste_after_selection :: (using panel: *Panel, args: []string) {
 	textToPaste := read_register(registers.selectedRegister);
 
 	// insert into document
-	insert(document, cursor.head+1, textToPaste);
-	cursor.anchor = cursor.head+1;
-	cursor.head = cursor.anchor + textToPaste.count;
+	insert(document, max(cursor.head, cursor.anchor)+1, textToPaste);
+	cursor.anchor = max(cursor.head, cursor.anchor)+1;
+	cursor.head = cursor.anchor + textToPaste.count - 1;
 
 	panel_scroll_to_cursor(panel);
 }
@@ -573,9 +573,9 @@ paste_before_selection :: (using panel: *Panel, args: []string) {
 	textToPaste := read_register(registers.selectedRegister);
 
 	// insert into document
-	insert(document, cursor.head, textToPaste);
-	cursor.anchor = cursor.head;
-	cursor.head = cursor.anchor + textToPaste.count;
+	insert(document, min(cursor.head, cursor.anchor), textToPaste);
+	cursor.anchor = min(cursor.head, cursor.anchor);
+	cursor.head = cursor.anchor + textToPaste.count - 1;
 
 	panel_scroll_to_cursor(panel);
 }
