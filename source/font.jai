@@ -316,22 +316,26 @@ AtlasNode :: struct {
 }
 
 get_glyph_index :: (font: *Font, utf32: u32) -> u32 {
-	if font.drawTabs {
-		if utf32 == #char "\t" then utf32 = #char "→";
-	}
-	else {
-		if utf32 == #char "\t" then utf32 = #char " ";
-	}
+	// if font.drawTabs {
+	// 	if utf32 == #char "\t" then utf32 = #char "→";
+	// }
+	// else {
+	// 	if utf32 == #char "\t" then utf32 = #char " ";
+	// }
 
-	if font.drawNewLines {
-		if utf32 == #char "\n" then utf32 = #char "¶";
-		if utf32 == #char "\r" then utf32 = #char "←";
-	}
-	else {
-		if utf32 == #char "\n" then utf32 = #char " ";
-		if utf32 == #char "\r" then utf32 = #char " ";
-	}
-	return FT_Get_Char_Index(font.face, utf32);
+	// if font.drawNewLines {
+	// 	if utf32 == #char "\n" then utf32 = #char "¶";
+	// 	if utf32 == #char "\r" then utf32 = #char "←";
+	// }
+	// else {
+	// 	if utf32 == #char "\n" then utf32 = #char " ";
+	// 	if utf32 == #char "\r" then utf32 = #char " ";
+	// }
+	index := FT_Get_Char_Index(font.face, utf32);
+	if index == 0 {
+		return FT_Get_Char_Index(font.face, #char "©");
+	} 
+	return index;
 }
 
 find_or_make_glyph :: (font: *Font, size: int, utf32: u32) -> GlyphData {

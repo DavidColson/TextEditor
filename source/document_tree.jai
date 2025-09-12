@@ -66,6 +66,7 @@ Document :: struct {
 		stack: [..]*Node;
 		firstChar: *u8;
 		lastChar: *u8;
+		direction: IterateDirection;
 	}
 
 	IterateDirection :: enum {
@@ -128,8 +129,8 @@ tree_test :: () {
 	}
 
 	// reverse iteration
-	iterator = make_iterator(doc, 109);
-	for < iterator {
+	iterator = make_reverse_iterator(doc, 109);
+	for iterator {
 		if it_index == 10 break;
 		print("%", string.{1, *it});
 	}
@@ -328,6 +329,47 @@ document_load_from_disk :: (doc: *Document) {
 	firstPiece.bufferIndex = 0;
 
 	doc.tree = make_rb_tree(*tree_allocator(doc), firstPiece);
+}
+
+document_save :: (doc: *Document, path: string, backup := false) {
+	
+	// @todo: normalize line endings?
+
+	directory_make_success := make_directory_if_it_does_not_exist(path_strip_filename(path), recursive = true);
+    if !directory_make_success push_notification("Failed to make directory for file save");
+
+	fileHandle, success := file_open(path, true, false);
+	if success {
+		iterator := make_iterator(doc, 0);
+		while iterator.node != null {
+			bufferIndex := iterator.node.piece.bufferIndex;
+			startOffset := buffer_cursor_to_offset(*doc.buffers[bufferIndex], iterator.node.piece.start);
+			success := file_write(*fileHandle, doc.buffers[bufferIndex].text.data + startOffset, iterator.node.piece.length);
+			next_node(*iterator);
+		}
+
+		file_close(*fileHandle);
+	}
+	else {
+		push_notification("Failed to save file");
+	}
+	if !backup {
+		if doc.path != path {
+			free(doc.path); // this is bad for some reason?
+			doc.path = copy_string(path);
+		}
+
+		modtime, size, success := file_modtime_and_size(doc.path);
+		if success {
+			doc.diskLastModtime = modtime;
+		}
+
+		doc.unsaved = false;
+		push_notification("Document Saved");
+	}
+	else {
+		push_notification("Backup Saved");
+	}
 }
 
 document_get_by_path :: (path: string) -> bool, *Document {
@@ -560,6 +602,7 @@ get_line_content :: (doc: *Document, line: s64, includeLineEndings := false) -> 
 	prev: u8;
 	test : [200]u8;
 	endOffset := 0;
+
 	for iterator {
 		if !includeLineEndings && (it == #char "\n" || it == #char "\r") {
 			endOffset = offset + it_index;
@@ -573,6 +616,7 @@ get_line_content :: (doc: *Document, line: s64, includeLineEndings := false) -> 
 		test[it_index] = it;
 		prev = it;
 	}
+
 	return .{ builder_to_string(*builder), offset, endOffset };
 }
 
@@ -626,12 +670,25 @@ make_iterator :: (document: *Document, startOffset: s64 = 0) -> Document.Iterato
 	iter: Document.Iterator;
 	iter.doc = document;
 	iter.stack.allocator = context.allocator;
+	iter.direction = .FORWARD;
 
 	jump_to(*iter, startOffset);
 	return iter;
 }
 
-next_node :: (iterator: *Document.Iterator, direction := Document.IterateDirection.FORWARD) {
+make_reverse_iterator :: (document: *Document, startOffset: s64 = 0) -> Document.Iterator {
+	// starting at some non trivial offset will require doing a binary search in the tree for that offset
+	// and saving the node, as we have done with node_at
+	iter: Document.Iterator;
+	iter.doc = document;
+	iter.stack.allocator = context.allocator;
+	iter.direction = .REVERSE;
+
+	jump_to(*iter, startOffset);
+	return iter;
+}
+
+next_node :: (iterator: *Document.Iterator) {
 	// NOTE: This does not update iterator.offset
 	// in a for expansion it will be done at each iteration step
 	// in other situations you may require calculating it manually, or contextually
@@ -640,33 +697,18 @@ next_node :: (iterator: *Document.Iterator, direction := Document.IterateDirecti
 	// by adding the current node length or subtracting the previous depending on direction
 	// no need at the moment though so I'll leave this as is
 
-	// if you want to do a prev_node version, just flip left and right nodes in here
-
-	node := iterator.node;
-	newNode := iterator.node.child[direction];
-	if newNode != null {
-		// In this first case we are dealing with the situation that the node has a right child
-		// we must iterate down it's left side until we get to a leaf, which is the next node for us
-		while newNode != null {
-			node = newNode;
+	node := iterator.node.child[iterator.direction];
+	while iterator.stack.count > 0 || node != null {
+		if node != null {
+			// all parents are added to the stack
 			array_add(*iterator.stack, node);
-			newNode = node.child[1 - direction];
+			node = node.child[1 - iterator.direction];
 		}
-	}
-	else {
-		// In this second case, we are dealing with the situation that the node has no right child
-		// Therefore we must go up to a previous parent such that the current node is NOT the right
-		// side of the parent. Otherwise there is nowhere else to proceed
-	
-		oldNode := node.child[direction];
-		while oldNode == node.child[direction] || node == oldNode {
-			if iterator.stack.count == 0 {
-				node = null;
-				break;
-			}
-			oldNode = node;
+		else {
+			// the node we return is not left in the stack
 			node = iterator.stack[iterator.stack.count-1];
 			iterator.stack.count -= 1;
+			break;
 		}
 	}
 
@@ -696,9 +738,13 @@ jump_to :: (iterator: *Document.Iterator, offset: s64) {
 
 	nodeStartOffset := 0;
 	while node != null {
-		array_add(*iterator.stack, node);
+		// you only want to store nodes that you would visit in a forward/reverse iteration here
+		// rather than every parent
 		if offset < node.leftSubtreeLength {
 			// Target must be in the left side of the tree
+			if iterator.direction == .FORWARD {
+				array_add(*iterator.stack, node);
+			}
 			node = node.left;
 		}
 		else if offset <= node.leftSubtreeLength + node.piece.length {
@@ -709,6 +755,9 @@ jump_to :: (iterator: *Document.Iterator, offset: s64) {
 		}
 		else {
 			// Target must be in the right side of the tree
+			if iterator.direction == .REVERSE {
+				array_add(*iterator.stack, node);
+			}
 			leftSideOffset := node.leftSubtreeLength + node.piece.length;
 			nodeStartOffset += leftSideOffset;
 			offset -= leftSideOffset; // Our offset now must be relative to the right side of the tree
@@ -740,7 +789,7 @@ for_expansion :: (iterator: *Document.Iterator, body: Code, flags: For_Flags) #e
 	while outer := iterator.node != null {
 		`it: u8;
 		`it_index := 0;
-		if flags & .REVERSE {
+		if iterator.direction == .REVERSE {
 			// need to adjust the start and end pointers if we're going backward
 			bufferIndex := iterator.node.piece.bufferIndex;
 			startOffset := buffer_cursor_to_offset(*iterator.doc.buffers[bufferIndex], iterator.node.piece.start);
@@ -767,7 +816,7 @@ for_expansion :: (iterator: *Document.Iterator, body: Code, flags: For_Flags) #e
 				iterator.lastChar -= 1;
 				iterator.offset -= 1;
 			}
-			next_node(iterator, .REVERSE);
+			next_node(iterator);
 		}
 		else {
 			while iterator.firstChar < iterator.lastChar {
@@ -780,7 +829,7 @@ for_expansion :: (iterator: *Document.Iterator, body: Code, flags: For_Flags) #e
 				iterator.firstChar += 1;
 				iterator.offset += 1;
 			}
-			next_node(iterator, .FORWARD);
+			next_node(iterator);
 		}
 	}
 }
@@ -790,7 +839,7 @@ raw_bytes :: (iterator: *Document.Iterator, body: Code, flags: For_Flags) #expan
 	while outer := iterator.node != null {
 		`it: u8;
 		`it_index := 0;
-		if flags & .REVERSE {
+		if iterator.direction == .REVERSE {
 			// need to adjust the start and end pointers if we're going backward
 			bufferIndex := iterator.node.piece.bufferIndex;
 			startOffset := buffer_cursor_to_offset(*iterator.doc.buffers[bufferIndex], iterator.node.piece.start);
@@ -813,7 +862,7 @@ raw_bytes :: (iterator: *Document.Iterator, body: Code, flags: For_Flags) #expan
 				iterator.firstChar -= 1;
 				iterator.offset -= 1;
 			}
-			next_node(iterator, .REVERSE);
+			next_node(iterator);
 		}
 		else {
 			while iterator.firstChar < iterator.lastChar {
@@ -824,7 +873,7 @@ raw_bytes :: (iterator: *Document.Iterator, body: Code, flags: For_Flags) #expan
 				iterator.firstChar += 1;
 				iterator.offset += 1;
 			}
-			next_node(iterator, .FORWARD);
+			next_node(iterator);
 		}
 	}
 }
@@ -1269,6 +1318,8 @@ pretty_print_tree :: (node: *Document.Node, prefix: string, isLeft: bool) {
 		}
 
 		print(" %(%,%)-(%,%)\n", ifx node.color == .RED then "R" else "B", node.piece.length, node.piece.lineFeedCount, node.leftSubtreeLength, node.leftSubtreeLfCount);
+		// this version prints the node pointer value, helpful for tracking which node you're looking at in the debugger
+		// print(" %-%(%,%)-(%,%)\n", node, ifx node.color == .RED then "R" else "B", node.piece.length, node.piece.lineFeedCount, node.leftSubtreeLength, node.leftSubtreeLfCount);
 
 		pretty_print_tree(node.right, tprint("%1%2", prefix, ifx isLeft then "|   " else "    "), true);
 		pretty_print_tree(node.left, tprint("%1%2", prefix, ifx isLeft then "|   " else "    "), false);

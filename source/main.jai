@@ -1434,8 +1434,7 @@ do_backup_callback :: () {
 			append(*builder, "\\backups\\");
 			append(*builder, path_filename(it.path));
 
-			// @todo: 
-			// document_save(it, builder_to_string(*builder,,temp), true);
+			document_save(it, builder_to_string(*builder,,temp), true);
 		}
 	}
 }

@@ -84,8 +84,7 @@ filesystem_nav_action_item :: (using panel: *Panel, args: []string) {
 		// save item, we need to save this file
 		fileName := copy_string(input_field_get_text(*state.input),,get_allocator(state));
 		array_add(*state.currentPath, fileName,, get_allocator(state));
-		// @todo: 
-		// document_save(panel.document, make_path_from_strings(state.currentPath,,temp));
+		document_save(panel.document, make_path_from_strings(state.currentPath,,temp));
 		editorMode = .NORMAL;
 		filesystem_nav_reset(panel);
 	}

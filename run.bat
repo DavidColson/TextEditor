@@ -1,6 +1,6 @@
 @echo off
 setlocal
 
-run\debug\TextEditor.exe source\document.jai
+run\debug\TextEditor.exe build_shorter.jai
 
 endlocal

@@ -240,9 +240,9 @@ move_word_reverse :: (using panel: *Panel, checkPosition: (u8, u8, CharCategory,
 	if !extendSelections {
 		cursor.anchor = cursor.head;
 	}
-	iter := make_iterator(document, cursor.head-1);
+	iter := make_reverse_iterator(document, cursor.head-1);
 	prev := get_char_at(document, cursor.head);
-	for < iter {
+	for iter {
 		cursor.head = iter.offset-1;
 		nextCharCategory := categorize_char(it);
 		prevCharCategory := categorize_char(prev);
@@ -375,8 +375,8 @@ jump_to_char :: (using panel: *Panel, args: []string) {
 }
 
 jump_to_last_char :: (using panel: *Panel, args: []string) { 
-	iter := make_iterator(document, cursor.head);
-	for < iter {
+	iter := make_reverse_iterator(document, cursor.head);
+	for iter {
 		cursor.head = iter.offset;
 		// @todo: assumes the args are single char, this may not always be true
 		if args[0][0] == it {
@@ -400,8 +400,8 @@ jump_to_before_char :: (using panel: *Panel, args: []string) {
 }
 
 jump_to_before_last_char :: (using panel: *Panel, args: []string) { 
-	iter := make_iterator(document, cursor.head);
-	for < iter {
+	iter := make_reverse_iterator(document, cursor.head);
+	for iter {
 		cursor.head = iter.offset;
 		// @todo: assumes the args are single char, this may not always be true
 		if args[0][0] == it {
@@ -1119,7 +1119,7 @@ open_file_in_working_dir :: (panel: *Panel, args: []string) {
 }
 
 save_file :: (panel: *Panel, args: []string) {
-	// document_save(panel.document, panel.document.path);
+	document_save(panel.document, panel.document.path);
 }
 
 save_file_as :: (panel: *Panel, args: []string) {
@@ -1127,9 +1127,32 @@ save_file_as :: (panel: *Panel, args: []string) {
 	filesystem_nav_open(*panel.filesystemNav, true);
 }
 
-print_piece_chain_debug :: (panel: *Panel, args: []string) {
-	// document_debug_print_piece_chain(panel.document);
-	// push_notification("Piecechain debug printed to stdout");
+print_piece_chain_debug :: (using panel: *Panel, args: []string) {
+	log("Tree Nodes: ");
+	pretty_print_tree(document.tree);
+	log("\nDocument: ");
+	iterator := make_iterator(document, 0);
+
+	while outer := iterator.node != null {
+		print("[%,", iterator.offset);
+		while iterator.firstChar < iterator.lastChar {
+			if string.{2, iterator.firstChar} == "\r\n" {
+				print("\\r\\n\r\n");
+				iterator.firstChar += 1;
+				iterator.offset += 1;
+			}
+			else if iterator.firstChar.* == #char "\n" {
+				print("\\n\n");
+			}
+			else {
+				print("%", string.{ 1, iterator.firstChar });
+			}
+			iterator.firstChar += 1;
+			iterator.offset += 1;
+		}
+		print("]");
+		next_node(*iterator);
+	}
 }
 
 visualize_undos :: (using panel: *Panel, args: []string) {
