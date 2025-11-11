@@ -401,7 +401,16 @@ insert :: (doc: *Document, atOffset: s64, text: string) {
 	
 	// first case, inserting at the start of a node
 	if atOffset == nodeStartOffset {
-		// @todo: special case where the last insertion occured at the end of the previous node
+		if atOffset != 0 {
+			// special case, if we are inserting right at the end of the last insertion
+			// and the last insertion was the added data buffer, just extend the existing node
+			prevNode, _, prevNodeStartOffset := node_at_offset(doc, doc.tree, atOffset-1);
+			if prevNode.piece.bufferIndex == 1 && prevNode.piece.end == doc.lastInsert {
+				newPiece := make_piece(doc, text);
+				doc.tree = combine_pieces(tree_allocator(doc), doc.tree, prevNode, prevNodeStartOffset, newPiece);
+				return;
+			}
+		}
 		newPiece := make_piece(doc, text);
 		doc.tree = insert_node(tree_allocator(doc), doc.tree, newPiece, atOffset);
 		return;
@@ -409,7 +418,13 @@ insert :: (doc: *Document, atOffset: s64, text: string) {
 
 	// second case, inserting at end of a node
 	if atOffset == nodeStartOffset+node.piece.length {
-		// @todo: special case where the last insertion occured here
+		// special case, if we are inserting right at the end of the last insertion
+		// and the last insertion was the added data buffer, just extend the existing node
+		if node.piece.bufferIndex == 1 && node.piece.end == doc.lastInsert {
+			newPiece := make_piece(doc, text);
+			doc.tree = combine_pieces(tree_allocator(doc), doc.tree, node, nodeStartOffset, newPiece);
+			return;
+		}
 		newPiece := make_piece(doc, text);
 		doc.tree = insert_node(tree_allocator(doc), doc.tree, newPiece, atOffset);
 		return;
@@ -882,6 +897,10 @@ pretty_print_tree :: (node: *Document.Node) {
 	pretty_print_tree(node, "", false);
 }
 
+operator == :: (a: Document.BufferCursor, b: Document.BufferCursor) -> bool {
+	return a.line == b.line && a.column == b.column;
+}
+
 #scope_file
 
 // Piece Tree helpers
@@ -990,6 +1009,15 @@ node_trim_right :: (pieceTree: *Document, piece: Document.Piece, pos: Document.B
 	newPiece.length = lenLeft;
 	newPiece.lineFeedCount = buffer_line_start_count(newPiece.start, newPiece.end);
 	return newPiece;
+}
+
+combine_pieces :: (allocator: Allocator, tree: *Document.Node, prevNode: *Document.Node, prevNodeStartOffset: s64, newPiece: Document.Piece) -> *Document.Node {
+	newPieceCopy := newPiece;
+	newPieceCopy.start = prevNode.piece.start;
+	newPieceCopy.lineFeedCount = newPiece.lineFeedCount + prevNode.piece.lineFeedCount;
+	newPieceCopy.length= newPiece.length + prevNode.piece.length;
+	tree = remove_node(tree, prevNodeStartOffset);
+	return insert_node(allocator, tree, newPieceCopy , prevNodeStartOffset);
 }
 
 buffer_offset_to_cursor :: (pieceTree: *Document, piece: Document.Piece, offsetInNode: s64) -> Document.BufferCursor {
