@@ -12,13 +12,18 @@ move_one_char_left :: (using panel: *Panel, args: []string) {
 	
 	character := get_char_at(document, cursor.head);
 	
-	if character == #char "\t" {
-		cursor.virtualColumn -= chars_to_tabstop(cursor.virtualColumn);
+	// recalculate virtual column
+	newLineContent := get_line_content(panel.document, cursorCoordinate.line);
+	cursor.virtualColumn = 0;
+	for newLineContent.text {
+		if it_index >= cursorCoordinate.col-1 then break;
+		if it == #char "\t" {
+			cursor.virtualColumn += chars_to_tabstop(cursor.virtualColumn);
+		}
+		else {
+			cursor.virtualColumn += 1;
+		}
 	}
-	else {
-		cursor.virtualColumn -= 1;
-	}
-	cursor.virtualColumn = clamp(cursor.virtualColumn, 0, lineEnd - lineStart);
 
 	if !extendSelections {
 		cursor.anchor = cursor.head;
@@ -31,17 +36,21 @@ move_one_char_right :: (using panel: *Panel, args: []string) {
 
 	lineStart, lineEnd := get_line_range(panel.document, cursorCoordinate.line);
 
-	character := get_char_at(document, cursor.head);
 	panel.cursor.head += 1;
 	panel.cursor.head = clamp(panel.cursor.head, lineStart, lineEnd);
 
-	if character == #char "\t" {
-		cursor.virtualColumn += chars_to_tabstop(cursor.virtualColumn);
+	// recalculate virtual column
+	newLineContent := get_line_content(panel.document, cursorCoordinate.line);
+	cursor.virtualColumn = 0;
+	for newLineContent.text {
+		if it_index >= cursorCoordinate.col+1 then break;
+		if it == #char "\t" {
+			cursor.virtualColumn += chars_to_tabstop(cursor.virtualColumn);
+		}
+		else {
+			cursor.virtualColumn += 1;
+		}
 	}
-	else {
-		cursor.virtualColumn += 1;
-	}
-	cursor.virtualColumn = clamp(cursor.virtualColumn, 0, lineEnd - lineStart);
 
 	if !extendSelections {
 		cursor.anchor = cursor.head;
@@ -59,25 +68,28 @@ move_one_line_down :: (using panel: *Panel, args: []string) {
 	newLine := min(cursorCoordinate.line + 1, numLines - 1);
 	newLineContent := get_line_content(panel.document, newLine);
 
+	// recalculate the cursor column to match the virtual column
 	columnCounter := 0;
-	targetVisualColumn := 0;
+	targetByteOffset := newLineContent.text.count;
 	for newLineContent.text {
-		if columnCounter == cursor.virtualColumn then break;
 		if it == #char "\t" {
 			columnCounter += chars_to_tabstop(columnCounter);
 		}
 		else {
 			columnCounter += 1;
 		}
-		targetVisualColumn += 1;
+
+		if columnCounter > cursor.virtualColumn {
+			targetByteOffset = it_index;
+			break;
+		}
 	}
 
-	cursor.head = newLineContent.startByteOffset + targetVisualColumn;
+	cursor.head = newLineContent.startByteOffset + targetByteOffset;
 
 	if !extendSelections {
 		cursor.anchor = cursor.head;
 	}
-
 	panel_scroll_to_cursor(panel);
 }
 
@@ -85,21 +97,25 @@ move_one_line_up :: (using panel: *Panel, args: []string) {
 	cursorCoordinate := get_coordinate_from_offset(document, cursor.head);
 	newLine := max(cursorCoordinate.line - 1, 0);
 	newLineContent := get_line_content(panel.document, newLine);
-
+	
+	// recalculate the cursor column to match the virtual column
 	columnCounter := 0;
-	targetVisualColumn := 0;
+	targetByteOffset := newLineContent.text.count;
 	for newLineContent.text {
-		if columnCounter == cursor.virtualColumn then break;
 		if it == #char "\t" {
 			columnCounter += chars_to_tabstop(columnCounter);
 		}
 		else {
 			columnCounter += 1;
 		}
-		targetVisualColumn += 1;
+
+		if columnCounter > cursor.virtualColumn {
+			targetByteOffset = it_index;
+			break;
+		}
 	}
 
-	cursor.head = newLineContent.startByteOffset + targetVisualColumn;
+	cursor.head = newLineContent.startByteOffset + targetByteOffset;
 
 	if !extendSelections {
 		cursor.anchor = cursor.head;
