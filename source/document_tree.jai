@@ -59,10 +59,24 @@ Document :: struct {
 		col: s64;
 	}
 
+	// temp, once this is worked out,
+	// consider how to merge it with a normal iterator
+	// should that even make sense
+
+	LineIterator :: struct {
+		doc: *Document;
+		node: *Node;
+		stack: [..]*Node;
+		direction: IterateDirection;
+		lineStart: *u8;
+		lineEnd: *u8;
+	}
+
 	Iterator :: struct {
 		doc: *Document;
 		offset: s64;
 		node: *Node;
+		nodeStartOffset: s64;
 		stack: [..]*Node;
 		firstChar: *u8;
 		lastChar: *u8;
@@ -712,6 +726,9 @@ next_node :: (iterator: *Document.Iterator) {
 	// by adding the current node length or subtracting the previous depending on direction
 	// no need at the moment though so I'll leave this as is
 
+	// if forward, then nodeStartOffset = nodeStartOffset + existingNodeLength
+	// if reverse, then nodeStartOffset = nodeStartOffset - nextNodeLength
+
 	node := iterator.node.child[iterator.direction];
 	while iterator.stack.count > 0 || node != null {
 		if node != null {
@@ -735,6 +752,14 @@ next_node :: (iterator: *Document.Iterator) {
 
 		iterator.firstChar = iterator.doc.buffers[bufferIndex].text.data + startOffset;
 		iterator.lastChar = iterator.doc.buffers[bufferIndex].text.data + endOffset;
+
+		if iterator.direction == .FORWARD {
+			iterator.nodeStartOffset = iterator.nodeStartOffset + iterator.node.piece.length;
+		}
+		else {
+			iterator.nodeStartOffset = iterator.nodeStartOffset - node.piece.length;
+		}
+		
 		iterator.node = node;
 		return;
 	}
@@ -789,6 +814,7 @@ jump_to :: (iterator: *Document.Iterator, offset: s64) {
 		iterator.firstChar = iterator.doc.buffers[bufferIndex].text.data + startOffset + remainder;
 		iterator.lastChar = iterator.doc.buffers[bufferIndex].text.data + endOffset;
 		iterator.node = node;
+		iterator.nodeStartOffset = nodeStartOffset;
 		return;
 	}
 
@@ -796,6 +822,7 @@ jump_to :: (iterator: *Document.Iterator, offset: s64) {
 	iterator.node = null;
 	iterator.firstChar = null;
 	iterator.lastChar = null;
+	iterator.nodeStartOffset = 0;
 	array_reset(*iterator.stack);
 }
 
@@ -901,41 +928,6 @@ operator == :: (a: Document.BufferCursor, b: Document.BufferCursor) -> bool {
 	return a.line == b.line && a.column == b.column;
 }
 
-#scope_file
-
-// Piece Tree helpers
-
-make_piece :: (pieceTree: *Document, t: string) -> Document.Piece {
-	// firstly copy the text into the add buffer
-
-	newPiece: Document.Piece;
-	newPiece.length = t.count;
-	newPiece.bufferIndex = 1; // add buffer
-
-	text := copy_string(t,, buffer_allocator(pieceTree));
-	currentBufferEnd := pieceTree.buffers[1].text.count;
-	pieceTree.buffers[1].text.count = pieceTree.buffers[1].text.count + text.count;
-
-	// count line endings
-	// @todo: might be a good location to correct bad line endings
-	// @todo: otherwise mark if the line endings have changed based on something new
-	lineFeedCount := 0;
-	for byte, i: text {
-		if byte == #char "\n" {
-			array_add(*pieceTree.buffers[1].lineStarts, xx (currentBufferEnd + i + 1));
-			lineFeedCount += 1;
-		}
-	}
-	newPiece.lineFeedCount = lineFeedCount;
-
-	newPiece.start = pieceTree.lastInsert;
-	endLine := pieceTree.buffers[1].lineStarts.count-1;
-	newPiece.end = .{ endLine, pieceTree.buffers[1].text.count - pieceTree.buffers[1].lineStarts[endLine] };
-	pieceTree.lastInsert = newPiece.end;
-
-	return newPiece;
-}
-
 node_at_offset :: (doc: *Document, node: *Document.Node, offset: s64) -> node: *Document.Node, remainder: s64, nodeStartOffset: s64, line: s64 {
 	// This is basically a binary search
 
@@ -979,6 +971,43 @@ node_at_offset :: (doc: *Document, node: *Document.Node, offset: s64) -> node: *
 	}
 
 	return null, 0, 0, 0;
+}
+
+// Piece Tree helpers
+
+// commented out because search is using internal stuff
+// intention is that core search function gets moved to this file
+// #scope_file
+
+make_piece :: (pieceTree: *Document, t: string) -> Document.Piece {
+	// firstly copy the text into the add buffer
+
+	newPiece: Document.Piece;
+	newPiece.length = t.count;
+	newPiece.bufferIndex = 1; // add buffer
+
+	text := copy_string(t,, buffer_allocator(pieceTree));
+	currentBufferEnd := pieceTree.buffers[1].text.count;
+	pieceTree.buffers[1].text.count = pieceTree.buffers[1].text.count + text.count;
+
+	// count line endings
+	// @todo: might be a good location to correct bad line endings
+	// @todo: otherwise mark if the line endings have changed based on something new
+	lineFeedCount := 0;
+	for byte, i: text {
+		if byte == #char "\n" {
+			array_add(*pieceTree.buffers[1].lineStarts, xx (currentBufferEnd + i + 1));
+			lineFeedCount += 1;
+		}
+	}
+	newPiece.lineFeedCount = lineFeedCount;
+
+	newPiece.start = pieceTree.lastInsert;
+	endLine := pieceTree.buffers[1].lineStarts.count-1;
+	newPiece.end = .{ endLine, pieceTree.buffers[1].text.count - pieceTree.buffers[1].lineStarts[endLine] };
+	pieceTree.lastInsert = newPiece.end;
+
+	return newPiece;
 }
 
 node_trim_left :: (pieceTree: *Document, piece: Document.Piece, pos: Document.BufferCursor) -> Document.Piece {

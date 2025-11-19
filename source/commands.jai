@@ -848,30 +848,8 @@ previous_search_result :: (using panel: *Panel, args: []string) {
 }
 
 document_search_on_edit :: (userData: *void, input: string) {
-	// panel := cast(*Panel) userData;
+	panel := cast(*Panel) userData;
 
-	// if panel.currentRegex.prog {
-	// 	uninit(*panel.currentRegex);
-	// }
-
-	// // search for capital letters, if they do not exist, do not do a case sensitive search
-	// doCaseSensitive := false;
-	// for input {
-	// 	if is_upper(it) then doCaseSensitive = true;
-	// }
-
-	// success: bool;
-	// flags := ParseFlags.LikePerl;
-	// if !doCaseSensitive {
-	// 	flags |= .FoldCase;
-	// }
-	// panel.currentRegex, success = compile(input, flags);
-	// if success {
-	// 	startOffset := panel.cursor.head;
-	// 	if panel.cursor.anchor > startOffset {
-	// 		startOffset = panel.cursor.anchor; 
-	// 	}
-	// 	panel.hasMatches, panel.results = match(panel.document, startOffset, panel.document.size, panel.currentRegex);
 
 	// 	// is the result off the edge of the screen? if so scroll so it's centered
 	// 	if panel.hasMatches {
@@ -882,7 +860,42 @@ document_search_on_edit :: (userData: *void, input: string) {
 	// 		}
 	// 	}
 
-	// }
+
+	// we start with some inputs
+	searchFirstLine := 0;
+	searchLastLine := get_number_of_lines(panel.document)-1;
+	numLinesToSearch := searchLastLine-searchFirstLine;
+	direction := 0; // forward
+
+	// we want to know the line starts of all the lines we will search, so lets prep this
+	lineStarts : []s64 = NewArray(numLinesToSearch+1,s64,,temp);
+	for 0..numLinesToSearch-1 {
+		lineStarts[it] = get_line_start(panel.document, searchFirstLine+it);
+	}
+	lineStarts[numLinesToSearch] = get_size(panel.document);
+
+	for 0..numLinesToSearch-1 {
+		lineLength := lineStarts[it+1] - lineStarts[it];
+		
+		node, remainder, nodeStartOffset := node_at_offset(panel.document, panel.document.tree, lineStarts[it]);
+		distanceToEndOfNode := node.piece.length - remainder;
+		lineContent: Document.LineContent;
+		
+		if lineLength < distanceToEndOfNode {
+			// line is fully contained in the node, search directly
+			bufferIndex := node.piece.bufferIndex;
+			startOffset := buffer_cursor_to_offset(*panel.document.buffers[bufferIndex], node.piece.start);
+			charPtr := panel.document.buffers[bufferIndex].text.data + startOffset + remainder;
+			lineContent = .{ .{lineLength, charPtr}, lineStarts[it], lineStarts[it+1] };
+		}
+		else {
+			// line is not fully contained in node, must construct it more slowly
+			lineContent = get_line_content(panel.document, searchFirstLine+it,,temp);
+		}
+
+		// do search
+		log("% - %", searchFirstLine+it, lineContent.text);
+	}
 }
 
 
