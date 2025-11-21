@@ -28,7 +28,7 @@ Panel :: struct {
 	currentRegex: Regexp;
 	hasMatches := false;
 	previousScrollLine := 0;
-	results: []Document.Range;
+	results: [..]Document.Range;
 }
 
 panel_set_active_document :: (panel: *Panel, doc: *Document) {

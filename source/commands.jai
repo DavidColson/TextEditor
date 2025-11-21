@@ -757,25 +757,25 @@ start_document_search :: (using panel: *Panel, args: []string) {
 }
 
 confirm_document_search :: (using panel: *Panel, args: []string) {
-	// // set real cursor to the match that was found, setup stepping
-	// if panel.hasMatches {
-	// 	panel.cursor.anchor = panel.results[0].start;
-	// 	panel.cursor.head = panel.results[0].end;
-	// 	document_cursor_step_one_backward(*panel.cursor.head);
-	// }
-	// editorMode = .NORMAL;
-	// panel.previousScrollLine = panel_get_current_scrolled_line(panel);
-	// panel_reset_dialogs(panel);
+	// set real cursor to the match that was found, setup stepping
+	if panel.hasMatches {
+		panel.cursor.anchor = panel.results[0].start;
+		panel.cursor.head = panel.results[0].end-1;
+	}
+	editorMode = .NORMAL;
+	panel.previousScrollLine = panel_get_current_scrolled_line(panel);
+	panel_reset_dialogs(panel);
 }
 
 end_document_search :: (using panel: *Panel) { 
-	// panel_scroll_to_line(panel, panel.previousScrollLine);
-	// input_field_reset_keeping_memory(*panel.searchInput);
-	// panel.searchInput.onEditCallback = null;
-	// panel.searchInput.userData = null;
-	// if panel.results.count {
-	// 	array_reset(*panel.results);
-	// }
+	panel_scroll_to_line(panel, panel.previousScrollLine);
+	input_field_reset_keeping_memory(*panel.searchInput);
+	panel.searchInput.onEditCallback = null;
+	panel.searchInput.userData = null;
+	if panel.results.count {
+		array_reset(*panel.results);
+		panel.hasMatches = false;
+	}
 }
 
 next_search_result :: (using panel: *Panel, args: []string) {
@@ -850,16 +850,10 @@ previous_search_result :: (using panel: *Panel, args: []string) {
 document_search_on_edit :: (userData: *void, input: string) {
 	panel := cast(*Panel) userData;
 
+	// todo: this needs to search _from_ where the cursor is currently onward
 
-	// 	// is the result off the edge of the screen? if so scroll so it's centered
-	// 	if panel.hasMatches {
-	// 		matchLine := get_coordinate_from_offset(*panel.results[0].start).line;
-	// 		startVisibleLine, pageSize := panel_calculate_visible_lines(panel);
-	// 		if matchLine < startVisibleLine || matchLine >= (startVisibleLine+pageSize) {
-	// 			panel_scroll_to_line(panel, matchLine - pageSize/2); 
-	// 		}
-	// 	}
-
+	array_reset_keeping_memory(*panel.results);
+	panel.hasMatches = false;
 
 	// we start with some inputs
 	searchFirstLine := 0;
@@ -871,9 +865,22 @@ document_search_on_edit :: (userData: *void, input: string) {
 	// iterate over all the lines
 	lineIterator := make_line_iterator(panel.document, searchFirstLine, searchLastLine);
 	for lineIterator {
-		// it is a string, which is a view of the line
-		// it's real data, so should not be modified under any circumstance
-		print("% - %", it_index, it.text);
+		i := find_index_from_left_nocase(it.text, input);
+		if i >= 0 {
+			// found a match, report it
+			panel.hasMatches = true;
+			array_add(*panel.results, Document.Range.{it.startByteOffset+i, it.startByteOffset+i+input.count});
+			break;
+		}
+	}
+
+	// is the result off the edge of the screen? if so scroll so it's centered
+	if panel.hasMatches {
+		matchLine := get_coordinate_from_offset(panel.document, panel.results[0].start).line;
+		startVisibleLine, pageSize := panel_calculate_visible_lines(panel);
+		if matchLine < startVisibleLine || matchLine >= (startVisibleLine+pageSize) {
+			panel_scroll_to_line(panel, matchLine - pageSize/2); 
+		}
 	}
 }
 
