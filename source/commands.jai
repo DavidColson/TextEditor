@@ -862,19 +862,18 @@ document_search_on_edit :: (userData: *void, input: string) {
 
 
 	// we start with some inputs
-	searchFirstLine := 15;
+	searchFirstLine := 0;
 	searchLastLine := 30;
 	// searchLastLine := get_number_of_lines(panel.document)-1;
 	numLinesToSearch := searchLastLine-searchFirstLine;
 	direction := 0; // forward
 
 	// iterate over all the lines
-	lineIterator := make_line_iterator(panel.document, searchFirstLine);
+	lineIterator := make_line_iterator(panel.document, searchFirstLine, searchLastLine);
 	for lineIterator {
 		// it is a string, which is a view of the line
 		// it's real data, so should not be modified under any circumstance
-		print("% - %", it_index, it);
-		if it_index == searchLastLine then break;
+		print("% - %", it_index, it.text);
 	}
 }
 

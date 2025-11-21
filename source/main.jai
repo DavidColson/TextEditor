@@ -1153,9 +1153,11 @@ custom_draw_code :: (box: *UIBox, udata: *void) {
 		linesOnScreen: [..]Document.LineContent;
 		linesOnScreen.allocator = temp;
 		{
-			for startVisibleLine..endVisibleLine {
-				line := get_line_content(panel.document, it,,temp);
-				array_add(*linesOnScreen, line);
+			lineIterator := make_line_iterator(panel.document, startVisibleLine, endVisibleLine);
+			for lineIterator {
+				lineContent := it;
+				lineContent.text = copy_temporary_string(it.text);
+				array_add(*linesOnScreen, lineContent);
 			}
 		}
 

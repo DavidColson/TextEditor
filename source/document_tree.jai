@@ -59,19 +59,17 @@ Document :: struct {
 		col: s64;
 	}
 
-	// temp, once this is worked out,
-	// consider how to merge it with a normal iterator
-	// should that even make sense
-
 	LineIterator :: struct {
 		doc: *Document;
 		line: s64;
+		endLine: s64;
 		node: *Node;
 		lineNumInNode: s64;
+		nodeStartOffset: s64;
 		stack: [..]*Node;
 		direction: IterateDirection;
 		lineBuffer: [..]u8;
-		lineStr: string;
+		lineContent: LineContent;
 	}
 
 	Iterator :: struct {
@@ -718,12 +716,13 @@ make_reverse_iterator :: (document: *Document, startOffset: s64 = 0) -> Document
 	return iter;
 }
 
-make_line_iterator :: (document: *Document, startLine: s64 = 0) -> Document.LineIterator {
+make_line_iterator :: (document: *Document, startLine: s64 = 0, endLine: s64 = -1) -> Document.LineIterator {
 	iter: Document.LineIterator;
 	iter.doc = document;
 	iter.stack.allocator = context.allocator; // is this leaking??
 	iter.direction = .FORWARD;
 	iter.lineBuffer.allocator = context.allocator;
+	iter.endLine = ifx endLine > 0 then endLine else get_number_of_lines(document);
 
 	jump_to_line(*iter, startLine);
 	return iter;
@@ -830,13 +829,6 @@ jump_to_line :: (iterator: *Document.LineIterator, line: s64) {
 	iterator.line = line;
 	node := iterator.doc.tree;
 
-	if node.left == null && node.right == null {
-		// no need to search, has to be in this node
-		iterator.node = node;
-		iterator.lineNumInNode = line;
-		return;
-	}
-
 	// first we scan to find the start of the desired line in which ever node it lives in
 	lineInSubtree := line;
 	lineInNode := -1;
@@ -847,6 +839,13 @@ jump_to_line :: (iterator: *Document.LineIterator, line: s64) {
 		// rather than every parent
 		if lineInSubtree <= node.leftSubtreeLfCount {
 			// Target must be in the left side of the tree
+
+			// special case for first line
+			if node.left == null && lineInSubtree == 0 && node.leftSubtreeLfCount == 0 {
+				lineInNode = 0;
+				break;
+			}
+
 			if iterator.direction == .FORWARD {
 				array_add(*iterator.stack, node);
 			}
@@ -876,126 +875,107 @@ jump_to_line :: (iterator: *Document.LineIterator, line: s64) {
 	// either way the output of the above search is two things
 	iterator.node = node;
 	iterator.lineNumInNode = iterator.node.piece.start.line + lineInNode;
-
+	iterator.nodeStartOffset = nodeStartOffset;
 }
 
-step_line :: (iterator: *Document.LineIterator) {
+step_line :: (iter: *Document.LineIterator) {
 	// so what's actually involved in this process??
 
-	if iterator.lineNumInNode < iterator.node.piece.end.line {
+	if iter.lineNumInNode < iter.node.piece.end.line {
 		// line is fully contained in this node
 
-		buffer := *iterator.doc.buffers[iterator.node.piece.bufferIndex];
-		startOffset := buffer_cursor_to_offset(buffer, .{iterator.lineNumInNode, 0} );
-		endOffset := buffer_cursor_to_offset(buffer, .{iterator.lineNumInNode + 1, 0});
-
+		buffer := *iter.doc.buffers[iter.node.piece.bufferIndex];
+		startOffset := buffer_cursor_to_offset(buffer, .{iter.lineNumInNode, 0} );
+		endOffset := buffer_cursor_to_offset(buffer, .{iter.lineNumInNode + 1, 0});
 		lineLength := endOffset - startOffset;
-		iterator.lineStr = .{ lineLength, buffer.text.data + startOffset };
+
+		iter.lineContent.text = .{ lineLength, buffer.text.data + startOffset };
+		iter.lineContent.startByteOffset = iter.nodeStartOffset + (startOffset - buffer_cursor_to_offset(buffer, iter.node.piece.start));
+		iter.lineContent.endByteOffset = iter.nodeStartOffset + (endOffset - buffer_cursor_to_offset(buffer, iter.node.piece.start));
 	}
 	else {
 		// line is not fully contained in this node
-		array_reset_keeping_memory(*iterator.lineBuffer);
+		array_reset_keeping_memory(*iter.lineBuffer);
 
 		// copy the remaining memory of the node
-		buffer := *iterator.doc.buffers[iterator.node.piece.bufferIndex];
-		startOffset := max(buffer_cursor_to_offset(buffer, .{iterator.lineNumInNode, 0} ), buffer_cursor_to_offset(buffer, iterator.node.piece.start ));
-		endOffset := buffer_cursor_to_offset(buffer, iterator.node.piece.end);
+		buffer := *iter.doc.buffers[iter.node.piece.bufferIndex];
+		startOffset := max(buffer_cursor_to_offset(buffer, .{iter.lineNumInNode, 0} ), buffer_cursor_to_offset(buffer, iter.node.piece.start ));
+		endOffset := buffer_cursor_to_offset(buffer, iter.node.piece.end);
 		sectionLength := endOffset - startOffset;
-		array_reserve(*iterator.lineBuffer, sectionLength);
-		memcpy(iterator.lineBuffer.data, buffer.text.data + startOffset, sectionLength);
-		iterator.lineBuffer.count = sectionLength;
+		array_reserve(*iter.lineBuffer, sectionLength);
+		memcpy(iter.lineBuffer.data, buffer.text.data + startOffset, sectionLength);
+		iter.lineBuffer.count = sectionLength;
+		iter.lineContent.startByteOffset = iter.nodeStartOffset + (startOffset - buffer_cursor_to_offset(buffer, iter.node.piece.start));
 
 		// we'll loop over nodes, copying text until we reach the end of the line
 		// or the end of the tree
-		while iterator.node {
+		while iter.node {
 			// find the next node
-			node := iterator.node.child[iterator.direction];
-			while iterator.stack.count > 0 || node != null {
+			node := iter.node.child[iter.direction];
+			while iter.stack.count > 0 || node != null {
 				if node != null {
 					// all parents are added to the stack
-					array_add(*iterator.stack, node);
-					node = node.child[1 - iterator.direction];
+					array_add(*iter.stack, node);
+					node = node.child[1 - iter.direction];
 				}
 				else {
 					// the node we return is not left in the stack
-					node = iterator.stack[iterator.stack.count-1];
-					iterator.stack.count -= 1;
+					node = iter.stack[iter.stack.count-1];
+					iter.stack.count -= 1;
 					break;
 				}
 			}
 
 			// next node found
 			if node != null {
-				iterator.node = node;
-				iterator.lineNumInNode = node.piece.start.line;
+				iter.nodeStartOffset = iter.nodeStartOffset + iter.node.piece.length;
+				iter.node = node;
+				iter.lineNumInNode = node.piece.start.line;
 
 				// See if the next node contains the rest of the line
-				if iterator.node.piece.lineFeedCount > 0 {
+				if iter.node.piece.lineFeedCount > 0 {
 					// copy up to the first newline of this node
-					buffer := *iterator.doc.buffers[iterator.node.piece.bufferIndex];
-					startOffset := buffer_cursor_to_offset(buffer, iterator.node.piece.start );
-					endOffset := buffer_cursor_to_offset(buffer, .{iterator.node.piece.start.line + 1, 0});
+					buffer := *iter.doc.buffers[iter.node.piece.bufferIndex];
+					startOffset := buffer_cursor_to_offset(buffer, iter.node.piece.start );
+					endOffset := buffer_cursor_to_offset(buffer, .{iter.node.piece.start.line + 1, 0});
 					sectionLength := endOffset - startOffset;
-					array_reserve(*iterator.lineBuffer, iterator.lineBuffer.count + sectionLength);
-					memcpy(iterator.lineBuffer.data+iterator.lineBuffer.count, buffer.text.data + startOffset, sectionLength);
-					iterator.lineBuffer.count = iterator.lineBuffer.count + sectionLength;
+					array_reserve(*iter.lineBuffer, iter.lineBuffer.count + sectionLength);
+					memcpy(iter.lineBuffer.data+iter.lineBuffer.count, buffer.text.data + startOffset, sectionLength);
+					iter.lineBuffer.count = iter.lineBuffer.count + sectionLength;
+					iter.lineContent.endByteOffset = iter.nodeStartOffset + (endOffset - buffer_cursor_to_offset(buffer, iter.node.piece.start));
 					break; // we're finished
 				}
 				else {
 					// copy the whole node, and then loop again
-					buffer := *iterator.doc.buffers[iterator.node.piece.bufferIndex];
-					startOffset := buffer_cursor_to_offset(buffer, iterator.node.piece.start );
-					endOffset := buffer_cursor_to_offset(buffer, iterator.node.piece.end);
+					buffer := *iter.doc.buffers[iter.node.piece.bufferIndex];
+					startOffset := buffer_cursor_to_offset(buffer, iter.node.piece.start );
+					endOffset := buffer_cursor_to_offset(buffer, iter.node.piece.end);
 					sectionLength := endOffset - startOffset;
-					array_reserve(*iterator.lineBuffer, iterator.lineBuffer.count + sectionLength);
-					memcpy(iterator.lineBuffer.data+iterator.lineBuffer.count, buffer.text.data + startOffset, sectionLength);
-					iterator.lineBuffer.count = iterator.lineBuffer.count + sectionLength;
+					array_reserve(*iter.lineBuffer, iter.lineBuffer.count + sectionLength);
+					memcpy(iter.lineBuffer.data+iter.lineBuffer.count, buffer.text.data + startOffset, sectionLength);
+					iter.lineBuffer.count = iter.lineBuffer.count + sectionLength;
 				}
 			}
 		}
 
-		iterator.lineStr = .{ iterator.lineBuffer.count, iterator.lineBuffer.data };
+		iter.lineContent.text = .{ iter.lineBuffer.count, iter.lineBuffer.data };
 	}
 
 	// move on to next line
-	iterator.line = iterator.line + 1;
-	iterator.lineNumInNode = iterator.lineNumInNode + 1;
-
-	// if this line also happens to be the end of the node
-	// then we'll just step into the next node ahead of time to save future copies
-	if iterator.node.piece.end == .{iterator.lineNumInNode - 1, iterator.lineStr.count}
-	 ||  iterator.node.piece.end == .{iterator.lineNumInNode, 0} {
-
-		node := iterator.node.child[iterator.direction];
-		while iterator.stack.count > 0 || node != null {
-			if node != null {
-				// all parents are added to the stack
-				array_add(*iterator.stack, node);
-				node = node.child[1 - iterator.direction];
-			}
-			else {
-				// the node we return is not left in the stack
-				node = iterator.stack[iterator.stack.count-1];
-				iterator.stack.count -= 1;
-				break;
-			}
-		}
-		iterator.node = node;
-
-		if iterator.node {
-			iterator.lineNumInNode = iterator.node.piece.start.line;
-		}
-	}
+	iter.line = iter.line + 1;
+	iter.lineNumInNode = iter.lineNumInNode + 1;
 }
 
 for_expansion :: (iterator: *Document.LineIterator, body: Code, flags: For_Flags) #expand {
 	while iterator.node {
 		step_line(iterator);
 
-		`it := iterator.lineStr;
+		`it := iterator.lineContent;
 		`it_index := iterator.line;
 		
 		#insert body;
+
+		if iterator.endLine+1 == iterator.line then break;
 	}
 }
 
