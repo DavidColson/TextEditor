@@ -862,39 +862,19 @@ document_search_on_edit :: (userData: *void, input: string) {
 
 
 	// we start with some inputs
-	searchFirstLine := 0;
-	searchLastLine := get_number_of_lines(panel.document)-1;
+	searchFirstLine := 15;
+	searchLastLine := 30;
+	// searchLastLine := get_number_of_lines(panel.document)-1;
 	numLinesToSearch := searchLastLine-searchFirstLine;
 	direction := 0; // forward
 
-	// we want to know the line starts of all the lines we will search, so lets prep this
-	lineStarts : []s64 = NewArray(numLinesToSearch+1,s64,,temp);
-	for 0..numLinesToSearch-1 {
-		lineStarts[it] = get_line_start(panel.document, searchFirstLine+it);
-	}
-	lineStarts[numLinesToSearch] = get_size(panel.document);
-
-	for 0..numLinesToSearch-1 {
-		lineLength := lineStarts[it+1] - lineStarts[it];
-		
-		node, remainder, nodeStartOffset := node_at_offset(panel.document, panel.document.tree, lineStarts[it]);
-		distanceToEndOfNode := node.piece.length - remainder;
-		lineContent: Document.LineContent;
-		
-		if lineLength < distanceToEndOfNode {
-			// line is fully contained in the node, search directly
-			bufferIndex := node.piece.bufferIndex;
-			startOffset := buffer_cursor_to_offset(*panel.document.buffers[bufferIndex], node.piece.start);
-			charPtr := panel.document.buffers[bufferIndex].text.data + startOffset + remainder;
-			lineContent = .{ .{lineLength, charPtr}, lineStarts[it], lineStarts[it+1] };
-		}
-		else {
-			// line is not fully contained in node, must construct it more slowly
-			lineContent = get_line_content(panel.document, searchFirstLine+it,,temp);
-		}
-
-		// do search
-		log("% - %", searchFirstLine+it, lineContent.text);
+	// iterate over all the lines
+	lineIterator := make_line_iterator(panel.document, searchFirstLine);
+	for lineIterator {
+		// it is a string, which is a view of the line
+		// it's real data, so should not be modified under any circumstance
+		print("% - %", it_index, it);
+		if it_index == searchLastLine then break;
 	}
 }
 
