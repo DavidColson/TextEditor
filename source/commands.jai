@@ -850,22 +850,28 @@ previous_search_result :: (using panel: *Panel, args: []string) {
 document_search_on_edit :: (userData: *void, input: string) {
 	panel := cast(*Panel) userData;
 
-	// todo: this needs to search _from_ where the cursor is currently onward
-
 	array_reset_keeping_memory(*panel.results);
 	panel.hasMatches = false;
 
-	// we start with some inputs
-	searchFirstLine := 0;
-	searchLastLine := 30;
-	// searchLastLine := get_number_of_lines(panel.document)-1;
-	numLinesToSearch := searchLastLine-searchFirstLine;
-	direction := 0; // forward
+	start := panel.cursor.head;
+	if panel.cursor.anchor > start {
+		start = panel.cursor.anchor; 
+	}
+	startCoordinate := get_coordinate_from_offset(panel.document, start);
 
 	// iterate over all the lines
-	lineIterator := make_line_iterator(panel.document, searchFirstLine, searchLastLine);
+	lineIterator := make_line_iterator(panel.document, startCoordinate.line, get_number_of_lines(panel.document));
 	for lineIterator {
-		i := find_index_from_left_nocase(it.text, input);
+		i := -1;
+		if it_index == startCoordinate.line+1 {
+			it.text.data += startCoordinate.col;
+			it.text.count -= startCoordinate.col;
+			i = find_index_from_left_nocase(it.text, input);
+			if i >= 0 then i += startCoordinate.col;
+		}
+		else {
+			i = find_index_from_left_nocase(it.text, input);
+		}
 		if i >= 0 {
 			// found a match, report it
 			panel.hasMatches = true;
