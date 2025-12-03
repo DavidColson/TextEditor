@@ -927,9 +927,9 @@ step_line :: (iter: *Document.LineIterator) {
 			}
 
 			// next node found
+			iter.node = node;
 			if node != null {
 				iter.nodeStartOffset = iter.nodeStartOffset + iter.node.piece.length;
-				iter.node = node;
 				iter.lineNumInNode = node.piece.start.line;
 
 				// See if the next node contains the rest of the line

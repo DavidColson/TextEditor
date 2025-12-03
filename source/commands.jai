@@ -751,6 +751,7 @@ start_document_search :: (using panel: *Panel, args: []string) {
 	// show search bar
 	editorMode = .DIALOG;
 	panel.activeDialog = .SEARCH;
+	panel.currentSearchTerm = string.{};
 	panel.searchInput.onEditCallback = document_search_on_edit;
 	panel.searchInput.userData = cast(*void) panel;
 	panel.previousScrollLine = panel_get_current_scrolled_line(panel);
@@ -763,6 +764,7 @@ confirm_document_search :: (using panel: *Panel, args: []string) {
 		panel.cursor.head = panel.results[0].end-1;
 	}
 	editorMode = .NORMAL;
+	panel.currentSearchTerm = string.{panel.searchInput.text.count, panel.searchInput.text.data};
 	panel.previousScrollLine = panel_get_current_scrolled_line(panel);
 	panel_reset_dialogs(panel);
 }
@@ -779,72 +781,57 @@ end_document_search :: (using panel: *Panel) {
 }
 
 next_search_result :: (using panel: *Panel, args: []string) {
-	// // clear previous result
-	// if panel.results.count {
-	// 	array_reset(*panel.results);
-	// }
+	array_reset(*panel.results);
+	panel.hasMatches = false;
 
-	// startOffset := panel.cursor.head.documentOffset;
-	// if panel.cursor.anchor.documentOffset > startOffset {
-	// 	startOffset = panel.cursor.anchor.documentOffset; 
-	// }
-	// panel.hasMatches, panel.results = match(panel.document, startOffset, panel.document.size, panel.currentRegex);
+	panel.hasMatches, panel.results = document_search(panel.document, max(panel.cursor.head, panel.cursor.anchor), panel.currentSearchTerm);
 
-	// // wrap around to start of document if no matches
-	// if !panel.hasMatches {
-	// 	panel.hasMatches, panel.results = match(panel.document, 0, panel.document.size, panel.currentRegex);
-	// }
+	// wrap around to the start if you didn't initially find anything
+	if !panel.hasMatches {
+		panel.hasMatches, panel.results = document_search(panel.document, 0, panel.currentSearchTerm);
+	}
 
-	// panel.cursor.anchor = panel.results[0].start;
-	// panel.cursor.head = panel.results[0].end;
-	// document_cursor_step_one_backward(*panel.cursor.head);
+	if panel.hasMatches {
+		panel.cursor.anchor = panel.results[0].start;
+		panel.cursor.head = panel.results[0].end-1;
 
-	// // is the result off the edge of the screen? if so scroll so it's centered
-	// matchLine := document_cursor_get_line(*panel.results[0].start);
-	// startVisibleLine, pageSize := panel_calculate_visible_lines(panel);
-	// if matchLine < startVisibleLine || matchLine >= (startVisibleLine+pageSize) {
-	// 	panel_scroll_to_line(panel, matchLine - pageSize/2); 
-	// }
+		matchLine := get_coordinate_from_offset(panel.document, panel.results[0].start).line;
+		startVisibleLine, pageSize := panel_calculate_visible_lines(panel);
+		if matchLine < startVisibleLine || matchLine >= (startVisibleLine+pageSize) {
+			panel_scroll_to_line(panel, matchLine - pageSize/2); 
+		}
+	}
 }
 
 previous_search_result :: (using panel: *Panel, args: []string) {
-	// // you basically need to find all from document start to the cursor, 
-	// start := 0;
-	// end := panel.cursor.anchor.documentOffset;
-	// if panel.cursor.head.documentOffset < end {
-	// 	end = panel.cursor.head.documentOffset; 
-	// }
-	// needToWrap := true;
-	// while true {
-	// 	hasMatch, results := match(panel.document, start, end, panel.currentRegex);
-	// 	if hasMatch {
-	// 		if panel.results.count {
-	// 			array_reset(*panel.results);
-	// 		}
+	array_reset(*panel.results);
+	panel.hasMatches = false;
 
-	// 		panel.results = results;
-	// 		start = results[0].end.documentOffset;
-	// 		needToWrap = false; // we found something first time around, so don't wrap
-	// 	}
-	// 	else if needToWrap {
-	// 		start = end;
-	// 		end = panel.document.size;
-	// 		needToWrap = false; // we're starting the wrap, so don't do it again
-	// 	}
-	// 	else {
-	// 		break;
-	// 	}
-	// }
-	// panel.cursor.anchor = panel.results[0].start;
-	// panel.cursor.head = panel.results[0].end;
-	// document_cursor_step_one_backward(*panel.cursor.head);
+	panel.hasMatches, panel.results = document_search(panel.document, 0, panel.currentSearchTerm, stopAtFirstResult=false);
 
-	// // is the result off the edge of the screen? if so scroll so it's centered
-	// matchLine := document_cursor_get_line(*panel.results[0].start);
-	// startVisibleLine, pageSize := panel_calculate_visible_lines(panel);
-	// if matchLine < startVisibleLine || matchLine >= (startVisibleLine+pageSize) {
-	// 	panel_scroll_to_line(panel, matchLine - pageSize/2); 
-	// }
+	if panel.hasMatches {
+		// you want to find the result whos range is just before the cursor's offset
+		bestMatch := -1;
+		cursorOffset := min(panel.cursor.head, panel.cursor.anchor);
+		for result: panel.results {
+			if result.start >= cursorOffset then break;
+			bestMatch = it_index;
+		}
+
+		// wrap around if nothing found behind cursor
+		if bestMatch < 0 {
+			bestMatch = panel.results.count-1;
+		}
+
+		panel.cursor.anchor = panel.results[bestMatch].start;
+		panel.cursor.head = panel.results[bestMatch].end-1;
+
+		matchLine := get_coordinate_from_offset(panel.document, panel.results[bestMatch].start).line;
+		startVisibleLine, pageSize := panel_calculate_visible_lines(panel);
+		if matchLine < startVisibleLine || matchLine >= (startVisibleLine+pageSize) {
+			panel_scroll_to_line(panel, matchLine - pageSize/2); 
+		}
+	}
 }
 
 document_search_on_edit :: (userData: *void, input: string) {
@@ -852,7 +839,7 @@ document_search_on_edit :: (userData: *void, input: string) {
 	array_reset(*panel.results);
 	panel.hasMatches = false;
 
-	panel.hasMatches, panel.results = document_search(panel.document, panel.cursor, input);
+	panel.hasMatches, panel.results = document_search(panel.document, max(panel.cursor.head, panel.cursor.anchor), input);
 
 	// is the result off the edge of the screen? if so scroll so it's centered
 	if panel.hasMatches {
@@ -864,12 +851,8 @@ document_search_on_edit :: (userData: *void, input: string) {
 	}
 }
 
-document_search :: (doc: *Document, cursor: Cursor, searchTerm: string) -> bool, [..]Document.Range {
-	start := cursor.head;
-	if cursor.anchor > start {
-		start = cursor.anchor; 
-	}
-	startCoordinate := get_coordinate_from_offset(doc, start);
+document_search :: (doc: *Document, fromOffset: s64, searchTerm: string, stopAtFirstResult: bool = true) -> bool, [..]Document.Range {
+	startCoordinate := get_coordinate_from_offset(doc, fromOffset);
 
 	matched := false;
 	results : [..]Document.Range;
@@ -887,11 +870,12 @@ document_search :: (doc: *Document, cursor: Cursor, searchTerm: string) -> bool,
 		else {
 			i = find_index_from_left_nocase(it.text, searchTerm);
 		}
+
 		if i >= 0 {
 			// found a match, report it
 			matched = true;
 			array_add(*results, Document.Range.{it.startByteOffset+i, it.startByteOffset+i+searchTerm.count});
-			break;
+			if stopAtFirstResult then break;
 		}
 	}
 	return matched, results;
