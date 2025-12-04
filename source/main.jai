@@ -1193,81 +1193,78 @@ custom_draw_code :: (box: *UIBox, udata: *void) {
 		}
 
 		// Draw code
-		// success, language := get_language(panel.document.language);
-		// @todo
-		// success, language := get_language("jai");
-		// if success && language.highlightsQuery {
-		// 	queryCursor := ts_query_cursor_new();
-		// 	rangeStartByte := linesOnScreen[0].startByteOffset;
-		// 	rangeEndByte := linesOnScreen[linesOnScreen.count-1].endByteOffset;
+		success, language := get_language(panel.document.language);
+		if success && language.highlightsQuery {
+			queryCursor := ts_query_cursor_new();
+			rangeStartByte := linesOnScreen[0].startByteOffset;
+			rangeEndByte := linesOnScreen[linesOnScreen.count-1].endByteOffset;
 
-		// 	ts_query_cursor_set_byte_range(queryCursor, xx rangeStartByte, xx rangeEndByte);
+			ts_query_cursor_set_byte_range(queryCursor, xx rangeStartByte, xx rangeEndByte);
 
-		// 	treeNode := ts_tree_root_node(panel.document.tree);
-		// 	treeNode = ts_node_descendant_for_byte_range(treeNode, xx rangeStartByte, xx rangeEndByte);
+			treeNode := ts_tree_root_node(panel.document.tsTree);
+			treeNode = ts_node_descendant_for_byte_range(treeNode, xx rangeStartByte, xx rangeEndByte);
 
-		// 	ts_query_cursor_exec(queryCursor, language.highlightsQuery, treeNode);
+			ts_query_cursor_exec(queryCursor, language.highlightsQuery, treeNode);
 
-		// 	highlights: [..]Highlight;
-		// 	highlights.allocator = temp;
+			highlights: [..]Highlight;
+			highlights.allocator = temp;
 
-		// 	// collect all the highlights for the region of code we must render
-		// 	while true {
-		// 		tsMatch: TSQueryMatch;
-		// 		captureId: u32;
-		// 		result := ts_query_cursor_next_capture(queryCursor, *tsMatch, *captureId);
-		// 		if result == false then break;
-		// 		capture := tsMatch.captures[captureId];
+			// collect all the highlights for the region of code we must render
+			while true {
+				tsMatch: TSQueryMatch;
+				captureId: u32;
+				result := ts_query_cursor_next_capture(queryCursor, *tsMatch, *captureId);
+				if result == false then break;
+				capture := tsMatch.captures[captureId];
 
-		// 		startByte := ts_node_start_byte(capture.node);
-		// 		endByte := ts_node_end_byte(capture.node);
-		// 		type := to_string(ts_node_grammar_type(capture.node));
+				startByte := ts_node_start_byte(capture.node);
+				endByte := ts_node_end_byte(capture.node);
+				type := to_string(ts_node_grammar_type(capture.node));
 
-		// 		success, highlightType := table_find_new(*language.captureToHighlight, capture.index);
-		// 		if evaluate_query_predicates(language, tsMatch, panel.document) {
-		// 			if highlights.count > 0 {
-		// 				if highlights[highlights.count-1].start == startByte {
-		// 					// override the previous range if there's a newer (better) one
-		// 					highlights[highlights.count-1] = .{startByte, endByte, highlightType};
-		// 					continue;
-		// 				}
-		// 			}
-		// 			array_add(*highlights, .{startByte, endByte, highlightType});
-		// 		}
-		// 	}
+				success, highlightType := table_find_new(*language.captureToHighlight, capture.index);
+				if evaluate_query_predicates(language, tsMatch, panel.document) {
+					if highlights.count > 0 {
+						if highlights[highlights.count-1].start == startByte {
+							// override the previous range if there's a newer (better) one
+							highlights[highlights.count-1] = .{startByte, endByte, highlightType};
+							continue;
+						}
+					}
+					array_add(*highlights, .{startByte, endByte, highlightType});
+				}
+			}
 
-		// 	x :float = textAreaX;
-		// 	y :float = textAreaY;
-		// 	currentHighlightIndex := 0;
-		// 	for line: linesOnScreen {
-		// 		run := generate_text_run(line.text, xx box.fontSize, box.font,,temp);
-		// 		for run.instances {
-		// 			byteOffset := line.startByteOffset + run.byteOffsets[it_index];
+			x :float = textAreaX;
+			y :float = textAreaY;
+			currentHighlightIndex := 0;
+			for line: linesOnScreen {
+				run := generate_text_run(line.text, xx box.fontSize, box.font,,temp);
+				for run.instances {
+					byteOffset := line.startByteOffset + run.byteOffsets[it_index];
 
-		// 			if currentHighlightIndex < highlights.count && byteOffset >= highlights[currentHighlightIndex].end {
-		// 				currentHighlightIndex += 1;
-		// 			}
+					if currentHighlightIndex < highlights.count && byteOffset >= highlights[currentHighlightIndex].end {
+						currentHighlightIndex += 1;
+					}
 
-		// 			color := style.codeDefault;
-		// 			if currentHighlightIndex < highlights.count && byteOffset >= highlights[currentHighlightIndex].start && byteOffset < highlights[currentHighlightIndex].end {
-		// 				color = style.codeColors[highlights[currentHighlightIndex].type];
-		// 			}
+					color := style.codeDefault;
+					if currentHighlightIndex < highlights.count && byteOffset >= highlights[currentHighlightIndex].start && byteOffset < highlights[currentHighlightIndex].end {
+						color = style.codeColors[highlights[currentHighlightIndex].type];
+					}
 
-		// 			instance := it;
-		// 			instance.dstRect.x = round(x + instance.dstRect.x);
-		// 			instance.dstRect.y = round(y + instance.dstRect.y);
-		// 			instance.color = color;
-		// 			submit_instance(instance);
+					instance := it;
+					instance.dstRect.x = round(x + instance.dstRect.x);
+					instance.dstRect.y = round(y + instance.dstRect.y);
+					instance.color = color;
+					submit_instance(instance);
 
-		// 		}
-		// 		y += metrics.lineSpacing;
-		// 	}
+				}
+				y += metrics.lineSpacing;
+			}
 
-		// 	// potentially cheaper to reuse the same cursor?
-		// 	ts_query_cursor_delete(queryCursor);
-		// }
-		// else {
-		{
+			// potentially cheaper to reuse the same cursor?
+			ts_query_cursor_delete(queryCursor);
+		}
+		else {
 			// draw text with no highlighting
 			x :float = textAreaX;
 			y :float = textAreaY;
@@ -1323,28 +1320,25 @@ evaluate_query_predicates :: (lang: *Language, tsMatch: TSQueryMatch, document: 
 	if predicateList == null then return true;
 
 	get_capture_content :: (tsMatch: TSQueryMatch, document: *Document, captureIndex: u32) -> string {
-		// @todo
+		capture: TSQueryCapture;
+		for 0..tsMatch.capture_count-1 {
+			if tsMatch.captures[it].index == captureIndex {
+				capture = tsMatch.captures[it];
+				break;
+			}
+		}
 		
-		// capture: TSQueryCapture;
-		// for 0..tsMatch.capture_count-1 {
-		// 	if tsMatch.captures[it].index == captureIndex {
-		// 		capture = tsMatch.captures[it];
-		// 		break;
-		// 	}
-		// }
-		
-		// startByte := ts_node_start_byte(capture.node);
-		// endByte := ts_node_end_byte(capture.node);
+		startByte := ts_node_start_byte(capture.node);
+		endByte := ts_node_end_byte(capture.node);
 
-		// // need to find the text corresponding to this node
-		// captureText := alloc_string(endByte-startByte,,temp);
-		// docCursor := document_create_cursor(document, startByte);
-		// for :raw_bytes docCursor {
-		// 	if it_index >= captureText.count break;
-		// 	captureText[it_index] = it;
-		// }
-		// return captureText;
-		return "";
+		// need to find the text corresponding to this node
+		captureText := alloc_string(endByte-startByte,,temp);
+		iter := make_iterator(document, startByte);
+		for iter {
+			if it_index >= captureText.count break;
+			captureText[it_index] = it;
+		}
+		return captureText;
 	}
 
 	for predicate: predicateList.* {

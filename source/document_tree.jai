@@ -100,13 +100,15 @@ Document :: struct {
 	unsaved: bool; // @todo: implement
 	diskLastModtime: Apollo_Time;
 	locator: Bucket_Locator;
+	language: string;
+	parser: *TSParser;
+	tsTree: *TSTree;
 
 	// Note it will not be threadsafe to share these pools
 	// Between copies of the tree and allow any allocation
 	treeMemory: Flat_Pool;
 	bufferMemory: Flat_Pool;
 	otherMemory: Flat_Pool;
-
 
 	// What we combine tree memory and other memory as before
 	// And could they be shared with a mutex? No cause we'd be sharing by copy?
@@ -231,7 +233,29 @@ document_open :: (path: string) -> *Document {
 	}
 	path_overwrite_separators(doc.path, #char "/");
 
-	// @todo: setup document language/parsing stuff
+	// Setup document language and parsing
+	doc.language = path_extension(doc.path);
+	language: *Language;
+	success, language = get_language(doc.language);
+	if !success {
+		log("No language support for file '%' with language '%'", doc.path, doc.language);
+	}
+	else {
+		doc.parser = ts_parser_new();
+		if !ts_parser_set_language(doc.parser, language.treesitterLang) {
+			log("Language ABI mismatch: Language(%) is % and treesitter is %", doc.language, TREE_SITTER_LANGUAGE_VERSION, ts_language_abi_version(language.treesitterLang));
+		}
+
+		tsVerboseLogging := false;
+		if tsVerboseLogging {
+			treesitter_logger :: (payload: *void, log_type: TSLogType, buffer: *u8) #c_call {
+			    push_context {
+			        log("%", to_string(buffer));
+			    }
+			}
+			ts_parser_set_logger(doc.parser, .{null, treesitter_logger});
+		}
+	}
 
 	doc.locator = locator;
 	table_add(*open_document_table, doc.path, doc.locator); 
@@ -342,6 +366,14 @@ document_load_from_disk :: (doc: *Document) {
 	firstPiece.bufferIndex = 0;
 
 	doc.tree = make_rb_tree(*tree_allocator(doc), firstPiece);
+
+	// parse the document, assuming we are able to
+	if doc.parser {
+		ts_parser_reset(doc.parser);
+		doc.tsTree = ts_parser_parse(doc.parser, null, .{payload=doc, read=document_parse_read, encoding=.UTF8});
+
+		//root:= ts_tree_root_node(doc.tsTree);
+	}
 }
 
 document_save :: (doc: *Document, path: string, backup := false) {
@@ -1073,6 +1105,35 @@ raw_bytes :: (iterator: *Document.Iterator, body: Code, flags: For_Flags) #expan
 		}
 	}
 }
+
+// syntax highlight stuff
+
+document_parse_read :: (payload: *void, byteOffset: u32, position: TSPoint, bytesRead: *u32) -> *u8 #c_call {
+	push_context {
+		doc := cast(*Document, payload);
+		
+		node, remainder, nodeStartOffset := node_at_offset(doc, doc.tree, byteOffset);
+		bufferIndex := node.piece.bufferIndex;
+		startOffset := buffer_cursor_to_offset(*doc.buffers[bufferIndex], node.piece.start);
+		endOffset := buffer_cursor_to_offset(*doc.buffers[bufferIndex], node.piece.end);
+		charPtr := doc.buffers[bufferIndex].text.data + startOffset + remainder;
+
+		bytesRead.* = cast(u32, endOffset - (startOffset + remainder));
+		return charPtr;
+	}
+}
+
+document_update_ts_tree :: (doc: *Document, startOffset: s64, oldEndOffset: s64, newEndOffset: s64) {
+	if doc.parser && doc.language {
+		inputEdit := TSInputEdit.{start_byte=xx startOffset, old_end_byte=xx oldEndOffset, new_end_byte=xx newEndOffset};
+		ts_tree_edit(doc.tsTree, *inputEdit);
+	
+		doc.tsTree = ts_parser_parse(doc.parser, doc.tsTree, .{payload=doc, read=document_parse_read, encoding=.UTF8});
+	}
+}
+
+
+// helpers
 
 pretty_print_tree :: (node: *Document.Node) {
 	pretty_print_tree(node, "", false);
