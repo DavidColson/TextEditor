@@ -437,6 +437,8 @@ insert :: (doc: *Document, atOffset: s64, text: string) {
 		}
 	}
 
+	defer document_update_ts_tree(doc, atOffset, atOffset, atOffset+text.count);
+
 	// insert text at offset in document
 
 	node, remainder, nodeStartOffset := node_at_offset(doc, doc.tree, atOffset);
@@ -491,6 +493,8 @@ insert :: (doc: *Document, atOffset: s64, text: string) {
 
 delete :: (doc: *Document, atOffset: s64, length: s64) {
 	// delete length bytes in the document at offset
+
+	defer document_update_ts_tree(doc, atOffset, atOffset+length, atOffset);
 
 	firstNode, firstRemainder, firstNodeOffset := node_at_offset(doc, doc.tree, atOffset);
 	lastNode, lastRemainder, lastNodeOffset := node_at_offset(doc, doc.tree, atOffset + length);
@@ -959,9 +963,9 @@ step_line :: (iter: *Document.LineIterator) {
 			}
 
 			// next node found
-			iter.node = node;
 			if node != null {
 				iter.nodeStartOffset = iter.nodeStartOffset + iter.node.piece.length;
+				iter.node = node;
 				iter.lineNumInNode = node.piece.start.line;
 
 				// See if the next node contains the rest of the line
@@ -974,7 +978,7 @@ step_line :: (iter: *Document.LineIterator) {
 					array_reserve(*iter.lineBuffer, iter.lineBuffer.count + sectionLength);
 					memcpy(iter.lineBuffer.data+iter.lineBuffer.count, buffer.text.data + startOffset, sectionLength);
 					iter.lineBuffer.count = iter.lineBuffer.count + sectionLength;
-					iter.lineContent.endByteOffset = iter.nodeStartOffset + (endOffset - buffer_cursor_to_offset(buffer, iter.node.piece.start));
+					iter.lineContent.endByteOffset = iter.lineContent.startByteOffset + iter.lineBuffer.count;
 					break; // we're finished
 				}
 				else {
@@ -987,6 +991,9 @@ step_line :: (iter: *Document.LineIterator) {
 					memcpy(iter.lineBuffer.data+iter.lineBuffer.count, buffer.text.data + startOffset, sectionLength);
 					iter.lineBuffer.count = iter.lineBuffer.count + sectionLength;
 				}
+			}
+			else {
+				iter.node = node;
 			}
 		}
 
